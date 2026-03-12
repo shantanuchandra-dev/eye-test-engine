@@ -1,0 +1,70 @@
+{
+  "session_id": "session_1773060576913",
+  "phoropter_id": "lkst1782-1",
+  "operator_name": "qwerty",
+  "session_start_time": "2026-03-09T18:19:50.611913",
+  "session_end_time": "2026-03-09T18:22:44.854595",
+  "session_duration_seconds": 174.2,
+  "test_completion_status": "completed",
+  "total_interactions": 31,
+  "ar": {},
+  "lensometry": {},
+  "final_prescription": {
+    "right": {
+      "sph": -0.75,
+      "cyl": -0.5,
+      "axis": 170.0,
+      "add": 0.0
+    },
+    "left": {
+      "sph": 0.0,
+      "cyl": 0.0,
+      "axis": 180.0,
+      "add": 0.0
+    }
+  },
+  "phases_completed": [
+    "distance_vision",
+    "right_eye_refraction",
+    "jcc_axis_right",
+    "jcc_power_right",
+    "duochrome_right",
+    "validation_right",
+    "left_eye_refraction",
+    "jcc_axis_left",
+    "jcc_power_left",
+    "duochrome_left",
+    "validation_left",
+    "validation_distance",
+    "binocular_balance",
+    "near_add_right",
+    "near_add_left",
+    "near_add_bino"
+  ],
+  "phases_skipped": [],
+  "quality_metrics": {
+    "manual_adjustment_count": 0,
+    "qna_interaction_count": 31,
+    "phase_jump_count": 0,
+    "jcc_cycles_right": 0,
+    "jcc_cycles_left": 0,
+    "unable_to_read_count": 0,
+    "duration_per_phase": {
+      "distance_vision": 5.4,
+      "right_eye_refraction": 10.357,
+      "jcc_axis_right": 12.08,
+      "jcc_power_right": 14.934,
+      "duochrome_right": 12.681,
+      "validation_right": 9.183,
+      "left_eye_refraction": 8.712,
+      "jcc_axis_left": 5.833,
+      "jcc_power_left": 6.606,
+      "duochrome_left": 10.269,
+      "validation_left": 6.516,
+      "validation_distance": 6.318,
+      "binocular_balance": 8.735,
+      "near_add_right": 3.743,
+      "near_add_left": 4.721
+    }
+  }
+}

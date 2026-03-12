@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eye Test Engine v2 — Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+            background: #f5f6f8;
+            min-height: 100vh;
+            padding: 1rem;
+            color: #1a1a1a;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 { font-size: 1.5rem; margin-bottom: 0.5rem; color: #0d47a1; }
+        .subtitle { color: #666; font-size: 0.9rem; margin-bottom: 1.5rem; }
+        section {
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            padding: 1.25rem;
+            margin-bottom: 1rem;
+        }
+        section h2 { font-size: 1.1rem; margin-bottom: 0.75rem; color: #333; border-bottom: 1px solid #eee; padding-bottom: 0.5rem; }
+        .stats-row { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem; }
+        .stat { background: #e3f2fd; padding: 0.75rem 1rem; border-radius: 6px; min-width: 140px; }
+        .stat label { display: block; font-size: 0.75rem; color: #666; text-transform: uppercase; letter-spacing: 0.02em; }
+        .stat span { font-size: 1.25rem; font-weight: 600; color: #0d47a1; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #eee; }
+        th { color: #666; font-weight: 600; }
+        .controls { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; }
+        .control-group { display: flex; align-items: center; gap: 0.5rem; }
+        .control-group label { font-size: 0.9rem; }
+        input[type="number"] { width: 80px; padding: 0.4rem 0.5rem; border: 1px solid #ccc; border-radius: 4px; }
+        button {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            cursor: pointer;
+            background: #0d47a1;
+            color: #fff;
+        }
+        button:hover { background: #1565c0; }
+        button.secondary { background: #607d8b; }
+        button.secondary:hover { background: #78909c; }
+        .toggle { display: flex; align-items: center; gap: 0.5rem; }
+        .toggle input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }
+        .rr-tables { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        @media (max-width: 768px) { .rr-tables { grid-template-columns: 1fr; } }
+        .filters { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem; align-items: center; }
+        .filters input, .filters select { padding: 0.4rem 0.5rem; border: 1px solid #ccc; border-radius: 4px; font-size: 0.9rem; }
+        .error { color: #c62828; font-size: 0.9rem; margin-top: 0.5rem; }
+        .success { color: #2e7d32; font-size: 0.9rem; margin-top: 0.5rem; }
+        .phoropter-list { margin-top: 0.5rem; }
+        .phoropter-list div { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Eye Test Engine v2 — Dashboard</h1>
+        <p class="subtitle">View eye test activity, R&amp;R metrics, and control new tests.</p>
+
+        <section>
+            <h2>Controls</h2>
+            <div class="controls">
+                <div class="toggle control-group">
+                    <input type="checkbox" id="tests_enabled" checked>
+                    <label for="tests_enabled">New tests enabled</label>
+                </div>
+                <div class="control-group">
+                    <label for="daily_limit">Daily limit</label>
+                    <input type="number" id="daily_limit" min="0" placeholder="None">
+                </div>
+                <div class="control-group">
+                    <label for="daily_limit_scope">Scope</label>
+                    <select id="daily_limit_scope">
+                        <option value="global">Global</option>
+                        <option value="per_phoropter">Per phoropter</option>
+                    </select>
+                </div>
+                <button id="save_config">Save settings</button>
+            </div>
+            <div id="config_message" class="success" style="display:none;"></div>
+            <div class="phoropter-list" id="per_phoropter_list"></div>
+        </section>
+
+        <section>
+            <h2>Data source &amp; filters</h2>
+            <div class="filters">
+                <div class="control-group">
+                    <label for="data_source">Data source</label>
+                    <select id="data_source">
+                        <option value="local">Local logs</option>
+                        <option value="supabase">Supabase</option>
+                    </select>
+                </div>
+                <label>From <input type="date" id="filter_from"></label>
+                <label>To <input type="date" id="filter_to"></label>
+                <label>Operator <input type="text" id="filter_operator" placeholder="Optional"></label>
+                <label>Phoropter <input type="text" id="filter_phoropter" placeholder="Optional"></label>
+                <button id="apply_filters" class="secondary">Apply</button>
+            </div>
+            <div id="source_error" class="error" style="display:none;"></div>
+        </section>
+
+        <section>
+            <h2>Overview</h2>
+            <div class="stats-row">
+                <div class="stat"><label>Total sessions</label><span id="total_sessions">-</span></div>
+                <div class="stat"><label>Active now</label><span id="active_sessions">-</span></div>
+            </div>
+            <div id="by_day_summary" style="font-size:0.9rem;color:#666;"></div>
+            <h3 style="font-size:1rem;margin:1rem 0 0.5rem;">Recent sessions</h3>
+            <table>
+                <thead><tr><th>Session ID</th><th>Start</th><th>Operator</th><th>Phoropter</th><th>Status</th><th>Duration</th></tr></thead>
+                <tbody id="recent_tbody"></tbody>
+            </table>
+        </section>
+
+        <section>
+            <h2>R&amp;R (Repeatability &amp; Reproducibility)</h2>
+            <div class="rr-tables">
+                <div>
+                    <h3 style="font-size:1rem;margin-bottom:0.5rem;">By operator</h3>
+                    <table>
+                        <thead><tr><th>Operator</th><th>Count</th><th>Mean duration (s)</th><th>Completion rate</th><th>Phase jump rate</th></tr></thead>
+                        <tbody id="rr_operator_tbody"></tbody>
+                    </table>
+                </div>
+                <div>
+                    <h3 style="font-size:1rem;margin-bottom:0.5rem;">By phoropter</h3>
+                    <table>
+                        <thead><tr><th>Phoropter</th><th>Count</th><th>Mean duration (s)</th><th>Completion rate</th><th>Phase jump rate</th></tr></thead>
+                        <tbody id="rr_phoropter_tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>Export</h2>
+            <p style="font-size:0.9rem;color:#666;margin-bottom:0.5rem;">Download filtered metadata as CSV (uses current filters).</p>
+            <a id="export_link" href="#" download="metadata_export.csv"><button class="secondary">Download CSV</button></a>
+        </section>
+    </div>
+
+    <script>
+        (function () {
+            var base = window.location.origin;
+            var configMsg = document.getElementById('config_message');
+            function showConfigMsg(text, isError) {
+                configMsg.textContent = text;
+                configMsg.className = isError ? 'error' : 'success';
+                configMsg.style.display = 'block';
+                setTimeout(function () { configMsg.style.display = 'none'; }, 4000);
+            }
+
+            function api(path, options) {
+                options = options || {};
+                var url = base + '/api' + path;
+                if (options.params) {
+                    var q = new URLSearchParams(options.params).toString();
+                    if (q) url += '?' + q;
+                }
+                return fetch(url, {
+                    method: options.method || 'GET',
+                    headers: options.headers || { 'Content-Type': 'application/json' },
+                    body: options.body ? JSON.stringify(options.body) : undefined
+                });
+            }
+
+            function queryParams() {
+                var from = document.getElementById('filter_from').value;
+                var to = document.getElementById('filter_to').value;
+                var op = document.getElementById('filter_operator').value.trim();
+                var ph = document.getElementById('filter_phoropter').value.trim();
+                var src = (document.getElementById('data_source').value || 'local').toLowerCase();
+                var p = { source: src };
+                if (from) p.from = from;
+                if (to) p.to = to;
+                if (op) p.operator = op;
+                if (ph) p.phoropter = ph;
+                return p;
+            }
+
+            function showSourceError(msg) {
+                var el = document.getElementById('source_error');
+                el.textContent = msg || '';
+                el.style.display = msg ? 'block' : 'none';
+            }
+
+            function loadConfig() {
+                api('/dashboard/config').then(function (r) { return r.json(); }).then(function (c) {
+                    document.getElementById('tests_enabled').checked = c.tests_enabled !== false;
+                    document.getElementById('daily_limit').value = c.daily_limit != null && c.daily_limit !== '' ? c.daily_limit : '';
+                    document.getElementById('daily_limit_scope').value = c.daily_limit_scope || 'global';
+                    var list = document.getElementById('per_phoropter_list');
+                    list.innerHTML = '';
+                    var per = c.per_phoropter_enabled || {};
+                    Object.keys(per).sort().forEach(function (pid) {
+                        var div = document.createElement('div');
+                        var cb = document.createElement('input');
+                        cb.type = 'checkbox';
+                        cb.checked = per[pid];
+                        cb.dataset.phoropter = pid;
+                        cb.addEventListener('change', function () {
+                            per[pid] = cb.checked;
+                            api('/dashboard/config', { method: 'PUT', body: { per_phoropter_enabled: per } }).then(function () { loadConfig(); });
+                        });
+                        div.appendChild(cb);
+                        div.appendChild(document.createTextNode(' ' + pid));
+                        list.appendChild(div);
+                    });
+                }).catch(function () { showConfigMsg('Failed to load config', true); });
+            }
+
+            document.getElementById('save_config').addEventListener('click', function () {
+                var tests_enabled = document.getElementById('tests_enabled').checked;
+                var daily_limit = document.getElementById('daily_limit').value.trim();
+                var daily_limit_scope = document.getElementById('daily_limit_scope').value;
+                var payload = {
+                    tests_enabled: tests_enabled,
+                    daily_limit: daily_limit === '' ? null : parseInt(daily_limit, 10),
+                    daily_limit_scope: daily_limit_scope
+                };
+                api('/dashboard/config', { method: 'PUT', body: payload }).then(function (r) {
+                    if (r.ok) { showConfigMsg('Settings saved.'); loadConfig(); }
+                    else { r.json().then(function (e) { showConfigMsg(e.error || 'Save failed', true); }); }
+                }).catch(function () { showConfigMsg('Save failed', true); });
+            });
+
+            function loadStats() {
+                api('/dashboard/stats', { params: queryParams() }).then(function (r) { return r.json(); }).then(function (d) {
+                    if (d.error) {
+                        showSourceError(d.error);
+                        document.getElementById('total_sessions').textContent = '0';
+                        document.getElementById('active_sessions').textContent = d.active_sessions_count != null ? d.active_sessions_count : '-';
+                        document.getElementById('by_day_summary').textContent = '';
+                        document.getElementById('recent_tbody').innerHTML = '<tr><td colspan="6">No data (check Supabase config if using Supabase).</td></tr>';
+                        return;
+                    }
+                    showSourceError('');
+                    document.getElementById('total_sessions').textContent = d.total_sessions;
+                    document.getElementById('active_sessions').textContent = d.active_sessions_count != null ? d.active_sessions_count : '-';
+                    var byDay = d.by_day || {};
+                    var days = Object.keys(byDay).sort();
+                    document.getElementById('by_day_summary').textContent = days.length
+                        ? 'By day: ' + days.slice(-7).map(function (k) { return k + ': ' + byDay[k]; }).join('; ')
+                        : 'No sessions in range.';
+                    var tbody = document.getElementById('recent_tbody');
+                    tbody.innerHTML = '';
+                    (d.recent_sessions || []).forEach(function (s) {
+                        var tr = document.createElement('tr');
+                        tr.innerHTML = '<td>' + (s.session_id || '') + '</td><td>' + (s.start_time || '') + '</td><td>' + (s.operator || '') + '</td><td>' + (s.phoropter || '') + '</td><td>' + (s.completion_status || '') + '</td><td>' + (s.duration_seconds != null ? s.duration_seconds : '') + '</td>';
+                        tbody.appendChild(tr);
+                    });
+                }).catch(function () {
+                    showSourceError('Failed to load stats.');
+                    document.getElementById('total_sessions').textContent = 'Error';
+                    document.getElementById('recent_tbody').innerHTML = '<tr><td colspan="6">Failed to load stats.</td></tr>';
+                });
+            }
+
+            function loadRR() {
+                api('/dashboard/rr', { params: queryParams() }).then(function (r) { return r.json(); }).then(function (d) {
+                    function fillTable(tbodyId, byKey) {
+                        var tbody = document.getElementById(tbodyId);
+                        tbody.innerHTML = '';
+                        var data = d.error ? {} : (byKey || {});
+                        Object.keys(data).forEach(function (k) {
+                            var a = data[k];
+                            var tr = document.createElement('tr');
+                            tr.innerHTML = '<td>' + k + '</td><td>' + (a.count || 0) + '</td><td>' + (a.mean_duration_seconds != null ? a.mean_duration_seconds : '-') + '</td><td>' + (a.completion_rate != null ? (a.completion_rate * 100).toFixed(1) + '%' : '-') + '</td><td>' + (a.mean_phase_jump_rate != null ? a.mean_phase_jump_rate.toFixed(4) : '-') + '</td>';
+                            tbody.appendChild(tr);
+                        });
+                    }
+                    fillTable('rr_operator_tbody', d.by_operator);
+                    fillTable('rr_phoropter_tbody', d.by_phoropter);
+                }).catch(function () {
+                    document.getElementById('rr_operator_tbody').innerHTML = '<tr><td colspan="5">Failed to load R&amp;R data.</td></tr>';
+                    document.getElementById('rr_phoropter_tbody').innerHTML = '<tr><td colspan="5">Failed to load R&amp;R data.</td></tr>';
+                });
+            }
+
+            function refreshData() {
+                loadStats();
+                loadRR();
+                var q = queryParams();
+                document.getElementById('export_link').href = base + '/api/dashboard/export?' + new URLSearchParams(q).toString();
+            }
+
+            document.getElementById('apply_filters').addEventListener('click', refreshData);
+            document.getElementById('data_source').addEventListener('change', refreshData);
+
+            document.getElementById('export_link').href = base + '/api/dashboard/export?' + new URLSearchParams(queryParams()).toString();
+
+            loadConfig();
+            loadStats();
+            loadRR();
+        })();
+    </script>
+</body>
+</html>

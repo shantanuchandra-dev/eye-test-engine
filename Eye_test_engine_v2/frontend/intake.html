@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eye Test Engine v2 — Patient Intake</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+            background: #eef2f7;
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+        }
+
+        .container {
+            max-width: 960px;
+            margin: 0 auto;
+        }
+
+        /* ── Header ─────────────────────────────── */
+        .header {
+            background: #fff;
+            border-radius: 12px;
+            padding: 18px 28px;
+            margin-bottom: 18px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .header-left h1 {
+            font-size: 1.45em;
+            color: #0d47a1;
+        }
+        .header-left p {
+            color: #666;
+            font-size: 0.85em;
+            margin-top: 2px;
+        }
+        .header-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .header-controls label {
+            font-size: 0.82em;
+            color: #555;
+            font-weight: 500;
+        }
+        .header-controls select,
+        .header-controls input[type="text"] {
+            padding: 6px 10px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            font-size: 0.88em;
+        }
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.88em;
+            font-weight: 600;
+            transition: background 0.2s, transform 0.1s;
+        }
+        .btn:active { transform: scale(0.97); }
+        .btn-primary {
+            background: #0d47a1;
+            color: #fff;
+        }
+        .btn-primary:hover { background: #1565c0; }
+        .btn-secondary {
+            background: #e3f2fd;
+            color: #0d47a1;
+        }
+        .btn-secondary:hover { background: #bbdefb; }
+        .btn-sm { padding: 5px 10px; font-size: 0.8em; }
+        .btn-outline {
+            background: transparent;
+            border: 1.5px solid #0d47a1;
+            color: #0d47a1;
+        }
+        .btn-outline:hover { background: #e3f2fd; }
+        .btn-success { background: #2e7d32; color: #fff; }
+        .btn-success:hover { background: #388e3c; }
+
+        /* ── Cards ──────────────────────────────── */
+        .card {
+            background: #fff;
+            border-radius: 12px;
+            padding: 26px 28px;
+            margin-bottom: 18px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+        }
+        .card-title {
+            font-size: 1.1em;
+            font-weight: 700;
+            color: #0d47a1;
+            margin-bottom: 4px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #0d47a1;
+        }
+        .card-subtitle {
+            color: #888;
+            font-size: 0.82em;
+            margin-bottom: 16px;
+        }
+
+        /* ── Form grid ─────────────────────────── */
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+            margin-bottom: 14px;
+        }
+        .form-row.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+        .form-row.cols-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+        .form-row.cols-1 { grid-template-columns: 1fr; }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+        .form-group label {
+            font-size: 0.82em;
+            color: #555;
+            margin-bottom: 4px;
+            font-weight: 500;
+        }
+        .form-group label .req { color: #c62828; }
+        .form-group input,
+        .form-group select {
+            padding: 8px 10px;
+            border: 1px solid #d0d5dd;
+            border-radius: 6px;
+            font-size: 0.9em;
+            background: #fafbfc;
+            transition: border 0.2s;
+        }
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #0d47a1;
+            box-shadow: 0 0 0 2px rgba(13,71,161,0.12);
+        }
+        .form-group input:invalid:not(:placeholder-shown) {
+            border-color: #c62828;
+        }
+
+        /* ── Checkboxes ────────────────────────── */
+        .checkbox-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px 18px;
+            margin-bottom: 14px;
+        }
+        .checkbox-group label {
+            font-size: 0.88em;
+            color: #444;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            cursor: pointer;
+        }
+        .checkbox-group input[type="checkbox"] {
+            accent-color: #0d47a1;
+            width: 16px;
+            height: 16px;
+        }
+
+        /* ── Stepper ───────────────────────────── */
+        .stepper-wrap {
+            display: flex;
+            align-items: center;
+            gap: 0;
+        }
+        .stepper-wrap input {
+            width: 70px;
+            text-align: center;
+            border-radius: 0;
+            border-left: none;
+            border-right: none;
+            -moz-appearance: textfield;
+        }
+        .stepper-wrap input::-webkit-inner-spin-button,
+        .stepper-wrap input::-webkit-outer-spin-button { -webkit-appearance: none; }
+        .stepper-btn {
+            width: 32px;
+            height: 36px;
+            border: 1px solid #d0d5dd;
+            background: #f0f4f8;
+            cursor: pointer;
+            font-size: 1.1em;
+            font-weight: 700;
+            color: #0d47a1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            user-select: none;
+            transition: background 0.15s;
+        }
+        .stepper-btn:hover { background: #dce8f5; }
+        .stepper-btn:first-child { border-radius: 6px 0 0 6px; }
+        .stepper-btn:last-child  { border-radius: 0 6px 6px 0; }
+
+        /* ── AR / Lenso table ──────────────────── */
+        .rx-grid {
+            display: grid;
+            grid-template-columns: 90px 1fr 1fr;
+            gap: 8px 14px;
+            align-items: center;
+        }
+        .rx-grid .rx-label {
+            font-size: 0.82em;
+            font-weight: 600;
+            color: #555;
+            text-align: right;
+            padding-right: 4px;
+        }
+        .rx-col-header {
+            font-size: 0.88em;
+            font-weight: 700;
+            color: #0d47a1;
+            text-align: center;
+            padding-bottom: 4px;
+        }
+
+        /* ── Toast / status ────────────────────── */
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 14px 22px;
+            border-radius: 8px;
+            color: #fff;
+            font-size: 0.9em;
+            font-weight: 600;
+            box-shadow: 0 4px 18px rgba(0,0,0,0.18);
+            z-index: 9999;
+            transition: opacity 0.4s, transform 0.4s;
+            opacity: 0;
+            transform: translateY(-10px);
+            pointer-events: none;
+        }
+        .toast.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
+        .toast.success { background: #2e7d32; }
+        .toast.error   { background: #c62828; }
+        .toast.info    { background: #0d47a1; }
+
+        /* ── Derived vars overlay ──────────────── */
+        .overlay {
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.45);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+        }
+        .overlay.show { display: flex; }
+        .overlay-card {
+            background: #fff;
+            border-radius: 12px;
+            padding: 28px 32px;
+            max-width: 520px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 8px 40px rgba(0,0,0,0.25);
+        }
+        .overlay-card h2 {
+            color: #0d47a1;
+            margin-bottom: 12px;
+            font-size: 1.15em;
+        }
+        .dv-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.88em;
+        }
+        .dv-table td {
+            padding: 5px 8px;
+            border-bottom: 1px solid #eee;
+        }
+        .dv-table td:first-child {
+            font-weight: 600;
+            color: #555;
+            width: 55%;
+        }
+
+        /* ── Device status badge ───────────────── */
+        .device-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.78em;
+            font-weight: 600;
+        }
+        .device-badge.ok      { background: #e8f5e9; color: #2e7d32; }
+        .device-badge.pending  { background: #fff3e0; color: #e65100; }
+        .device-badge.offline  { background: #fce4ec; color: #c62828; }
+
+        /* ── Footer ────────────────────────────── */
+        .footer-bar {
+            background: #fff;
+            border-radius: 12px;
+            padding: 16px 28px;
+            margin-bottom: 18px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        @media (max-width: 640px) {
+            .form-row { grid-template-columns: 1fr; }
+            .form-row.cols-3, .form-row.cols-4 { grid-template-columns: 1fr 1fr; }
+            .rx-grid { grid-template-columns: 70px 1fr 1fr; }
+            .header { flex-direction: column; align-items: flex-start; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+
+    <!-- ─── Header ───────────────────────────────── -->
+    <div class="header">
+        <div class="header-left">
+            <h1>Patient Intake</h1>
+            <p>Eye Test Engine v2 &mdash; Refraction Session Setup</p>
+        </div>
+        <div class="header-controls">
+            <div class="form-group" style="min-width:140px">
+                <label>Phoropter</label>
+                <select id="phoropterId">
+                    <option value="test">Test (safe mode)</option>
+                </select>
+            </div>
+            <button class="btn btn-outline btn-sm" id="acquireBtn" onclick="acquireDevice()">Acquire</button>
+            <span id="deviceBadge" class="device-badge pending">Not acquired</span>
+            <div class="form-group" style="min-width:130px">
+                <label>Operator</label>
+                <input type="text" id="operatorName" placeholder="Name" value="">
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="quickFill()">Quick Fill</button>
+        </div>
+    </div>
+
+    <form id="intakeForm" autocomplete="off">
+
+        <!-- ─── 1. Demographics ───────────────────── -->
+        <div class="card">
+            <div class="card-title">1. Demographics</div>
+            <div class="card-subtitle">Basic patient information</div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Age <span class="req">*</span></label>
+                    <input type="number" id="age" min="1" max="120" required placeholder="e.g. 45">
+                </div>
+                <div class="form-group">
+                    <label>Occupation</label>
+                    <input type="text" id="occupation" placeholder="e.g. IT Professional">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Screen time (hrs/day)</label>
+                    <input type="number" id="screenTimeHours" min="0" max="24" step="0.5" placeholder="0">
+                </div>
+                <div class="form-group">
+                    <label>Driving (hrs/day)</label>
+                    <input type="number" id="drivingHours" min="0" max="24" step="0.5" placeholder="0">
+                </div>
+            </div>
+        </div>
+
+        <!-- ─── 2. Chief Complaint ────────────────── -->
+        <div class="card">
+            <div class="card-title">2. Chief Complaint</div>
+            <div class="card-subtitle">Primary reason for visit and symptoms</div>
+            <div class="form-row cols-1">
+                <div class="form-group">
+                    <label>Primary reason</label>
+                    <select id="primaryReason">
+                        <option value="">-- Select --</option>
+                        <option value="Blurred distance vision">Blurred distance vision</option>
+                        <option value="Blurred near vision">Blurred near vision</option>
+                        <option value="Headaches">Headaches</option>
+                        <option value="Routine check">Routine check</option>
+                        <option value="New glasses">New glasses</option>
+                    </select>
+                </div>
+            </div>
+            <label style="font-size:0.82em;color:#555;font-weight:500;margin-bottom:6px;display:block">Symptoms</label>
+            <div class="checkbox-group">
+                <label><input type="checkbox" value="Sudden vision change" class="symptom-chk"> Sudden vision change</label>
+                <label><input type="checkbox" value="Double vision" class="symptom-chk"> Double vision</label>
+                <label><input type="checkbox" value="Glare/halos" class="symptom-chk"> Glare / halos</label>
+                <label><input type="checkbox" value="Night driving difficulty" class="symptom-chk"> Night driving difficulty</label>
+                <label><input type="checkbox" value="Fluctuating vision" class="symptom-chk"> Fluctuating vision</label>
+            </div>
+        </div>
+
+        <!-- ─── 3. Current Glasses ────────────────── -->
+        <div class="card">
+            <div class="card-title">3. Current Glasses</div>
+            <div class="card-subtitle">Satisfaction and preference with current correction</div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Satisfaction</label>
+                    <select id="satisfaction">
+                        <option value="">-- Select --</option>
+                        <option value="Satisfied">Satisfied</option>
+                        <option value="Not satisfied">Not satisfied</option>
+                        <option value="No current Rx">No current Rx</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Wear type</label>
+                    <select id="wearType">
+                        <option value="">-- Select --</option>
+                        <option value="Single vision">Single vision</option>
+                        <option value="Progressive">Progressive</option>
+                        <option value="Bifocal">Bifocal</option>
+                        <option value="None">None</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row cols-3">
+                <div class="form-group">
+                    <label>Distance target</label>
+                    <select id="distanceTarget">
+                        <option value="">-- Select --</option>
+                        <option value="6/6 target">6/6 target</option>
+                        <option value="Accept 6/9 if needed">Accept 6/9 if needed</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Priority</label>
+                    <select id="priority">
+                        <option value="Standard">Standard</option>
+                        <option value="Comfort-first">Comfort-first</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Near priority</label>
+                    <select id="nearPriority">
+                        <option value="">-- Select --</option>
+                        <option value="High">High</option>
+                        <option value="Medium">Medium</option>
+                        <option value="Low">Low</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- ─── 4. History ────────────────────────── -->
+        <div class="card">
+            <div class="card-title">4. History</div>
+            <div class="card-subtitle">Previous eye care information</div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Last eye test (months ago)</label>
+                    <input type="number" id="lastEyeTestMonths" min="0" step="1" placeholder="e.g. 24">
+                </div>
+                <div style="display:flex;flex-direction:column;justify-content:center;gap:8px">
+                    <label style="font-size:0.88em;color:#444;display:flex;align-items:center;gap:5px;cursor:pointer">
+                        <input type="checkbox" id="rxChangeLarge" style="accent-color:#0d47a1;width:16px;height:16px"> Rx change was large
+                    </label>
+                    <label style="font-size:0.88em;color:#444;display:flex;align-items:center;gap:5px;cursor:pointer">
+                        <input type="checkbox" id="fluctuatingVision" style="accent-color:#0d47a1;width:16px;height:16px"> Fluctuating vision reported
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <!-- ─── 5. Medical ────────────────────────── -->
+        <div class="card">
+            <div class="card-title">5. Medical</div>
+            <div class="card-subtitle">Relevant medical and ocular history</div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Prior eye surgery</label>
+                    <select id="priorSurgery">
+                        <option value="None">None</option>
+                        <option value="Cataract">Cataract</option>
+                        <option value="LASIK">LASIK</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+                <div></div>
+            </div>
+            <div class="checkbox-group">
+                <label><input type="checkbox" id="diabetes" style="accent-color:#0d47a1;width:16px;height:16px"> Diabetes</label>
+                <label><input type="checkbox" id="keratoconus" style="accent-color:#0d47a1;width:16px;height:16px"> Keratoconus</label>
+                <label><input type="checkbox" id="amblyopia" style="accent-color:#0d47a1;width:16px;height:16px"> Amblyopia</label>
+                <label><input type="checkbox" id="infection" style="accent-color:#0d47a1;width:16px;height:16px"> Infection</label>
+                <label><input type="checkbox" id="optomReview" style="accent-color:#0d47a1;width:16px;height:16px"> Optom review flag</label>
+            </div>
+        </div>
+
+        <!-- ─── 6. AR Readings ────────────────────── -->
+        <div class="card">
+            <div class="card-title">6. Autorefractor (AR) Readings</div>
+            <div class="card-subtitle">Recommended but not required. Use steppers or type values directly.</div>
+            <div class="rx-grid">
+                <div></div>
+                <div class="rx-col-header">Right (OD)</div>
+                <div class="rx-col-header">Left (OS)</div>
+
+                <div class="rx-label">SPH</div>
+                <div class="stepper-wrap">
+                    <button type="button" class="stepper-btn" onclick="step('arRSph',-0.25)">-</button>
+                    <input type="number" id="arRSph" step="0.25" min="-20" max="20" placeholder="0.00">
+                    <button type="button" class="stepper-btn" onclick="step('arRSph',0.25)">+</button>
+                </div>
+                <div class="stepper-wrap">
+                    <button type="button" class="stepper-btn" onclick="step('arLSph',-0.25)">-</button>
+                    <input type="number" id="arLSph" step="0.25" min="-20" max="20" placeholder="0.00">
+                    <button type="button" class="stepper-btn" onclick="step('arLSph',0.25)">+</button>
+                </div>
+
+                <div class="rx-label">CYL</div>
+                <div class="stepper-wrap">
+                    <button type="button" class="stepper-btn" onclick="step('arRCyl',-0.25)">-</button>
+                    <input type="number" id="arRCyl" step="0.25" min="-10" max="0" placeholder="0.00">
+                    <button type="button" class="stepper-btn" onclick="step('arRCyl',0.25)">+</button>
+                </div>
+                <div class="stepper-wrap">
+                    <button type="button" class="stepper-btn" onclick="step('arLCyl',-0.25)">-</button>
+                    <input type="number" id="arLCyl" step="0.25" min="-10" max="0" placeholder="0.00">
+                    <button type="button" class="stepper-btn" onclick="step('arLCyl',0.25)">+</button>
+                </div>
+
+                <div class="rx-label">AXIS</div>
+                <div class="stepper-wrap">
+                    <button type="button" class="stepper-btn" onclick="step('arRAxis',-5)">-</button>
+                    <input type="number" id="arRAxis" step="1" min="0" max="180" placeholder="180">
+                    <button type="button" class="stepper-btn" onclick="step('arRAxis',5)">+</button>
+                </div>
+                <div class="stepper-wrap">
+                    <button type="button" class="stepper-btn" onclick="step('arLAxis',-5)">-</button>
+                    <input type="number" id="arLAxis" step="1" min="0" max="180" placeholder="180">
+                    <button type="button" class="stepper-btn" onclick="step('arLAxis',5)">+</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ─── 7. Lensometry ─────────────────────── -->
+        <div class="card">
+            <div class="card-title">7. Lensometry (Current Glasses)</div>
+            <div class="card-subtitle">Measured powers of the patient's existing spectacles</div>
+            <div class="rx-grid">
+                <div></div>
+                <div class="rx-col-header">Right (OD)</div>
+                <div class="rx-col-header">Left (OS)</div>
+
+                <div class="rx-label">SPH</div>
+                <div class="stepper-wrap">
+                    <button type="button" class="stepper-btn" onclick="step('lnRSph',-0.25)">-</button>
+                    <input type="number" id="lnRSph" step="0.25" min="-20" max="20" placeholder="0.00">
+                    <button type="button" class="stepper-btn" onclick="step('lnRSph',0.25)">+</button>
+                </div>
+                <div class="stepper-wrap">
+                    <button type="button" class="stepper-btn" onclick="step('lnLSph',-0.25)">-</button>
+                    <input type="number" id="lnLSph" step="0.25" min="-20" max="20" placeholder="0.00">
+                    <button type="button" class="stepper-btn" onclick="step('lnLSph',0.25)">+</button>
+                </div>
+
+                <div class="rx-label">CYL</div>
+                <div class="stepper-wrap">
+                    <button type="button" class="stepper-btn" onclick="step('lnRCyl',-0.25)">-</button>
+                    <input type="number" id="lnRCyl" step="0.25" min="-10" max="0" placeholder="0.00">
+                    <button type="button" class="stepper-btn" onclick="step('lnRCyl',0.25)">+</button>
+                </div>
+                <div class="stepper-wrap">
+                    <button type="button" class="stepper-btn" onclick="step('lnLCyl',-0.25)">-</button>
+                    <input type="number" id="lnLCyl" step="0.25" min="-10" max="0" placeholder="0.00">
+                    <button type="button" class="stepper-btn" onclick="step('lnLCyl',0.25)">+</button>
+                </div>
+
+                <div class="rx-label">AXIS</div>
+                <div class="stepper-wrap">
+                    <button type="button" class="stepper-btn" onclick="step('lnRAxis',-5)">-</button>
+                    <input type="number" id="lnRAxis" step="1" min="0" max="180" placeholder="180">
+                    <button type="button" class="stepper-btn" onclick="step('lnRAxis',5)">+</button>
+                </div>
+                <div class="stepper-wrap">
+                    <button type="button" class="stepper-btn" onclick="step('lnLAxis',-5)">-</button>
+                    <input type="number" id="lnLAxis" step="1" min="0" max="180" placeholder="180">
+                    <button type="button" class="stepper-btn" onclick="step('lnLAxis',5)">+</button>
+                </div>
+
+                <div class="rx-label">ADD</div>
+                <div class="stepper-wrap">
+                    <button type="button" class="stepper-btn" onclick="step('lnAddR',-0.25)">-</button>
+                    <input type="number" id="lnAddR" step="0.25" min="0" max="4" placeholder="0.00">
+                    <button type="button" class="stepper-btn" onclick="step('lnAddR',0.25)">+</button>
+                </div>
+                <div class="stepper-wrap">
+                    <button type="button" class="stepper-btn" onclick="step('lnAddL',-0.25)">-</button>
+                    <input type="number" id="lnAddL" step="0.25" min="0" max="4" placeholder="0.00">
+                    <button type="button" class="stepper-btn" onclick="step('lnAddL',0.25)">+</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ─── Submit ────────────────────────────── -->
+        <div class="footer-bar">
+            <div style="font-size:0.82em;color:#888">
+                Fields marked <span style="color:#c62828;font-weight:600">*</span> are required.
+                AR readings are recommended.
+            </div>
+            <div style="display:flex;gap:10px">
+                <button type="button" class="btn btn-secondary" onclick="resetForm()">Reset</button>
+                <button type="submit" class="btn btn-success" id="submitBtn">Start Refraction Session</button>
+            </div>
+        </div>
+    </form>
+</div>
+
+<!-- Toast notification -->
+<div id="toast" class="toast"></div>
+
+<!-- Derived variables overlay -->
+<div id="dvOverlay" class="overlay">
+    <div class="overlay-card">
+        <h2>Derived Variables</h2>
+        <p style="font-size:0.82em;color:#888;margin-bottom:12px">Computed from patient intake. Redirecting shortly...</p>
+        <table class="dv-table" id="dvTable"><tbody></tbody></table>
+        <div style="margin-top:16px;text-align:right">
+            <button class="btn btn-primary btn-sm" id="dvContinueBtn" onclick="continueToPhoropter()">Continue Now</button>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    'use strict';
+
+    // ── Helpers ───────────────────────────────────
+    const $ = id => document.getElementById(id);
+    const numVal = id => { const v = $(id).value; return v === '' ? null : parseFloat(v); };
+    const intVal = id => { const v = $(id).value; return v === '' ? null : parseInt(v, 10); };
+    const strVal = id => $(id).value.trim();
+    const boolVal = id => $(id).checked;
+
+    // ── Stepper ──────────────────────────────────
+    window.step = function(id, delta) {
+        const el = $(id);
+        const mn = parseFloat(el.min);
+        const mx = parseFloat(el.max);
+        let v = parseFloat(el.value) || 0;
+        v = Math.round((v + delta) * 100) / 100;  // avoid float noise
+        if (!isNaN(mn) && v < mn) v = mn;
+        if (!isNaN(mx) && v > mx) v = mx;
+        el.value = v;
+    };
+
+    // ── Toast ────────────────────────────────────
+    let toastTimer;
+    function toast(msg, type, ms) {
+        const el = $('toast');
+        el.textContent = msg;
+        el.className = 'toast ' + type + ' show';
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => el.classList.remove('show'), ms || 3500);
+    }
+
+    // ── Device list ──────────────────────────────
+    async function loadDevices() {
+        try {
+            const res = await fetch('/api/devices');
+            if (!res.ok) throw new Error('Failed to fetch devices');
+            const data = await res.json();
+            const sel = $('phoropterId');
+            // Keep "Test" as first option
+            const devices = data.devices || data || [];
+            devices.forEach(d => {
+                const id = d.device_id || d.id || d;
+                if (id === 'test') return;
+                const opt = document.createElement('option');
+                opt.value = id;
+                opt.textContent = id + (d.status ? ` (${d.status})` : '');
+                sel.appendChild(opt);
+            });
+        } catch(e) {
+            console.warn('Could not load devices:', e.message);
+        }
+        // Restore saved phoropter
+        const saved = localStorage.getItem('phoropter_id');
+        if (saved) $('phoropterId').value = saved;
+    }
+    loadDevices();
+
+    // ── Acquire device ───────────────────────────
+    window.acquireDevice = async function() {
+        const id = strVal('phoropterId');
+        localStorage.setItem('phoropter_id', id);
+        if (id === 'test') {
+            $('deviceBadge').textContent = 'Test mode';
+            $('deviceBadge').className = 'device-badge ok';
+            toast('Running in test/safe mode', 'info');
+            return;
+        }
+        try {
+            $('acquireBtn').disabled = true;
+            const operator = strVal('operatorName') || 'operator';
+            const res = await fetch(`/api/devices/${id}/acquire`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ operator: operator })
+            });
+            if (!res.ok) throw new Error(await res.text());
+            $('deviceBadge').textContent = 'Acquired';
+            $('deviceBadge').className = 'device-badge ok';
+            toast('Device acquired: ' + id, 'success');
+        } catch(e) {
+            $('deviceBadge').textContent = 'Error';
+            $('deviceBadge').className = 'device-badge offline';
+            toast('Acquire failed: ' + e.message, 'error');
+        } finally {
+            $('acquireBtn').disabled = false;
+        }
+    };
+
+    // ── Quick fill ───────────────────────────────
+    window.quickFill = function() {
+        $('age').value = 45;
+        $('occupation').value = 'IT Professional';
+        $('screenTimeHours').value = 8;
+        $('drivingHours').value = 1;
+        $('primaryReason').value = 'Blurred distance vision';
+        document.querySelectorAll('.symptom-chk').forEach(c => c.checked = false);
+        document.querySelectorAll('.symptom-chk').forEach(c => {
+            if (c.value === 'Glare/halos' || c.value === 'Night driving difficulty') c.checked = true;
+        });
+        $('satisfaction').value = 'Not satisfied';
+        $('wearType').value = 'Single vision';
+        $('distanceTarget').value = '6/6 target';
+        $('priority').value = 'Standard';
+        $('nearPriority').value = 'Medium';
+        $('lastEyeTestMonths').value = 24;
+        $('rxChangeLarge').checked = false;
+        $('fluctuatingVision').checked = false;
+        $('diabetes').checked = false;
+        $('priorSurgery').value = 'None';
+        $('keratoconus').checked = false;
+        $('amblyopia').checked = false;
+        $('infection').checked = false;
+        $('optomReview').checked = false;
+        // AR
+        $('arRSph').value = -2.50; $('arRCyl').value = -0.75; $('arRAxis').value = 180;
+        $('arLSph').value = -3.00; $('arLCyl').value = -0.50; $('arLAxis').value = 175;
+        // Lensometry
+        $('lnRSph').value = -2.25; $('lnRCyl').value = -0.50; $('lnRAxis').value = 180;
+        $('lnLSph').value = -2.75; $('lnLCyl').value = -0.50; $('lnLAxis').value = 170;
+        $('lnAddR').value = 1.50; $('lnAddL').value = 1.50;
+
+        toast('Demo data filled', 'info', 2000);
+    };
+
+    // ── Reset ────────────────────────────────────
+    window.resetForm = function() {
+        $('intakeForm').reset();
+        toast('Form cleared', 'info', 1500);
+    };
+
+    // ── Build RX object ──────────────────────────
+    function rxObj(sphId, cylId, axisId) {
+        const sph = numVal(sphId);
+        const cyl = numVal(cylId);
+        const axis = numVal(axisId);
+        if (sph === null && cyl === null && axis === null) return null;
+        return {
+            sph: sph !== null ? sph : 0,
+            cyl: cyl !== null ? cyl : 0,
+            axis: axis !== null ? axis : 180
+        };
+    }
+
+    // ── Submit ───────────────────────────────────
+    let pendingSessionId = null;
+    let pendingRedirect = null;
+
+    $('intakeForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+
+        // Validate age
+        const age = intVal('age');
+        if (!age || age < 1 || age > 120) {
+            toast('Age is required (1-120)', 'error');
+            $('age').focus();
+            return;
+        }
+
+        // Gather symptoms
+        const symptoms = [];
+        document.querySelectorAll('.symptom-chk:checked').forEach(c => symptoms.push(c.value));
+
+        // Build payload
+        const phoropterId = strVal('phoropterId');
+        localStorage.setItem('phoropter_id', phoropterId);
+
+        const arRight = rxObj('arRSph', 'arRCyl', 'arRAxis');
+        const arLeft  = rxObj('arLSph', 'arLCyl', 'arLAxis');
+        const lnRight = rxObj('lnRSph', 'lnRCyl', 'lnRAxis');
+        const lnLeft  = rxObj('lnLSph', 'lnLCyl', 'lnLAxis');
+
+        const payload = {
+            phoropter_id: phoropterId,
+            patient: {
+                age: age,
+                occupation: strVal('occupation'),
+                screen_time_hours: numVal('screenTimeHours'),
+                driving_hours: numVal('drivingHours'),
+                primary_reason: strVal('primaryReason'),
+                symptoms_text: symptoms.join(','),
+                satisfaction: strVal('satisfaction'),
+                wear_type: strVal('wearType'),
+                distance_target: strVal('distanceTarget'),
+                priority: strVal('priority'),
+                near_priority: strVal('nearPriority'),
+                last_eye_test_months: numVal('lastEyeTestMonths'),
+                rx_change_large: boolVal('rxChangeLarge'),
+                fluctuating_vision: boolVal('fluctuatingVision'),
+                diabetes: boolVal('diabetes'),
+                prior_surgery: strVal('priorSurgery'),
+                keratoconus: boolVal('keratoconus'),
+                amblyopia: boolVal('amblyopia'),
+                infection: boolVal('infection'),
+                optom_review: boolVal('optomReview'),
+                autorefractor: {
+                    right: arRight,
+                    left: arLeft
+                },
+                lensometry: {
+                    right: lnRight,
+                    left: lnLeft,
+                    add_r: numVal('lnAddR'),
+                    add_l: numVal('lnAddL')
+                }
+            }
+        };
+
+        // Submit
+        const btn = $('submitBtn');
+        btn.disabled = true;
+        btn.textContent = 'Submitting...';
+
+        try {
+            const res = await fetch('/api/session/intake', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+
+            if (!res.ok) {
+                const errText = await res.text();
+                throw new Error(errText || `HTTP ${res.status}`);
+            }
+
+            const data = await res.json();
+            const sessionId = data.session_id || data.visit_id || '';
+
+            if (!sessionId) {
+                throw new Error('No session_id returned');
+            }
+
+            toast('Session created: ' + sessionId, 'success');
+            pendingSessionId = sessionId;
+
+            // Show derived variables if available
+            if (data.derived_variables || data.derived_vars) {
+                showDerivedVars(data.derived_variables || data.derived_vars, sessionId);
+            } else {
+                // Redirect immediately
+                window.location.href = 'index.html?session=' + encodeURIComponent(sessionId);
+            }
+        } catch(e) {
+            toast('Submit failed: ' + e.message, 'error', 5000);
+            btn.disabled = false;
+            btn.textContent = 'Start Refraction Session';
+        }
+    });
+
+    // ── Derived variables overlay ────────────────
+    function showDerivedVars(dv, sessionId) {
+        const tbody = $('dvTable').querySelector('tbody');
+        tbody.innerHTML = '';
+        if (dv && typeof dv === 'object') {
+            for (const [k, v] of Object.entries(dv)) {
+                const tr = document.createElement('tr');
+                const label = k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                tr.innerHTML = `<td>${label}</td><td>${v}</td>`;
+                tbody.appendChild(tr);
+            }
+        }
+        $('dvOverlay').classList.add('show');
+        pendingRedirect = 'index.html?session=' + encodeURIComponent(sessionId);
+        // Auto-redirect after 4 seconds
+        setTimeout(() => {
+            if (pendingRedirect) {
+                window.location.href = pendingRedirect;
+            }
+        }, 4000);
+    }
+
+    window.continueToPhoropter = function() {
+        if (pendingRedirect) {
+            window.location.href = pendingRedirect;
+        }
+    };
+
+})();
+</script>
+
+</body>
+</html>

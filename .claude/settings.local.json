@@ -3,7 +3,16 @@
     "allow": [
       "Bash(python3 -c \":*)",
       "Bash(pip3 install openpyxl)",
-      "Bash(pip3 install openpyxl --break-system-packages --user)"
+      "Bash(pip3 install openpyxl --break-system-packages --user)",
+      "Bash(python3 -m unittest tests.test_phase_handlers tests.test_fsm_simulator tests.test_coarse_sphere_integration -v)",
+      "Bash(find /Users/shantanuchandra/Downloads/eye_test_engine_Claude/FSMv2.2/refraction_engine -name \"*.csv\" -o -name \"calibration*\" 2>/dev/null | head -20)",
+      "Bash(python3 -c \"import py_compile; import os; fsm_dir = 'Eye_test_engine_v2/fsm'; [py_compile.compile\\(os.path.join\\(fsm_dir, f\\), doraise=True\\) for f in os.listdir\\(fsm_dir\\) if f.endswith\\('.py'\\)]; print\\('All files compile OK'\\)\")",
+      "Bash(cd /Users/shantanuchandra/Downloads/eye_test_engine_Claude/Eye_test_engine_v2 && python3 -c \"import py_compile; py_compile.compile\\('session_orchestrator.py', doraise=True\\)\" 2>&1)",
+      "Bash(cd /Users/shantanuchandra/Downloads/eye_test_engine_Claude/Eye_test_engine_v2 && python3 -c \"import py_compile; py_compile.compile\\('api_server.py', doraise=True\\)\" && echo \"Syntax OK\")",
+      "Bash(cd /Users/shantanuchandra/Downloads/eye_test_engine_Claude/Eye_test_engine_v2 && python3 -c \"\nimport sys\nsys.path.insert\\(0, '.'\\)\nfrom session_orchestrator import SessionOrchestrator\nprint\\('SessionOrchestrator: OK'\\)\nfrom fsm.refraction_engine import RefractionFSMEngine\nprint\\('RefractionFSMEngine: OK'\\)\nfrom fsm.derived_variables_engine import DerivedVariablesEngine\nprint\\('DerivedVariablesEngine: OK'\\)\nfrom fsm.calibration import CalibrationLoader\ncal = CalibrationLoader\\('config/calibration.csv'\\)\nprint\\(f'CalibrationLoader: OK \\({len\\(cal._data\\)} params\\)'\\)\nprint\\('All imports successful'\\)\n\")",
+      "Bash(cd /Users/shantanuchandra/Downloads/eye_test_engine_Claude/Eye_test_engine_v2 && python3 -c \"\nfrom fsm.calibration import CalibrationLoader\ncal = CalibrationLoader\\('config/calibration.csv'\\)\nprint\\('get sphere_coarse_step:', cal.get\\('Sphere', 'sphere_coarse_step', 0.5\\)\\)\nprint\\('get jcc_axis_start_step:', cal.get\\('JCC', 'jcc_axis_start_step', 5.0\\)\\)\nprint\\('CalibrationLoader: OK'\\)\n\")",
+      "Bash(timeout 3 python3 -c \"\nfrom api_server import app\nprint\\('Flask app created successfully'\\)\nprint\\('Routes:'\\)\nfor rule in sorted\\(app.url_map.iter_rules\\(\\), key=lambda r: r.rule\\):\n    methods = ','.join\\(sorted\\(rule.methods - {'HEAD', 'OPTIONS'}\\)\\)\n    print\\(f'  {methods:6s} {rule.rule}'\\)\n\" 2>&1 || true)",
+      "Bash(python3 -c \"\nfrom api_server import app\nprint\\('Flask app created successfully'\\)\nprint\\('Routes:'\\)\nfor rule in sorted\\(app.url_map.iter_rules\\(\\), key=lambda r: r.rule\\):\n    methods = ','.join\\(sorted\\(rule.methods - {'HEAD', 'OPTIONS'}\\)\\)\n    print\\(f'  {methods:6s} {rule.rule}'\\)\n\" 2>&1)"
     ]
   }
 }

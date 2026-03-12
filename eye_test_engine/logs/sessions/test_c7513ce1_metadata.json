@@ -1,0 +1,64 @@
+{
+  "session_id": "test_c7513ce1",
+  "phoropter_id": "Test (safe mode)",
+  "operator_name": "Automated",
+  "customer_name": "Mock User",
+  "customer_age": "",
+  "customer_gender": "",
+  "session_start_time": "2026-03-10T14:26:36.296737",
+  "session_end_time": "2026-03-10T14:26:36.310613",
+  "session_duration_seconds": 0.0,
+  "test_completion_status": "completed",
+  "total_interactions": 6,
+  "ar": {},
+  "lensometry": {},
+  "final_prescription": {
+    "right": {
+      "sph": -1.0,
+      "cyl": -2.0,
+      "axis": 90.0,
+      "add": 0.0
+    },
+    "left": {
+      "sph": -2.0,
+      "cyl": -1.0,
+      "axis": 55.0,
+      "add": 0.0
+    }
+  },
+  "qualitative_feedback": "",
+  "phases_completed": [
+    "distance_vision",
+    "near_add_right",
+    "near_add_left",
+    "near_add_bino"
+  ],
+  "phases_skipped": [
+    "right_eye_refraction",
+    "jcc_axis_right",
+    "jcc_power_right",
+    "duochrome_right",
+    "validation_right",
+    "left_eye_refraction",
+    "jcc_axis_left",
+    "jcc_power_left",
+    "duochrome_left",
+    "validation_left",
+    "validation_distance",
+    "binocular_balance"
+  ],
+  "quality_metrics": {
+    "manual_adjustment_count": 1,
+    "qna_interaction_count": 5,
+    "phase_jump_count": 1,
+    "jcc_cycles_right": 0,
+    "jcc_cycles_left": 0,
+    "unable_to_read_count": 0,
+    "duration_per_phase": {
+      "distance_vision": 0.004,
+      "near_add_right": 0.002,
+      "near_add_left": 0.003,
+      "near_add_bino": 0.0
+    }
+  }
+}

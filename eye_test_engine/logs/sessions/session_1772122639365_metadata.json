@@ -1,0 +1,57 @@
+{
+  "session_id": "session_1772122639365",
+  "phoropter_id": "lkst1782-1",
+  "operator_name": "Shantanu Chandra",
+  "session_start_time": "2026-02-26T21:47:32.628937",
+  "session_end_time": "2026-02-26T21:47:49.412479",
+  "session_duration_seconds": 16.8,
+  "test_completion_status": "completed",
+  "total_interactions": 3,
+  "ar": {},
+  "lensometry": {},
+  "final_prescription": {
+    "right": {
+      "sph": 0.0,
+      "cyl": 0.0,
+      "axis": 180.0,
+      "add": 0.0
+    },
+    "left": {
+      "sph": 0.0,
+      "cyl": 0.0,
+      "axis": 180.0,
+      "add": 0.0
+    }
+  },
+  "phases_completed": [
+    "distance_vision",
+    "near_add_bino"
+  ],
+  "phases_skipped": [
+    "right_eye_refraction",
+    "jcc_axis_right",
+    "jcc_power_right",
+    "duochrome_right",
+    "validation_right",
+    "left_eye_refraction",
+    "jcc_axis_left",
+    "jcc_power_left",
+    "duochrome_left",
+    "validation_left",
+    "validation_distance",
+    "binocular_balance",
+    "near_add_right",
+    "near_add_left"
+  ],
+  "quality_metrics": {
+    "manual_adjustment_count": 0,
+    "qna_interaction_count": 3,
+    "phase_jump_count": 1,
+    "jcc_cycles_right": 0,
+    "jcc_cycles_left": 0,
+    "unable_to_read_count": 0,
+    "duration_per_phase": {
+      "near_add_bino": 0.0
+    }
+  }
+}
