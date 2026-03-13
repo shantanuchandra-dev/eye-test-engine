@@ -125,6 +125,7 @@ class SessionOrchestrator:
         self._prev_aux_lens = "BINO"
         self._prev_add_r = 0.0
         self._prev_add_l = 0.0
+        self._jcc_mode = None  # Track current JCC mode: "axis" or "power"
 
     def initialize(self, patient_data: dict) -> dict:
         """Initialize session with patient data. Returns first stimulus."""
@@ -278,7 +279,11 @@ class SessionOrchestrator:
         return result
 
     def sync_power(self, right: dict, left: dict) -> None:
-        """Sync manual power changes from frontend."""
+        """Sync manual power changes from frontend.
+        Updates both the FSM row and the prev-state tracker so that the
+        next _send_phoropter_commands() computes deltas from the correct
+        baseline (the manually-set values, not the stale pre-manual values).
+        """
         if self.current_row is None:
             return
         if "sph" in right:
@@ -297,6 +302,23 @@ class SessionOrchestrator:
             self.current_row.le_axis = float(left["axis"])
         if "add" in left:
             self.current_row.add_l = float(left["add"])
+
+        # Update prev-state tracker to match the manual values.
+        # Without this, the next _send_phoropter_commands() would compute
+        # deltas from the old pre-manual baseline, causing incorrect clicks.
+        self._prev_re = {
+            "sph": self.current_row.re_sph or 0.0,
+            "cyl": self.current_row.re_cyl or 0.0,
+            "axis": self.current_row.re_axis or 180.0,
+        }
+        self._prev_le = {
+            "sph": self.current_row.le_sph or 0.0,
+            "cyl": self.current_row.le_cyl or 0.0,
+            "axis": self.current_row.le_axis or 180.0,
+        }
+        self._prev_add_r = self.current_row.add_r or 0.0
+        self._prev_add_l = self.current_row.add_l or 0.0
+
         # Record manual row
         self._record_manual_row(right, left)
 
@@ -555,11 +577,19 @@ class SessionOrchestrator:
         }
 
         # Add ADD for near phases
-        if state in ("P", "Q", "R"):
+        if state in ("P", "Q"):
+            # Single-eye near ADD: include ADD for both eyes in the payload
             payload["test_cases"][0]["right_eye"]["add"] = target_add_r
             payload["test_cases"][0]["left_eye"]["add"] = target_add_l
             payload["test_cases"][0]["prev_right_eye"]["add"] = self._prev_add_r
             payload["test_cases"][0]["prev_left_eye"]["add"] = self._prev_add_l
+        elif state == "R":
+            # Binocular near ADD: only send right-eye ADD to avoid double-click.
+            # The physical phoropter has one ADD dial that controls both eyes,
+            # so including both R+L ADD causes two clicks for one intended change.
+            payload["test_cases"][0]["right_eye"]["add"] = target_add_r
+            payload["test_cases"][0]["prev_right_eye"]["add"] = self._prev_add_r
+            # Intentionally omit left_eye.add and prev_left_eye.add
 
         self._post_to_phoropter(self.api_endpoint, payload)
 
@@ -570,13 +600,28 @@ class SessionOrchestrator:
         self._prev_add_r = target_add_r
         self._prev_add_l = target_add_l
 
-        # JCC-specific commands
+        # JCC mode management: power_axis_switch is a TOGGLE, not a SET.
+        # The TOPCON phoropter defaults to AXIS mode when the JCC chart is
+        # first displayed, so entering E/H from a non-JCC state requires
+        # NO toggle. Only when transitioning E→F or H→I (axis→power) do
+        # we need to send power_axis_switch.
         if state in ("E", "H"):
-            # Axis mode
-            self._send_jcc_command("power_axis_switch")  # Ensure axis mode
+            # Axis mode needed. The phoropter defaults to axis when JCC
+            # chart is shown, so only toggle if we were previously in
+            # power mode (i.e. coming from F→E or I→H, which shouldn't
+            # normally happen but handle defensively).
+            if self._jcc_mode == "power":
+                self._send_jcc_command("power_axis_switch")
+            self._jcc_mode = "axis"
         elif state in ("F", "I"):
-            # Power mode
-            self._send_jcc_command("power_axis_switch")  # Ensure power mode
+            # Power mode needed. Transition from E→F or H→I always requires
+            # a toggle since we start in axis mode.
+            if self._jcc_mode != "power":
+                self._send_jcc_command("power_axis_switch")
+            self._jcc_mode = "power"
+        else:
+            # Non-JCC state — reset tracking so next JCC entry starts fresh
+            self._jcc_mode = None
 
     def _send_chart_command(self, tab: str, chart_items: list) -> None:
         """Send chart display command to phoropter."""

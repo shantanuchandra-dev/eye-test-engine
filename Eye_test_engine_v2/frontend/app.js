@@ -922,13 +922,33 @@ function toggleScreenshotModal() {
 
 // ── Session Initialization (from intake page) ───────────────────────────
 // Check if we arrived from the intake form with a session ID
-function checkIntakeRedirect() {
+async function checkIntakeRedirect() {
     const params = new URLSearchParams(window.location.search);
     const sid = params.get('session');
     if (sid) {
         sessionState.sessionId = sid;
-        // Fetch current status
-        fetchSessionStatus(sid);
+
+        // Restore device state immediately so the dropdown shows the
+        // acquired phoropter (intake already acquired it).
+        const savedDevice = localStorage.getItem('phoropterId');
+        if (savedDevice && !isTestDeviceId(savedDevice)) {
+            _deviceAcquired = true;
+            const select = document.getElementById('phoropterIdInput');
+            if (select) {
+                select.innerHTML = '';
+                const opt = document.createElement('option');
+                opt.value = savedDevice;
+                opt.textContent = savedDevice + ' (connected)';
+                opt.selected = true;
+                select.appendChild(opt);
+                select.disabled = true;
+            }
+            const acqBtn = document.getElementById('acquireDeviceBtn');
+            if (acqBtn) acqBtn.style.display = 'none';
+        }
+
+        // Fetch session status, send reset, then show live view
+        await fetchSessionStatus(sid);
         // Clean URL
         window.history.replaceState({}, '', window.location.pathname);
         return true;
@@ -943,6 +963,7 @@ async function fetchSessionStatus(sessionId) {
         const data = await resp.json();
 
         document.getElementById('testScreen').style.display = 'block';
+        document.getElementById('noSessionScreen').style.display = 'none';
         updateSessionInfo(data);
         displayQuestion(data);
         updateStatusIndicator(true);
@@ -950,13 +971,39 @@ async function fetchSessionStatus(sessionId) {
         addToHistory('Session started from intake', 'success');
         _saveSessionToStorage();
 
-        // Restore device state
+        // Restore device state from localStorage (intake already acquired)
         const savedDevice = localStorage.getItem('phoropterId');
         if (savedDevice) {
             _deviceAcquired = true;
             const select = document.getElementById('phoropterIdInput');
             if (select) { select.value = savedDevice; select.disabled = true; }
+            const acqBtn = document.getElementById('acquireDeviceBtn');
+            if (acqBtn) acqBtn.style.display = 'none';
         }
+
+        // Reset phoropter to 0/0/180 before the first question.
+        // Wait for the reset to complete, then open live view so the
+        // operator sees the zeroed-out phoropter display.
+        if (_deviceAcquired && !isTestDeviceId(savedDevice)) {
+            addToHistory('Resetting phoropter...', 'info');
+            try {
+                const resetResp = await fetch(
+                    `${CONFIG.backendUrl}/api/phoropter/${CONFIG.phoropterId}/reset`,
+                    { method: 'POST' }
+                );
+                if (resetResp.ok) {
+                    addToHistory('Phoropter reset to 0/0/180', 'success');
+                } else {
+                    addToHistory('Warning: reset returned ' + resetResp.status, 'warning');
+                }
+            } catch (resetErr) {
+                addToHistory('Warning: Could not reset phoropter', 'warning');
+            }
+        }
+
+        // Open live view after reset so the screenshot shows the clean state
+        openScreenshotModal();
+
     } catch (err) {
         console.error('Failed to load session:', err);
         alert('Session not found. Please start from the intake form.');
@@ -1339,16 +1386,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     bindTableInteractions();
     checkOptometristName();
 
+    // Check for intake redirect first — this sets _deviceAcquired before
+    // fetchDevices() runs, so the dropdown shows the locked device.
+    const cameFromIntake = await checkIntakeRedirect();
+
+    // fetchDevices() respects _deviceAcquired: if already acquired it
+    // locks the dropdown to the acquired device instead of re-fetching.
     await fetchDevices();
 
-    // Check for intake redirect first, then try restore
-    if (!checkIntakeRedirect()) {
-        await _tryRestoreSession();
+    // If we didn't come from intake, try restoring a previous session
+    if (!cameFromIntake) {
+        const restored = await _tryRestoreSession();
+        // Open live view for restored sessions (intake path opens it
+        // after reset inside fetchSessionStatus)
+        if (restored) openScreenshotModal();
     }
 
     // Start heartbeat
     startHeartbeat();
-
-    // Open live view
-    openScreenshotModal();
 });

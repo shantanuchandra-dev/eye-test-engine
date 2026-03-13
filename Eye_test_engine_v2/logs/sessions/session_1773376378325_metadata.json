@@ -1,0 +1,27 @@
+{
+  "session_id": "session_1773376378325",
+  "phoropter_id": "Test",
+  "operator_name": "test_suite_runner",
+  "customer_name": "",
+  "customer_age": "",
+  "customer_gender": "",
+  "session_start_time": "2026-03-13T10:02:58.326374",
+  "session_end_time": "2026-03-13T10:02:58.846480",
+  "session_duration_seconds": 0.5,
+  "test_completion_status": "completed",
+  "total_interactions": 0,
+  "ar": {},
+  "lensometry": {},
+  "final_prescription": {},
+  "qualitative_feedback": "",
+  "phases_completed": [
+    "A"
+  ],
+  "phases_skipped": [],
+  "quality_metrics": {
+    "manual_adjustment_count": 0,
+    "qna_interaction_count": 0,
+    "phase_jump_count": 0,
+    "duration_per_phase": {}
+  }
+}
