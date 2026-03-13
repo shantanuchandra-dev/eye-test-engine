@@ -9,211 +9,256 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: system-ui, -apple-system, Segoe UI, sans-serif;
-            background: #f5f6f8;
+            background: #f0f2f5;
             min-height: 100vh;
             color: #1a1a1a;
+            overflow: hidden;
         }
 
-        /* ── Layout ──────────────────────────────── */
-        .main-content {
+        /* ── Full-viewport shell ────────────────────── */
+        .app-shell {
             display: grid;
-            grid-template-columns: 220px 1fr;
-            min-height: 100vh;
-            transition: grid-template-columns 0.3s;
+            grid-template-columns: 180px 1fr;
+            grid-template-rows: auto 1fr;
+            height: 100vh;
+            transition: grid-template-columns 0.25s ease;
         }
-        .main-content.logs-expanded {
-            grid-template-columns: 220px 1fr 340px;
+        .app-shell.logs-expanded {
+            grid-template-columns: 180px 1fr 320px;
         }
-        .main-content.debug-expanded {
-            grid-template-columns: 220px 1fr 380px;
+        .app-shell.debug-expanded {
+            grid-template-columns: 180px 1fr 340px;
         }
-        .main-content.logs-expanded.debug-expanded {
-            grid-template-columns: 220px 1fr 340px 380px;
+        .app-shell.logs-expanded.debug-expanded {
+            grid-template-columns: 180px 1fr 320px 340px;
         }
 
-        /* ── Sidebar (Phase Progress) ────────────── */
+        /* ── Top Bar (spans full width) ─────────────── */
+        .top-bar {
+            grid-column: 1 / -1;
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            padding: 6px 12px;
+            background: #0d47a1;
+            color: #fff;
+            font-size: 0.82rem;
+            z-index: 10;
+        }
+        .top-bar .brand {
+            font-weight: 700;
+            font-size: 0.9rem;
+            letter-spacing: 0.02em;
+            margin-right: 0.75rem;
+            white-space: nowrap;
+        }
+        .top-bar .sep {
+            width: 1px;
+            height: 18px;
+            background: rgba(255,255,255,0.25);
+        }
+        .top-bar select {
+            padding: 3px 6px;
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 4px;
+            background: rgba(255,255,255,0.12);
+            color: #fff;
+            font-size: 0.82rem;
+            min-width: 130px;
+        }
+        .top-bar select option { color: #333; background: #fff; }
+        .top-bar button {
+            padding: 3px 10px;
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.78rem;
+            font-weight: 600;
+            background: rgba(255,255,255,0.12);
+            color: #fff;
+            transition: background 0.15s;
+        }
+        .top-bar button:hover { background: rgba(255,255,255,0.25); }
+        .top-bar .btn-live { background: rgba(96,125,139,0.7); }
+        .top-bar .btn-live:hover { background: rgba(96,125,139,0.9); }
+        .top-bar .btn-reset { background: rgba(244,67,54,0.7); }
+        .top-bar .btn-reset:hover { background: rgba(244,67,54,0.9); }
+        .top-bar .spacer { flex: 1; }
+        .top-bar .session-label {
+            font-size: 0.75rem;
+            opacity: 0.7;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+        }
+        #statusDot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.35);
+            display: inline-block;
+        }
+        #statusDot.active {
+            background: #69f0ae;
+            box-shadow: 0 0 6px rgba(105,240,174,0.6);
+        }
+
+        /* ── Sidebar (slim phase progress) ──────────── */
         .sidebar {
+            grid-column: 1;
+            grid-row: 2;
             background: #fff;
             border-right: 1px solid #e0e0e0;
-            padding: 1rem 0.75rem;
+            padding: 0.6rem 0.5rem;
             overflow-y: auto;
+            display: flex;
+            flex-direction: column;
         }
         .sidebar-title {
-            font-size: 0.8rem;
+            font-size: 0.7rem;
             font-weight: 700;
             color: #0d47a1;
             text-transform: uppercase;
-            letter-spacing: 0.04em;
-            margin-bottom: 0.75rem;
-            padding: 0 0.25rem;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+            padding: 0 0.2rem;
         }
         .phase-step {
             display: flex;
             align-items: center;
-            gap: 0.5rem;
-            padding: 0.4rem 0.5rem;
-            border-radius: 6px;
-            margin-bottom: 2px;
-            font-size: 0.82rem;
-            color: #999;
+            gap: 0.4rem;
+            padding: 0.25rem 0.35rem;
+            border-radius: 5px;
+            margin-bottom: 1px;
+            font-size: 0.75rem;
+            color: #aaa;
             transition: all 0.2s;
         }
         .phase-step.current {
             background: #e3f2fd;
             color: #0d47a1;
-            font-weight: 600;
+            font-weight: 700;
         }
-        .phase-step.completed {
-            color: #4caf50;
-        }
-        .phase-step.completed .phase-label {
-            background: #4caf50;
-            color: #fff;
-        }
-        .phase-label {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 26px;
-            height: 26px;
+        .phase-step.completed { color: #4caf50; }
+        .phase-step.completed .phase-dot { background: #4caf50; }
+        .phase-dot {
+            width: 20px; height: 20px;
             border-radius: 50%;
             background: #e0e0e0;
             color: #999;
             font-weight: 700;
-            font-size: 0.75rem;
+            font-size: 0.65rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
             flex-shrink: 0;
         }
-        .phase-step.current .phase-label {
-            background: #0d47a1;
-            color: #fff;
-        }
+        .phase-step.current .phase-dot { background: #0d47a1; color: #fff; }
+        .phase-step.completed .phase-dot { color: #fff; }
         .phase-name {
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
         }
+        .sidebar-footer {
+            margin-top: auto;
+            padding-top: 0.5rem;
+            border-top: 1px solid #eee;
+            font-size: 0.72rem;
+        }
+        .sidebar-footer a {
+            color: #0d47a1;
+            text-decoration: none;
+        }
+        .sidebar-footer a:hover { text-decoration: underline; }
+        .sidebar-footer .divider { color: #ccc; margin: 0 0.3rem; }
 
-        /* ── Device Bar ──────────────────────────── */
-        .device-bar {
+        /* ── Center (main area) ─────────────────────── */
+        .center {
+            grid-column: 2;
+            grid-row: 2;
+            overflow-y: auto;
+            padding: 0.75rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.6rem;
+        }
+
+        /* ── No-session redirect (minimal) ──────────── */
+        #noSessionScreen {
             display: flex;
             align-items: center;
-            gap: 0.75rem;
-            padding: 0.5rem 1rem;
-            background: #fff;
-            border-bottom: 1px solid #e0e0e0;
-            font-size: 0.85rem;
+            justify-content: center;
+            flex: 1;
         }
-        .device-bar select {
-            padding: 4px 8px;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            font-size: 0.85rem;
+        .redirect-notice {
+            text-align: center;
+            color: #888;
+            font-size: 0.9rem;
         }
-        .device-bar button {
-            padding: 4px 12px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 0.85rem;
+        .redirect-notice a {
+            display: inline-block;
+            margin-top: 0.5rem;
+            padding: 8px 24px;
             background: #0d47a1;
             color: #fff;
-        }
-        .device-bar button:hover { background: #1565c0; }
-        .status-dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            background: #ccc;
-            display: inline-block;
-        }
-        .status-dot.active {
-            background: #4caf50;
-            box-shadow: 0 0 6px rgba(76,175,80,0.5);
-        }
-
-        /* ── Center Content ──────────────────────── */
-        .center-content {
-            display: flex;
-            flex-direction: column;
-            overflow-y: auto;
-        }
-        .content-area {
-            flex: 1;
-            padding: 1rem;
-            display: flex;
-            flex-direction: column;
-            gap: 0.75rem;
-        }
-
-        /* ── Test Screen ─────────────────────────── */
-        #testScreen { display: none; }
-
-        /* ── Cards ───────────────────────────────── */
-        .card {
-            background: #fff;
-            border-radius: 8px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-            padding: 1rem;
-        }
-        .card-title {
-            font-size: 0.85rem;
+            border-radius: 6px;
+            text-decoration: none;
             font-weight: 600;
-            color: #333;
-            margin-bottom: 0.5rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            cursor: pointer;
+            font-size: 0.9rem;
         }
-        .card-title .arrow {
-            font-size: 0.7rem;
-            color: #999;
-        }
-        .collapsed { display: none; }
+        .redirect-notice a:hover { background: #1565c0; }
 
-        /* ── Question Box ────────────────────────── */
+        /* ── Test Screen ────────────────────────────── */
+        #testScreen { display: none; flex: 1; }
+        #testScreen.active {
+            display: flex;
+            flex-direction: column;
+            gap: 0.6rem;
+        }
+
+        /* ── Question Box (hero element) ────────────── */
         .question-box {
             background: #fff;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            padding: 1.25rem;
-            border-left: 4px solid #0d47a1;
+            border-radius: 10px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+            padding: 1rem 1.25rem;
+            border-left: 5px solid #0d47a1;
         }
         .question-header {
             display: flex;
             align-items: center;
-            gap: 0.75rem;
-            margin-bottom: 0.75rem;
+            gap: 0.6rem;
+            margin-bottom: 0.6rem;
         }
         #phaseBadge {
             background: #0d47a1;
             color: #fff;
-            padding: 3px 10px;
-            border-radius: 12px;
-            font-size: 0.78rem;
-            font-weight: 600;
+            padding: 2px 10px;
+            border-radius: 10px;
+            font-size: 0.75rem;
+            font-weight: 700;
         }
         .eye-indicator {
             padding: 2px 8px;
             border-radius: 10px;
-            font-size: 0.75rem;
+            font-size: 0.72rem;
             font-weight: 700;
         }
         .eye-right { background: #e3f2fd; color: #0d47a1; }
         .eye-left { background: #fce4ec; color: #c62828; }
         .eye-both { background: #e8f5e9; color: #2e7d32; }
         #stepInfo {
-            font-size: 0.75rem;
-            color: #999;
+            font-size: 0.72rem;
+            color: #aaa;
             margin-left: auto;
+            font-family: 'SF Mono', 'Fira Code', monospace;
         }
         #questionText {
-            font-size: 1.1rem;
-            color: #333;
-            line-height: 1.4;
+            font-size: 1.15rem;
+            color: #222;
+            line-height: 1.5;
+            font-weight: 500;
         }
 
-        /* ── Intent Buttons ──────────────────────── */
+        /* ── Response Buttons ───────────────────────── */
         #intentButtons {
             display: flex;
             flex-wrap: wrap;
@@ -221,225 +266,277 @@
             margin-top: 0.75rem;
         }
         .intent-button {
-            padding: 10px 18px;
-            border: 1px solid #e0e0e0;
+            padding: 12px 20px;
+            border: 2px solid #e8e8e8;
             border-radius: 8px;
             background: #fff;
             cursor: pointer;
             font-size: 0.95rem;
-            font-weight: 500;
-            transition: all 0.15s;
+            font-weight: 600;
+            transition: all 0.12s;
             flex: 1;
-            min-width: 120px;
+            min-width: 140px;
             text-align: center;
+            position: relative;
         }
         .intent-button:hover {
-            background: #f5f5f5;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+            background: #f8f9ff;
+            border-color: #0d47a1;
+            box-shadow: 0 2px 8px rgba(13,71,161,0.12);
+            transform: translateY(-1px);
+        }
+        .intent-button:active {
+            transform: translateY(0);
+            box-shadow: none;
         }
         .intent-button:disabled {
-            opacity: 0.45;
+            opacity: 0.4;
             cursor: not-allowed;
+            transform: none;
+        }
+        .intent-button .shortcut-hint {
+            position: absolute;
+            top: 4px;
+            right: 8px;
+            font-size: 0.6rem;
+            color: #bbb;
+            font-weight: 400;
         }
 
-        /* ── Refraction Table ────────────────────── */
+        /* ── Power Table (compact) ──────────────────── */
+        .power-card {
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+            padding: 0.6rem 0.8rem;
+        }
+        .power-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.3rem;
+        }
+        .power-header span {
+            font-weight: 600;
+            color: #555;
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
         .refraction-table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 0.9rem;
+            font-size: 0.88rem;
         }
         .refraction-table th {
             text-align: center;
-            padding: 6px 8px;
-            color: #666;
+            padding: 4px 6px;
+            color: #999;
             font-weight: 600;
-            font-size: 0.8rem;
-            border-bottom: 2px solid #e0e0e0;
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            border-bottom: 1px solid #eee;
         }
         .refraction-table td {
             text-align: center;
-            padding: 8px;
-            border-bottom: 1px solid #f0f0f0;
+            padding: 5px 6px;
         }
         .refraction-table td:first-child {
             font-weight: 700;
-            color: #0d47a1;
-            width: 40px;
+            font-size: 0.78rem;
+            width: 32px;
         }
+        .refraction-table tr:first-child td:first-child { color: #0d47a1; }
+        .refraction-table tr:last-child td:first-child { color: #c62828; }
         .rt-val {
             cursor: pointer;
             font-family: 'SF Mono', 'Fira Code', monospace;
-            font-size: 1rem;
+            font-size: 0.95rem;
             font-weight: 600;
-            padding: 4px 8px;
+            padding: 3px 6px;
             border-radius: 4px;
-            transition: background 0.15s;
+            transition: background 0.12s;
             user-select: none;
+            display: inline-block;
+            min-width: 60px;
         }
-        .rt-val:hover:not(.locked) {
-            background: #e3f2fd;
-        }
-        .rt-val.locked {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-        .rt-val.type-mode {
-            background: #fff3e0;
-            cursor: text;
-        }
+        .rt-val:hover:not(.locked) { background: #e3f2fd; }
+        .rt-val.locked { opacity: 0.4; cursor: not-allowed; }
+        .rt-val.type-mode { background: #fff3e0; cursor: text; }
         .rt-type-input {
-            width: 70px;
+            width: 65px;
             text-align: center;
             border: 2px solid #0d47a1;
             border-radius: 4px;
             font-family: 'SF Mono', 'Fira Code', monospace;
-            font-size: 1rem;
+            font-size: 0.95rem;
             padding: 2px 4px;
             outline: none;
         }
 
-        /* ── Control Buttons Row ─────────────────── */
+        /* ── Control buttons ────────────────────────── */
         .controls-row {
             display: flex;
-            gap: 0.5rem;
+            gap: 0.35rem;
             align-items: center;
-            flex-wrap: wrap;
         }
         .ctrl-btn {
-            padding: 5px 10px;
-            border: 1px solid #ccc;
+            padding: 3px 8px;
+            border: 1px solid #ddd;
             border-radius: 4px;
             background: #fff;
             cursor: pointer;
-            font-size: 0.8rem;
-            transition: background 0.15s;
+            font-size: 0.72rem;
+            transition: background 0.12s;
         }
         .ctrl-btn:hover { background: #f5f5f5; }
         .ctrl-btn.active { background: #e3f2fd; border-color: #0d47a1; color: #0d47a1; }
         .ctrl-btn.locked { background: #ffebee; border-color: #f44336; }
 
-        /* ── Session Status ──────────────────────── */
-        .status-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-            gap: 0.5rem;
-            font-size: 0.85rem;
+        /* ── Session status (inline, compact) ───────── */
+        .status-bar {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            padding: 0.35rem 0.8rem;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+            font-size: 0.78rem;
         }
-        .status-item label {
-            display: block;
-            font-size: 0.7rem;
+        .status-bar .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+        .status-bar .stat-label {
             color: #999;
+            font-size: 0.68rem;
             text-transform: uppercase;
             letter-spacing: 0.03em;
         }
-        .status-item span {
-            font-weight: 600;
+        .status-bar .stat-value {
+            font-weight: 700;
             color: #333;
         }
 
-        /* ── History ─────────────────────────────── */
-        #historyContent {
-            max-height: 200px;
-            overflow-y: auto;
-            font-size: 0.82rem;
+        /* ── History (collapsed in sidebar) ─────────── */
+        .history-toggle {
+            font-size: 0.7rem;
+            color: #888;
+            cursor: pointer;
+            padding: 0.3rem 0;
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
         }
+        .history-toggle:hover { color: #0d47a1; }
+        .history-toggle .arrow { font-size: 0.6rem; }
+        #historyContent {
+            max-height: 180px;
+            overflow-y: auto;
+            font-size: 0.72rem;
+        }
+        #historyContent.collapsed { display: none; }
         .history-entry {
-            padding: 3px 0;
+            padding: 2px 0;
             border-bottom: 1px solid #f5f5f5;
         }
         .history-time {
-            color: #999;
-            font-size: 0.75rem;
-            margin-right: 6px;
+            color: #bbb;
+            font-size: 0.65rem;
+            margin-right: 4px;
         }
-        .history-info { color: #333; }
+        .history-info { color: #555; }
         .history-success { color: #2e7d32; }
         .history-warning { color: #f57c00; }
         .history-adjust { color: #0d47a1; }
 
-        /* ── Logs Panel (right side) ─────────────── */
+        /* ── Logs Panel ─────────────────────────────── */
         .logs-panel {
             background: #1e1e1e;
             border-left: 1px solid #333;
             display: none;
             flex-direction: column;
             overflow: hidden;
+            grid-row: 2;
+            grid-column: 3;
         }
-        .main-content.logs-expanded .logs-panel {
-            display: flex;
-        }
+        .app-shell.logs-expanded .logs-panel { display: flex; }
         .logs-panel-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 0.5rem 0.75rem;
+            padding: 0.4rem 0.6rem;
             background: #252525;
             border-bottom: 1px solid #333;
         }
         .logs-panel-header span {
             color: #aaa;
-            font-size: 0.8rem;
+            font-size: 0.75rem;
             font-weight: 600;
         }
         .logs-panel-header button {
             background: none;
             border: none;
-            color: #aaa;
+            color: #777;
             cursor: pointer;
-            font-size: 1.1rem;
+            font-size: 1rem;
+            padding: 0 2px;
         }
+        .logs-panel-header button:hover { color: #ccc; }
         #requestLogsContent {
             flex: 1;
             overflow-y: auto;
-            padding: 0.5rem;
+            padding: 0.4rem;
         }
         .log-entry {
-            margin-bottom: 0.5rem;
+            margin-bottom: 0.4rem;
             border-bottom: 1px solid #333;
-            padding-bottom: 0.5rem;
+            padding-bottom: 0.4rem;
         }
         .log-entry-header {
             display: flex;
-            gap: 0.5rem;
-            font-size: 0.75rem;
+            gap: 0.4rem;
+            font-size: 0.7rem;
             color: #888;
-            margin-bottom: 3px;
+            margin-bottom: 2px;
         }
-        .log-entry-method {
-            font-weight: 700;
-            color: #4fc3f7;
-        }
+        .log-entry-method { font-weight: 700; color: #4fc3f7; }
         .log-entry-curl {
             font-family: 'SF Mono', 'Fira Code', monospace;
-            font-size: 0.72rem;
+            font-size: 0.68rem;
             color: #ccc;
             white-space: pre-wrap;
             word-break: break-all;
             margin: 0;
         }
 
-        /* ── Debug Panel (right side) ────────────── */
+        /* ── Debug Panel ────────────────────────────── */
         .debug-panel {
             background: #f8f9fa;
             border-left: 1px solid #e0e0e0;
             display: none;
             flex-direction: column;
             overflow: hidden;
+            grid-row: 2;
+            grid-column: 3;
         }
-        .main-content.debug-expanded .debug-panel {
-            display: flex;
-        }
+        .app-shell.debug-expanded .debug-panel { display: flex; }
+        /* When both panels are open, debug shifts to column 4 */
+        .app-shell.logs-expanded.debug-expanded .debug-panel { grid-column: 4; }
         .debug-panel-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 0.5rem 0.75rem;
+            padding: 0.4rem 0.6rem;
             background: #fff;
             border-bottom: 1px solid #e0e0e0;
         }
         .debug-panel-header span {
             color: #333;
-            font-size: 0.8rem;
+            font-size: 0.75rem;
             font-weight: 600;
         }
         .debug-panel-header button {
@@ -447,128 +544,120 @@
             border: none;
             color: #999;
             cursor: pointer;
-            font-size: 1.1rem;
+            font-size: 1rem;
+            padding: 0 2px;
         }
+        .debug-panel-header button:hover { color: #333; }
         #debugContent {
             flex: 1;
             overflow-y: auto;
-            padding: 0.5rem;
+            padding: 0.4rem;
         }
-        .debug-section {
-            margin-bottom: 0.75rem;
-        }
+        .debug-section { margin-bottom: 0.6rem; }
         .debug-section-title {
-            font-size: 0.75rem;
+            font-size: 0.7rem;
             font-weight: 700;
             color: #0d47a1;
             text-transform: uppercase;
             letter-spacing: 0.03em;
-            padding: 4px 8px;
+            padding: 3px 6px;
             background: #e3f2fd;
-            border-radius: 4px;
-            margin-bottom: 4px;
+            border-radius: 3px;
+            margin-bottom: 3px;
         }
         .debug-row {
             display: flex;
             justify-content: space-between;
-            padding: 3px 8px;
-            font-size: 0.78rem;
+            padding: 2px 6px;
+            font-size: 0.72rem;
             border-bottom: 1px solid #f0f0f0;
         }
         .debug-key { color: #666; }
         .debug-val { color: #333; font-weight: 600; font-family: 'SF Mono', monospace; }
 
-        /* ── Side Tabs ───────────────────────────── */
+        /* ── Side Tabs ──────────────────────────────── */
         .side-tab {
             position: fixed;
             right: 0;
             writing-mode: vertical-rl;
             text-orientation: mixed;
-            padding: 8px 6px;
-            font-size: 0.75rem;
+            padding: 6px 5px;
+            font-size: 0.7rem;
             font-weight: 600;
             cursor: pointer;
             border-radius: 4px 0 0 4px;
             z-index: 100;
         }
         .side-tab.hidden { display: none; }
-        #logsTabBtn {
-            top: 200px;
-            background: #333;
-            color: #aaa;
-        }
-        #debugTabBtn {
-            top: 280px;
-            background: #0d47a1;
-            color: #fff;
-        }
+        #logsTabBtn { top: 180px; background: #333; color: #aaa; }
+        #debugTabBtn { top: 250px; background: #0d47a1; color: #fff; }
 
-        /* ── Screenshot Modal ────────────────────── */
-        .screenshot-backdrop {
-            display: none;
-        }
+        /* ── Screenshot Modal (floating, resizable) ─── */
+        .screenshot-backdrop { display: none; }
         .screenshot-backdrop.active {
             display: block;
             position: fixed;
-            bottom: 10px;
-            right: 10px;
+            bottom: 12px;
+            right: 12px;
             z-index: 500;
         }
         .screenshot-modal {
             background: #fff;
             border-radius: 8px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
-            width: 400px;
-            max-height: 350px;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.25);
+            width: 380px;
             overflow: hidden;
+            resize: both;
+            min-width: 250px;
+            min-height: 200px;
         }
         .screenshot-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 6px 10px;
-            background: #f5f5f5;
-            border-bottom: 1px solid #e0e0e0;
-            font-size: 0.8rem;
+            padding: 5px 10px;
+            background: #263238;
+            color: #fff;
+            font-size: 0.75rem;
             font-weight: 600;
-            color: #333;
             cursor: move;
         }
         .screenshot-header button {
             background: none;
             border: none;
             cursor: pointer;
-            font-size: 1rem;
-            color: #666;
+            font-size: 0.9rem;
+            color: rgba(255,255,255,0.7);
+            padding: 0 2px;
         }
+        .screenshot-header button:hover { color: #fff; }
         .screenshot-body {
-            padding: 8px;
+            padding: 4px;
             display: flex;
             align-items: center;
             justify-content: center;
-            min-height: 200px;
+            min-height: 180px;
             overflow: hidden;
+            background: #f5f5f5;
         }
         #screenshotImage {
             max-width: 100%;
-            max-height: 300px;
+            max-height: 100%;
             display: none;
         }
         #screenshotImage.loaded { display: block; }
-        #screenshotLoading { color: #999; font-size: 0.85rem; }
-        #screenshotError { color: #c62828; font-size: 0.85rem; display: none; }
+        #screenshotLoading { color: #999; font-size: 0.82rem; }
+        #screenshotError { color: #c62828; font-size: 0.82rem; display: none; }
 
-        /* ── Loading Indicator ────────────────────── */
+        /* ── Loading Indicator ───────────────────────── */
         #loadingIndicator {
             display: none;
             position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
+            top: 0; left: 0; right: 0;
             height: 3px;
-            background: linear-gradient(90deg, #0d47a1, #42a5f5, #0d47a1);
+            background: linear-gradient(90deg, #42a5f5, #fff, #42a5f5);
             background-size: 200% 100%;
-            animation: loading 1.5s infinite;
+            animation: loading 1.2s infinite;
             z-index: 9999;
         }
         @keyframes loading {
@@ -576,7 +665,7 @@
             100% { background-position: -200% 0; }
         }
 
-        /* ── Modals ──────────────────────────────── */
+        /* ── Modals ─────────────────────────────────── */
         .modal-overlay {
             display: none;
             position: fixed;
@@ -586,65 +675,46 @@
             align-items: center;
             justify-content: center;
         }
-        .modal-overlay.active {
-            display: flex;
-        }
+        .modal-overlay.active { display: flex; }
         .modal-box {
             background: #fff;
             border-radius: 12px;
-            padding: 1.5rem;
-            max-width: 400px;
+            padding: 1.25rem;
+            max-width: 380px;
             width: 90%;
-            box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+            box-shadow: 0 8px 30px rgba(0,0,0,0.25);
         }
         .modal-box h3 {
-            margin-bottom: 1rem;
+            margin-bottom: 0.75rem;
             color: #0d47a1;
+            font-size: 1.05rem;
         }
         .modal-box input, .modal-box select {
             width: 100%;
-            padding: 8px 12px;
+            padding: 7px 10px;
             border: 1px solid #d7dcf5;
             border-radius: 6px;
-            font-size: 0.95rem;
-            margin-bottom: 0.75rem;
+            font-size: 0.9rem;
+            margin-bottom: 0.6rem;
         }
         .modal-box button {
-            padding: 8px 20px;
+            padding: 7px 18px;
             border: none;
             border-radius: 6px;
             cursor: pointer;
-            font-size: 0.95rem;
+            font-size: 0.9rem;
             background: #0d47a1;
             color: #fff;
         }
         .modal-box button:hover { background: #1565c0; }
 
-        /* ── Alert ───────────────────────────────── */
-        .alert { padding: 10px 15px; border-radius: 6px; font-size: 0.9rem; }
+        /* ── Alert ──────────────────────────────────── */
+        .alert { padding: 8px 14px; border-radius: 6px; font-size: 0.88rem; }
         .alert-info { background: #e3f2fd; color: #0d47a1; }
 
-        /* ── Navigate to Intake Button ────────────── */
-        .start-btn-area {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 2rem;
-        }
-        .start-btn-area a {
-            padding: 12px 32px;
-            background: #0d47a1;
-            color: #fff;
-            border-radius: 8px;
-            text-decoration: none;
-            font-size: 1.1rem;
-            font-weight: 600;
-        }
-        .start-btn-area a:hover { background: #1565c0; }
-
-        /* ── Responsive ──────────────────────────── */
-        @media (max-width: 768px) {
-            .main-content { grid-template-columns: 1fr; }
+        /* ── Responsive ─────────────────────────────── */
+        @media (max-width: 900px) {
+            .app-shell { grid-template-columns: 1fr; }
             .sidebar { display: none; }
         }
     </style>
@@ -652,58 +722,74 @@
 <body>
     <div id="loadingIndicator"></div>
 
-    <div class="main-content">
-        <!-- Sidebar: Phase Progress -->
+    <div class="app-shell">
+        <!-- ── Top Bar ──────────────────────────────── -->
+        <div class="top-bar">
+            <span id="statusDot" title="No Active Session"></span>
+            <span class="brand">Eye Test v2</span>
+            <span id="patientNameLabel" style="font-weight:600;font-size:0.82rem;opacity:0.85;display:none;"></span>
+            <span class="sep"></span>
+            <select id="phoropterIdInput" onchange="onDeviceSelectionChanged()"></select>
+            <button id="acquireDeviceBtn" style="display:none;" onclick="acquireSelectedDevice()">Acquire</button>
+            <button class="btn-live" onclick="toggleScreenshotModal()" title="Live View">Live</button>
+            <button class="btn-reset" onclick="resetPhoropter()" title="Reset to 0/0/180">Reset</button>
+            <span class="spacer"></span>
+            <span id="sessionId" class="session-label">-</span>
+        </div>
+
+        <!-- ── Sidebar ──────────────────────────────── -->
         <div class="sidebar">
-            <div class="sidebar-title">Test Progress</div>
-            <div id="phaseProgress">
-                <!-- Populated by JS -->
-            </div>
-            <div style="margin-top:auto;padding-top:1rem;border-top:1px solid #e0e0e0;">
-                <a href="intake.html" style="font-size:0.8rem;color:#0d47a1;text-decoration:none;">New Test</a>
-                <span style="margin:0 0.5rem;color:#ccc;">|</span>
-                <a href="dashboard.html" style="font-size:0.8rem;color:#666;text-decoration:none;">Dashboard</a>
+            <div class="sidebar-title">Progress</div>
+            <div id="phaseProgress"></div>
+            <div class="sidebar-footer">
+                <div class="history-toggle" onclick="toggleHistory()">
+                    <span id="historyArrow" class="arrow">&#x25B6;</span>
+                    History
+                </div>
+                <div id="historyContent" class="collapsed"></div>
+                <div style="margin-top:0.4rem;">
+                    <a href="intake.html">New Test</a>
+                    <span class="divider">|</span>
+                    <a href="dashboard.html" style="color:#888;">Dashboard</a>
+                </div>
             </div>
         </div>
 
-        <!-- Center Content -->
-        <div class="center-content">
-            <!-- Device Bar -->
-            <div class="device-bar">
-                <span id="statusDot" class="status-dot" title="No Active Session"></span>
-                <label style="font-size:0.8rem;color:#666;">Phoropter:</label>
-                <select id="phoropterIdInput" style="min-width:140px;" onchange="onDeviceSelectionChanged()"></select>
-                <button id="acquireDeviceBtn" style="display:none;" onclick="acquireSelectedDevice()">Acquire</button>
-                <button onclick="toggleScreenshotModal()" style="background:#607d8b;" title="Live View">Live</button>
-                <button onclick="resetPhoropter()" style="background:#f44336;" title="Reset Phoropter">Reset</button>
-                <span style="flex:1;"></span>
-                <span id="sessionId" style="font-size:0.8rem;color:#999;">-</span>
-            </div>
-
-            <!-- No Session State -->
-            <div id="noSessionScreen" class="content-area">
-                <div class="start-btn-area">
-                    <a href="intake.html">Start New Eye Test</a>
+        <!-- ── Center ───────────────────────────────── -->
+        <div class="center">
+            <!-- No Session (minimal redirect) -->
+            <div id="noSessionScreen">
+                <div class="redirect-notice">
+                    <div>No active session</div>
+                    <a href="intake.html">Go to Patient Intake</a>
                 </div>
             </div>
 
             <!-- Test Screen -->
-            <div id="testScreen" class="content-area">
-                <!-- Question Card -->
+            <div id="testScreen">
+                <!-- Question Box (hero) -->
                 <div class="question-box">
                     <div class="question-header">
                         <span id="phaseBadge">-</span>
                         <span id="eyeIndicator" class="eye-indicator"></span>
-                        <span id="stepInfo" style="margin-left:auto;font-size:0.75rem;color:#999;">-</span>
+                        <span id="stepInfo">-</span>
                     </div>
                     <div id="questionText">Waiting for session...</div>
                     <div id="intentButtons"></div>
                 </div>
 
-                <!-- Refraction Table -->
-                <div class="card">
-                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-                        <span style="font-weight:600;color:#333;font-size:0.85rem;">Current Power</span>
+                <!-- Inline status bar -->
+                <div class="status-bar">
+                    <div class="stat-item"><span class="stat-label">Status</span> <span id="sessionStatus" class="stat-value">-</span></div>
+                    <div class="stat-item"><span class="stat-label">Phase</span> <span id="currentPhase" class="stat-value">-</span></div>
+                    <div class="stat-item"><span class="stat-label">Responses</span> <span id="responseCount" class="stat-value">0</span></div>
+                    <div class="stat-item"><span class="stat-label">Chart</span> <span id="chartDisplay" class="stat-value">-</span></div>
+                </div>
+
+                <!-- Power Table -->
+                <div class="power-card">
+                    <div class="power-header">
+                        <span>Current Power</span>
                         <div class="controls-row">
                             <button id="manualLockBtn" class="ctrl-btn" onclick="toggleManualLock()" title="Lock/Unlock manual controls">&#x1F513;</button>
                             <button id="typeModeBtn" class="ctrl-btn" onclick="toggleTypeMode()" title="Type mode">Type</button>
@@ -737,37 +823,10 @@
                         </tbody>
                     </table>
                 </div>
-
-                <!-- Session Status -->
-                <div class="card">
-                    <div class="card-title" onclick="toggleSection('session-status')">
-                        <span id="session-statusArrow" class="arrow">&#x25BC;</span>
-                        Session Status
-                    </div>
-                    <div id="section-session-status">
-                        <div class="status-grid">
-                            <div class="status-item"><label>Status</label><span id="sessionStatus">-</span></div>
-                            <div class="status-item"><label>Phase</label><span id="currentPhase">-</span></div>
-                            <div class="status-item"><label>Responses</label><span id="responseCount">0</span></div>
-                            <div class="status-item"><label>Chart</label><span id="chartDisplay">-</span></div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- History -->
-                <div class="card">
-                    <div class="card-title" onclick="toggleSection('history')">
-                        <span id="historyArrow" class="arrow">&#x25B6;</span>
-                        Test History
-                    </div>
-                    <div id="section-history" class="collapsed">
-                        <div id="historyContent"></div>
-                    </div>
-                </div>
             </div>
         </div>
 
-        <!-- Logs Panel -->
+        <!-- ── Logs Panel ───────────────────────────── -->
         <div class="logs-panel">
             <div class="logs-panel-header">
                 <span>Request Logs</span>
@@ -777,11 +836,11 @@
                 </div>
             </div>
             <div id="requestLogsContent">
-                <div id="requestLogsPlaceholder" style="color:#666;font-size:0.8rem;padding:10px;">No requests yet.</div>
+                <div id="requestLogsPlaceholder" style="color:#666;font-size:0.75rem;padding:8px;">No requests yet.</div>
             </div>
         </div>
 
-        <!-- Debug Panel (Derived Variables) -->
+        <!-- ── Debug Panel ──────────────────────────── -->
         <div class="debug-panel">
             <div class="debug-panel-header">
                 <span>Derived &amp; Working Variables</span>
@@ -791,7 +850,7 @@
                 </div>
             </div>
             <div id="debugContent">
-                <div style="padding:10px;color:#888;">Start a session to see variables.</div>
+                <div style="padding:8px;color:#888;font-size:0.78rem;">Start a session to see variables.</div>
             </div>
         </div>
     </div>
@@ -825,8 +884,8 @@
         <div class="modal-box">
             <h3>Optometrist Name</h3>
             <input id="optometristNameInput" type="text" placeholder="Enter your name">
-            <div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:0.75rem;">
-                <label style="font-size:0.8rem;color:#666;">Remember for:</label>
+            <div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:0.6rem;">
+                <label style="font-size:0.78rem;color:#666;">Remember for:</label>
                 <select id="optometristPersistenceSelect" style="width:auto;">
                     <option value="0">This session only</option>
                     <option value="8">8 hours</option>
@@ -843,7 +902,7 @@
         <div class="modal-box">
             <h3>Access Logs</h3>
             <input id="logsPasswordInput" type="password" placeholder="Enter password" onkeydown="if(event.key==='Enter')submitLogsPassword()">
-            <div id="logsPasswordError" style="color:#c62828;font-size:0.85rem;margin-bottom:0.5rem;display:none;"></div>
+            <div id="logsPasswordError" style="color:#c62828;font-size:0.82rem;margin-bottom:0.4rem;"></div>
             <div style="display:flex;gap:0.5rem;">
                 <button onclick="submitLogsPassword()">Unlock</button>
                 <button onclick="closeLogsPasswordModal()" style="background:#607d8b;">Cancel</button>

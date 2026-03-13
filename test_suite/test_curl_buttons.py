@@ -685,6 +685,40 @@ def test_index_reset_phoropter():
         ))
 
 
+def test_index_send_power(session_id: str):
+    """
+    index.html — fetchSessionStatus() → send-power (after reset)
+
+    POST /api/session/{session_id}/send-power re-sends the current FSM
+    row's power values to the phoropter.  Called after a reset so the
+    physical device matches the session's starting Rx.
+    """
+    screen = "test"
+    button = "Send Power (send-power after reset)"
+    method = "POST"
+    endpoint = f"/api/session/{session_id}/send-power"
+
+    if not session_id:
+        _skip(screen, button, method, "/api/session/{id}/send-power",
+               "No session_id available")
+        return
+
+    try:
+        r = requests.post(_api(endpoint), timeout=10)
+        data = r.json() if _is_2xx(r.status_code) else {}
+        _record(TestResult(
+            screen=screen, button=button, method=method, endpoint=endpoint,
+            expected="2xx", actual=r.status_code,
+            passed=_is_2xx(r.status_code),
+            notes=f"status={data.get('status', '?')}" if data else r.text[:80],
+        ))
+    except Exception as e:
+        _record(TestResult(
+            screen=screen, button=button, method=method, endpoint=endpoint,
+            passed=False, notes=str(e),
+        ))
+
+
 def test_index_screenshot():
     """
     index.html — Live View button → fetchScreenshot()
@@ -1243,6 +1277,9 @@ def main():
 
     if should_run("index_reset_phoropter"):
         test_index_reset_phoropter()
+
+    if should_run("index_send_power"):
+        test_index_send_power(session_id)
 
     if should_run("index_screenshot"):
         test_index_screenshot()

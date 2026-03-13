@@ -150,19 +150,10 @@ class SessionOrchestrator:
             ar_le=ar_le,
         )
 
-        # Track initial power state
-        self._prev_re = {
-            "sph": self.current_row.re_sph or 0.0,
-            "cyl": self.current_row.re_cyl or 0.0,
-            "axis": self.current_row.re_axis or 180.0,
-        }
-        self._prev_le = {
-            "sph": self.current_row.le_sph or 0.0,
-            "cyl": self.current_row.le_cyl or 0.0,
-            "axis": self.current_row.le_axis or 180.0,
-        }
-
-        # Send initial phoropter commands
+        # Send initial phoropter commands.
+        # _prev_re/_prev_le are still at 0/0/180 from __init__,
+        # so _send_phoropter_commands computes the correct deltas
+        # from the zeroed phoropter to the starting Rx.
         self._send_phoropter_commands(self.current_row)
         self._track_phase_entry(self.current_row.state)
 
@@ -633,8 +624,8 @@ class SessionOrchestrator:
         payload = {"test_cases": [{"jcc": action}]}
         self._post_to_phoropter(self.api_endpoint, payload)
 
-    def _post_to_phoropter(self, url: str, payload: dict) -> None:
-        """Send JSON POST to phoropter broker."""
+    def _post_to_phoropter(self, url: str, payload: dict) -> dict:
+        """Send JSON POST to phoropter broker. Returns response info."""
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(
             url, data=data, method="POST",
@@ -645,8 +636,11 @@ class SessionOrchestrator:
             with urllib.request.urlopen(req, timeout=10) as resp:
                 body = resp.read().decode("utf-8")
                 print(f"[PHOROPTER] Response {resp.getcode()}: {body[:200]}")
+                return {"ok": True, "status": resp.getcode(), "body": body[:200]}
         except urllib.error.HTTPError as e:
             body = e.read().decode("utf-8") if e.fp else ""
             print(f"[PHOROPTER] HTTP Error {e.code}: {body[:200]}")
+            return {"ok": False, "status": e.code, "error": body[:200]}
         except Exception as e:
             print(f"[PHOROPTER] Request failed: {e}")
+            return {"ok": False, "status": 0, "error": str(e)}

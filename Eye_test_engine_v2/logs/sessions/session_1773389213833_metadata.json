@@ -1,0 +1,64 @@
+{
+  "session_id": "session_1773389213833",
+  "phoropter_id": "lkst1782-1",
+  "operator_name": "DrSid",
+  "customer_name": "",
+  "customer_age": "",
+  "customer_gender": "",
+  "session_start_time": "2026-03-13T13:36:53.836358",
+  "session_end_time": "2026-03-13T14:12:33.418787",
+  "session_duration_seconds": 2139.6,
+  "test_completion_status": "completed",
+  "total_interactions": 57,
+  "ar": {},
+  "lensometry": {},
+  "final_prescription": {
+    "right": {
+      "sph": -2.0,
+      "cyl": -0.75,
+      "axis": 180.0,
+      "add": 1.25
+    },
+    "left": {
+      "sph": -2.0,
+      "cyl": -1.0,
+      "axis": 171.0,
+      "add": 1.25
+    }
+  },
+  "qualitative_feedback": "",
+  "phases_completed": [
+    "A",
+    "B",
+    "E",
+    "F",
+    "G",
+    "D",
+    "H",
+    "I",
+    "J",
+    "P",
+    "Q",
+    "R"
+  ],
+  "phases_skipped": [],
+  "quality_metrics": {
+    "manual_adjustment_count": 0,
+    "qna_interaction_count": 57,
+    "phase_jump_count": 0,
+    "duration_per_phase": {
+      "A": 509.181,
+      "B": 49.425,
+      "E": 19.256,
+      "F": 114.694,
+      "G": 135.477,
+      "D": 17.558,
+      "H": 405.90000000000003,
+      "I": 52.044,
+      "J": 40.924,
+      "P": 87.686,
+      "Q": 29.155,
+      "R": 444.29
+    }
+  }
+}

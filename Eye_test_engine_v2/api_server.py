@@ -96,7 +96,7 @@ def _request_payload() -> dict:
     return {}
 
 
-def _proxy_request(method: str, path: str, payload: Optional[dict] = None, query: Optional[dict] = None):
+def _proxy_request(method: str, path: str, payload: Optional[dict] = None, query: Optional[dict] = None, extra_headers: Optional[dict] = None):
     url = f"{PHOROPTER_BASE_URL}{path}"
     if query:
         cleaned = {k: v for k, v in query.items() if v is not None and v != ""}
@@ -107,6 +107,8 @@ def _proxy_request(method: str, path: str, payload: Optional[dict] = None, query
     if payload is not None:
         data = json.dumps(payload).encode("utf-8")
         headers["Content-Type"] = "application/json"
+    if extra_headers:
+        headers.update(extra_headers)
     req = urllib.request.Request(url=url, data=data, method=method.upper(), headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=12) as resp:
@@ -192,7 +194,12 @@ def set_pinhole(device_id):
 
 @app.route('/api/phoropter/<device_id>/screenshot', methods=['POST'])
 def take_screenshot(device_id):
-    return _proxy_request("POST", f"/phoropter/{device_id}/screenshot")
+    # Forward x-brain-id header if present in the incoming request
+    extra_headers = {}
+    brain_id = request.headers.get('x-brain-id')
+    if brain_id:
+        extra_headers['x-brain-id'] = brain_id
+    return _proxy_request("POST", f"/phoropter/{device_id}/screenshot", extra_headers=extra_headers)
 
 
 # ── Session Management ──────────────────────────────
@@ -283,6 +290,50 @@ def sync_power(session_id):
     payload = request.json or {}
     session.sync_power(payload.get("right", {}), payload.get("left", {}))
     return jsonify({"session_id": session_id, "status": "success"})
+
+
+@app.route('/api/session/<session_id>/send-power', methods=['POST'])
+def send_power(session_id):
+    """Re-send phoropter commands for the current FSM row.
+
+    Used after a phoropter reset to push the session's current power
+    values to the physical device before the operator starts responding.
+
+    Because the phoropter was just reset to 0/0/180, we must reset the
+    session's prev-state tracking to zeros so that _send_phoropter_commands()
+    computes the correct deltas (from 0/0/180 → target power).
+    """
+    if session_id not in sessions:
+        return jsonify({"error": "Session not found"}), 404
+    session = sessions[session_id]
+    _log_api_command(f"/api/session/{session_id}/send-power", {})
+    target_re = None
+    target_le = None
+    phoropter_ok = False
+    if session.current_row is not None:
+        # Reset prev-state to zeros (matching the physical device after reset)
+        session._prev_re = {"sph": 0.0, "cyl": 0.0, "axis": 180.0}
+        session._prev_le = {"sph": 0.0, "cyl": 0.0, "axis": 180.0}
+        session._prev_aux_lens = "BINO"
+        session._prev_add_r = 0.0
+        session._prev_add_l = 0.0
+        row = session.current_row
+        target_re = {"sph": row.re_sph or 0.0, "cyl": row.re_cyl or 0.0, "axis": row.re_axis or 180.0}
+        target_le = {"sph": row.le_sph or 0.0, "cyl": row.le_cyl or 0.0, "axis": row.le_axis or 180.0}
+        print(f"[send-power] Sending: prev={{0,0,180}} → RE={target_re}, LE={target_le}")
+        session._send_phoropter_commands(session.current_row)
+        print(f"[send-power] Done. prev_re now={session._prev_re}, prev_le now={session._prev_le}")
+        phoropter_ok = True
+    else:
+        print(f"[send-power] WARNING: current_row is None, nothing to send")
+    state = session._build_response()
+    return jsonify({
+        "session_id": session_id,
+        "status": "sent" if phoropter_ok else "no_row",
+        "target_re": target_re,
+        "target_le": target_le,
+        **state
+    })
 
 
 @app.route('/api/session/<session_id>/end', methods=['POST'])

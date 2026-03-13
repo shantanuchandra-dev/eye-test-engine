@@ -135,14 +135,14 @@ function requestShowLogsPanel() {
 }
 
 function openLogsPanel() {
-    const main = document.querySelector('.main-content');
+    const main = document.querySelector('.app-shell');
     const tab = document.getElementById('logsTabBtn');
     if (main) main.classList.add('logs-expanded');
     if (tab) tab.classList.add('hidden');
 }
 
 function closeLogsPanel() {
-    const main = document.querySelector('.main-content');
+    const main = document.querySelector('.app-shell');
     const tab = document.getElementById('logsTabBtn');
     if (main) main.classList.remove('logs-expanded');
     if (tab && !isLogsAccessDenied()) tab.classList.remove('hidden');
@@ -156,7 +156,7 @@ function requestShowDebugPanel() {
 }
 
 function openDebugPanel() {
-    const main = document.querySelector('.main-content');
+    const main = document.querySelector('.app-shell');
     const tab = document.getElementById('debugTabBtn');
     if (main) main.classList.add('debug-expanded');
     if (tab) tab.classList.add('hidden');
@@ -164,7 +164,7 @@ function openDebugPanel() {
 }
 
 function closeDebugPanel() {
-    const main = document.querySelector('.main-content');
+    const main = document.querySelector('.app-shell');
     const tab = document.getElementById('debugTabBtn');
     if (main) main.classList.remove('debug-expanded');
     if (tab && !isLogsAccessDenied()) tab.classList.remove('hidden');
@@ -499,7 +499,14 @@ async function _tryRestoreSession() {
         sessionState.sessionId = saved.sessionId;
         sessionState.responseCount = saved.responseCount || data.total_rows || 0;
 
-        document.getElementById('testScreen').style.display = 'block';
+        // Restore patient name in top bar
+        const patientName = localStorage.getItem('patientName');
+        if (patientName) {
+            const label = document.getElementById('patientNameLabel');
+            if (label) { label.textContent = '— ' + patientName; label.style.display = 'inline'; }
+        }
+
+        showTestScreen();
         updateSessionInfo(data);
         displayQuestion(data);
         updateStatusIndicator(true);
@@ -851,7 +858,7 @@ async function fetchScreenshot() {
     if (isTestDeviceId()) return null;
     try {
         const brainId = await getBrainId();
-        const resp = await fetch(`${CONFIG.phoropterUrl}/phoropter/${CONFIG.phoropterId}/screenshot`, {
+        const resp = await fetch(`${CONFIG.backendUrl}/api/phoropter/${CONFIG.phoropterId}/screenshot`, {
             method: 'POST',
             headers: { 'x-brain-id': brainId }
         });
@@ -860,7 +867,7 @@ async function fetchScreenshot() {
         let base64 = rawText.trim();
         if (base64.startsWith('"') && base64.endsWith('"')) base64 = base64.slice(1, -1);
         if (base64.startsWith('{')) {
-            try { const parsed = JSON.parse(rawText); base64 = parsed.image || parsed.screenshot || parsed.data || rawText; } catch (_) {}
+            try { const parsed = JSON.parse(rawText); base64 = parsed.image || parsed.screenshot || parsed.data || parsed.raw || rawText; } catch (_) {}
         }
         base64 = base64.replace(/\s+/g, '');
         return base64 && base64.length > 50 ? base64 : null;
@@ -928,6 +935,16 @@ async function checkIntakeRedirect() {
     if (sid) {
         sessionState.sessionId = sid;
 
+        // Show patient name in top bar if available
+        const patientName = localStorage.getItem('patientName');
+        if (patientName) {
+            const label = document.getElementById('patientNameLabel');
+            if (label) {
+                label.textContent = '— ' + patientName;
+                label.style.display = 'inline';
+            }
+        }
+
         // Restore device state immediately so the dropdown shows the
         // acquired phoropter (intake already acquired it).
         const savedDevice = localStorage.getItem('phoropterId');
@@ -962,8 +979,7 @@ async function fetchSessionStatus(sessionId) {
         if (!resp.ok) throw new Error('Session not found');
         const data = await resp.json();
 
-        document.getElementById('testScreen').style.display = 'block';
-        document.getElementById('noSessionScreen').style.display = 'none';
+        showTestScreen();
         updateSessionInfo(data);
         displayQuestion(data);
         updateStatusIndicator(true);
@@ -981,9 +997,9 @@ async function fetchSessionStatus(sessionId) {
             if (acqBtn) acqBtn.style.display = 'none';
         }
 
-        // Reset phoropter to 0/0/180 before the first question.
-        // Wait for the reset to complete, then open live view so the
-        // operator sees the zeroed-out phoropter display.
+        // Sequence: reset phoropter → sync initial power → grab live view.
+        // Reset zeroes the phoropter, then send-power pushes the session's
+        // starting Rx so the physical device matches what the UI shows.
         if (_deviceAcquired && !isTestDeviceId(savedDevice)) {
             addToHistory('Resetting phoropter...', 'info');
             try {
@@ -999,9 +1015,36 @@ async function fetchSessionStatus(sessionId) {
             } catch (resetErr) {
                 addToHistory('Warning: Could not reset phoropter', 'warning');
             }
+
+            // Now send the session's current power to the phoropter.
+            // This pushes the initial Rx (from AR/Lenso) that was loaded
+            // by the FSM during initialize(), so the physical device
+            // matches the "Current Power" table on screen.
+            addToHistory('Syncing initial power to phoropter...', 'info');
+            try {
+                const powerResp = await fetch(
+                    `${CONFIG.backendUrl}/api/session/${sessionId}/send-power`,
+                    { method: 'POST' }
+                );
+                if (powerResp.ok) {
+                    const powerData = await powerResp.json();
+                    console.log('[send-power] Response:', powerData);
+                    const re = powerData.target_re;
+                    const le = powerData.target_le;
+                    const reStr = re ? `${re.sph}/${re.cyl}x${re.axis}` : '?';
+                    const leStr = le ? `${le.sph}/${le.cyl}x${le.axis}` : '?';
+                    addToHistory(`Power synced → RE:${reStr} LE:${leStr}`, 'success');
+                } else {
+                    const errData = await powerResp.text();
+                    console.error('[send-power] Failed:', powerResp.status, errData);
+                    addToHistory('Warning: power sync returned ' + powerResp.status + ' — ' + errData, 'warning');
+                }
+            } catch (powerErr) {
+                addToHistory('Warning: Could not sync power', 'warning');
+            }
         }
 
-        // Open live view after reset so the screenshot shows the clean state
+        // Open live view after reset+power so screenshot shows the correct state
         openScreenshotModal();
 
     } catch (err) {
@@ -1172,7 +1215,7 @@ function updatePhaseProgress(currentState) {
         else if (idx < currentIdx) div.classList.add('completed');
 
         const label = document.createElement('span');
-        label.className = 'phase-label';
+        label.className = 'phase-dot';
         label.textContent = state;
 
         const name = document.createElement('span');
@@ -1299,6 +1342,13 @@ async function resetPhoropter() {
 }
 
 // ── UI Helpers ──────────────────────────────────────────────────────────
+function showTestScreen() {
+    const test = document.getElementById('testScreen');
+    const noSession = document.getElementById('noSessionScreen');
+    if (test) test.classList.add('active');
+    if (noSession) noSession.style.display = 'none';
+}
+
 function showLoading(show) {
     const el = document.getElementById('loadingIndicator');
     if (el) el.style.display = show ? 'block' : 'none';
@@ -1307,7 +1357,7 @@ function showLoading(show) {
 function updateStatusIndicator(active) {
     const el = document.getElementById('statusDot');
     if (el) {
-        el.className = active ? 'status-dot active' : 'status-dot';
+        el.className = active ? 'active' : '';
         el.title = active ? 'Session Active' : 'No Active Session';
     }
 }
@@ -1330,6 +1380,14 @@ function toggleSection(sectionId) {
     if (!section || !arrowEl) return;
     section.classList.toggle('collapsed');
     arrowEl.textContent = section.classList.contains('collapsed') ? '\u25B6' : '\u25BC';
+}
+
+function toggleHistory() {
+    const content = document.getElementById('historyContent');
+    const arrow = document.getElementById('historyArrow');
+    if (!content || !arrow) return;
+    content.classList.toggle('collapsed');
+    arrow.textContent = content.classList.contains('collapsed') ? '\u25B6' : '\u25BC';
 }
 
 // ── Keyboard Shortcuts ──────────────────────────────────────────────────
@@ -1367,15 +1425,7 @@ function startHeartbeat() {
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('Eye Test Engine v2 Frontend Loaded');
 
-    // Start sections collapsed
-    ['history', 'commands'].forEach(id => {
-        const section = document.getElementById('section-' + id);
-        const arrow = document.getElementById(id + 'Arrow');
-        if (section) section.classList.add('collapsed');
-        if (arrow) arrow.textContent = '\u25B6';
-    });
-
-    // Logs panel: hide tab if access denied
+    // Logs/debug panel: hide tab if access denied
     const logsTab = document.getElementById('logsTabBtn');
     if (logsTab && isLogsAccessDenied()) logsTab.classList.add('hidden');
     const debugTab = document.getElementById('debugTabBtn');

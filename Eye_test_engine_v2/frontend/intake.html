@@ -485,9 +485,15 @@
                 <div class="card-subtitle">Basic patient information</div>
                 <div class="form-row">
                     <div class="form-group">
+                        <label>Patient Name <span class="req">*</span></label>
+                        <input type="text" id="patientName" required placeholder="e.g. John Smith">
+                    </div>
+                    <div class="form-group">
                         <label>Age <span class="req">*</span></label>
                         <input type="number" id="age" min="1" max="120" required placeholder="e.g. 45">
                     </div>
+                </div>
+                <div class="form-row">
                     <div class="form-group">
                         <label>Occupation</label>
                         <input type="text" id="occupation" placeholder="e.g. IT Professional">
@@ -786,6 +792,12 @@
         (function () {
             'use strict';
 
+            // ── Backend URL (same logic as app.js) ───────
+            const BACKEND_URL = (window.BACKEND_URL)
+                ? window.BACKEND_URL
+                : ((window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+                    ? 'http://localhost:5050' : '');
+
             // ── Helpers ───────────────────────────────────
             const $ = id => document.getElementById(id);
             const numVal = id => { const v = $(id).value; return v === '' ? null : parseFloat(v); };
@@ -818,12 +830,14 @@
             // ── Device list ──────────────────────────────
             async function loadDevices() {
                 try {
-                    const res = await fetch('/api/devices');
-                    if (!res.ok) throw new Error('Failed to fetch devices');
+                    console.log('[intake] Fetching devices from:', BACKEND_URL + '/api/devices');
+                    const res = await fetch(BACKEND_URL + '/api/devices');
+                    if (!res.ok) throw new Error('Failed to fetch devices: HTTP ' + res.status);
                     const data = await res.json();
+                    console.log('[intake] Devices response:', JSON.stringify(data).slice(0, 200));
                     const sel = $('phoropterId');
-                    // Keep "Test" as first option
-                    const devices = data.devices || data || [];
+                    const devices = Array.isArray(data) ? data : (data.devices || []);
+                    console.log('[intake] Found', devices.length, 'devices');
                     devices.forEach(d => {
                         const id = d.device_id || d.id || d;
                         if (id === 'test') return;
@@ -831,12 +845,13 @@
                         opt.value = id;
                         opt.textContent = id + (d.status ? ` (${d.status})` : '');
                         sel.appendChild(opt);
+                        console.log('[intake] Added device:', id);
                     });
                 } catch (e) {
-                    console.warn('Could not load devices:', e.message);
+                    console.error('[intake] Could not load devices:', e);
                 }
                 // Restore saved phoropter
-                const saved = localStorage.getItem('phoropter_id');
+                const saved = localStorage.getItem('phoropterId');
                 if (saved) $('phoropterId').value = saved;
             }
             loadDevices();
@@ -856,7 +871,7 @@
             // ── Acquire device ───────────────────────────
             window.acquireDevice = async function () {
                 const id = strVal('phoropterId');
-                localStorage.setItem('phoropter_id', id);
+                localStorage.setItem('phoropterId', id);
                 if (id === 'test') {
                     $('deviceBadge').textContent = 'Test mode';
                     $('deviceBadge').className = 'device-badge ok';
@@ -866,9 +881,14 @@
                 try {
                     $('acquireBtn').disabled = true;
                     const operator = strVal('operatorName') || 'operator';
+                    // Save operator name so index.html uses the same brain_id
+                    // for heartbeat, release, and screenshot calls.
+                    localStorage.setItem('optometristName', operator);
+                    localStorage.setItem('optometristNameTimestamp', String(Date.now()));
+                    localStorage.setItem('optometristTTL', '24');
                     const ip = await getClientIp();
                     const brainId = operator.replace(/\s+/g, '_') + '@' + ip;
-                    const res = await fetch(`/api/devices/${id}/acquire`, {
+                    const res = await fetch(`${BACKEND_URL}/api/devices/${id}/acquire`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ brain_id: brainId, name: operator })
@@ -948,6 +968,14 @@
             $('intakeForm').addEventListener('submit', async function (e) {
                 e.preventDefault();
 
+                // Validate patient name
+                const patientName = strVal('patientName');
+                if (!patientName) {
+                    toast('Patient name is required', 'error');
+                    $('patientName').focus();
+                    return;
+                }
+
                 // Validate age
                 const age = intVal('age');
                 if (!age || age < 1 || age > 120) {
@@ -962,7 +990,8 @@
 
                 // Build payload
                 const phoropterId = strVal('phoropterId');
-                localStorage.setItem('phoropter_id', phoropterId);
+                localStorage.setItem('phoropterId', phoropterId);
+                localStorage.setItem('patientName', patientName);
 
                 const arRight = rxObj('arRSph', 'arRCyl', 'arRAxis');
                 const arLeft = rxObj('arLSph', 'arLCyl', 'arLAxis');
@@ -972,6 +1001,7 @@
                 const payload = {
                     phoropter_id: phoropterId,
                     patient: {
+                        name: patientName,
                         age: age,
                         occupation: strVal('occupation'),
                         screen_time_hours: numVal('screenTimeHours'),
@@ -1011,7 +1041,7 @@
                 btn.textContent = 'Submitting...';
 
                 try {
-                    const res = await fetch('/api/session/intake', {
+                    const res = await fetch(BACKEND_URL + '/api/session/intake', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(payload)
