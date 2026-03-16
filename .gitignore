@@ -6,6 +6,7 @@ __pycache__/
 venv/
 .env
 *FSMv2.*
+eye_test_engine/
 
 # IDE
 .idea/

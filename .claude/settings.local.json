@@ -56,7 +56,8 @@
       "Bash(sleep 2; curl -s http://localhost:5050/ | head -3)",
       "Bash(python -c \"from session_orchestrator import SessionOrchestrator; print\\('OK'\\)\" 2>&1 && node --check /Users/shantanuchandra/Downloads/eye_test_engine_Claude/Eye_test_engine_v2/frontend/app.js 2>&1 && echo \"JS OK\")",
       "Bash(python -c \"from session_orchestrator import SessionOrchestrator; print\\('OK'\\)\" 2>&1 && python -c \"from api_server import app; print\\('API OK'\\)\" 2>&1 && node --check /Users/shantanuchandra/Downloads/eye_test_engine_Claude/Eye_test_engine_v2/frontend/app.js 2>&1 && echo \"JS OK\")",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(find:*)"
     ]
   }
 }

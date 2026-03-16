@@ -67,11 +67,11 @@ def jcc_power_sphere_compensation(
     old_bucket = int(old_rel / threshold_step)
     new_bucket = int(new_rel / threshold_step)
 
-    if new_bucket > old_bucket:
-        return float(compensation_step)
-
-    if new_bucket < old_bucket:
-        return -float(compensation_step)
+    if new_bucket != old_bucket:
+        if proposed_cyl_delta > 0:
+            return -float(compensation_step)
+        if proposed_cyl_delta < 0:
+            return float(compensation_step)
 
     return 0.0
 
