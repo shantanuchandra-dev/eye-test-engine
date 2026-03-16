@@ -257,6 +257,31 @@ def respond(session_id):
     })
 
 
+@app.route('/api/session/<session_id>/jump', methods=['POST'])
+def jump_to_phase(session_id):
+    """Jump to a specific FSM phase."""
+    if session_id not in sessions:
+        return jsonify({"error": "Session not found"}), 404
+
+    session = sessions[session_id]
+    payload = request.json or {}
+    _log_api_command(f"/api/session/{session_id}/jump", payload)
+    target_state = payload.get("state", "")
+
+    if not target_state:
+        return jsonify({"error": "state required"}), 400
+
+    result = session.jump_to_phase(target_state)
+    if "error" in result:
+        return jsonify(result), 400
+
+    return jsonify({
+        "session_id": session_id,
+        "status": "active",
+        **result,
+    })
+
+
 @app.route('/api/session/<session_id>/status', methods=['GET'])
 def get_status(session_id):
     """Get full current session state."""

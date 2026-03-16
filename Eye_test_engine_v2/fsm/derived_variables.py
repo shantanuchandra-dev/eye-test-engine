@@ -39,3 +39,12 @@ class DerivedVariables:
     dv_axis_step_policy: str
     dv_duochrome_max_flips: int
     dv_near_test_required: bool
+
+    # FSM v2.3 additions (defaults prevent breaking existing scripts)
+
+    dv_jcc_axis_same_required: int = 2
+    dv_jcc_axis_max_flips: int = 3
+
+    dv_near_binoc_step_D: float = 0.25
+    dv_near_binoc_max_plus_steps: int = 4
+    dv_near_binoc_max_minus_steps: int = 4

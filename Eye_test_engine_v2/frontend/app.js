@@ -573,6 +573,15 @@ function saveOptometristName() {
     if (modal) modal.classList.remove('active');
 }
 
+// ── JCC Auto-Flip State ─────────────────────────────────────────────────
+let _autoFlipTimer = null;   // setTimeout ID for auto-flip countdown
+let _autoFlipAborted = false; // Flag to cancel pending flip
+
+function cancelAutoFlip() {
+    if (_autoFlipTimer) { clearTimeout(_autoFlipTimer); _autoFlipTimer = null; }
+    _autoFlipAborted = true;
+}
+
 // ── Manual Refraction Controls ──────────────────────────────────────────
 let manualControlsLocked = false;
 let _manualAutoUnlockTimer = null;
@@ -1056,6 +1065,8 @@ async function fetchSessionStatus(sessionId) {
 // ── Submit Response ─────────────────────────────────────────────────────
 async function submitResponse(responseValue) {
     if (sessionState.intentsLocked || _phoropterBusy) return;
+    // Cancel any pending auto-flip when operator manually responds
+    cancelAutoFlip();
     try {
         showLoading(true);
         sessionState.intentsLocked = true;
@@ -1105,6 +1116,9 @@ async function submitResponse(responseValue) {
 
 // ── Display Question and Response Buttons ───────────────────────────────
 function displayQuestion(data) {
+    // Cancel any pending auto-flip from previous question
+    cancelAutoFlip();
+
     const phaseBadge = document.getElementById('phaseBadge');
     const questionText = document.getElementById('questionText');
     const intentButtons = document.getElementById('intentButtons');
@@ -1122,18 +1136,42 @@ function displayQuestion(data) {
         else { eyeIndicator.textContent = ''; eyeIndicator.className = 'eye-indicator'; }
     }
 
-    // Build response buttons
+    // ── JCC Auto-Flip: Flip 1 countdown ─────────────────────────
+    if (data.auto_flip && data.jcc_flip === 'flip1') {
+        if (intentButtons) {
+            const waitSec = data.flip_wait_seconds || 2;
+            intentButtons.innerHTML = `
+                <div class="alert alert-warning" style="text-align:center;padding:12px;">
+                    <div style="font-size:1.1em;font-weight:600;">Observe Flip 1</div>
+                    <div id="flipCountdown" style="margin-top:8px;font-size:1.3em;color:#e65100;">
+                        Flip 2 in ${waitSec}s...
+                    </div>
+                </div>`;
+            sessionState.intentsLocked = true;
+            handleAutoFlip(waitSec);
+        }
+        // Update step info even during flip 1
+        if (data.step_info) {
+            const stepEl = document.getElementById('stepInfo');
+            if (stepEl) stepEl.textContent = `Step ${data.step_info.step || 0} | Phase step ${data.step_info.phase_step_count || 0}`;
+        }
+        return;
+    }
+
+    // Build response buttons (normal path + Flip 2 path)
     if (intentButtons) {
         intentButtons.innerHTML = '';
         sessionState.intentsLocked = false;
         const options = data.options || [];
+        const labels = data.option_labels || {};  // e.g. {"CANT_TELL": "CANT TELL / REPEAT"}
         options.forEach((opt, index) => {
             const button = document.createElement('button');
             button.className = 'intent-button';
             const color = RESPONSE_COLORS[opt] || '#607d8b';
             button.style.borderLeft = `4px solid ${color}`;
-            button.textContent = `${index + 1}. ${opt.replace(/_/g, ' ')}`;
-            button.onclick = () => submitResponse(opt);
+            const displayText = labels[opt] || opt.replace(/_/g, ' ');
+            button.textContent = `${index + 1}. ${displayText}`;
+            button.onclick = () => submitResponse(opt);  // sends original value
             // Keyboard shortcut
             button.dataset.shortcut = String(index + 1);
             intentButtons.appendChild(button);
@@ -1146,6 +1184,49 @@ function displayQuestion(data) {
         if (stepEl) {
             stepEl.textContent = `Step ${data.step_info.step || 0} | Phase step ${data.step_info.phase_step_count || 0}`;
         }
+    }
+}
+
+// ── JCC Auto-Flip Handler ───────────────────────────────────────────────
+async function handleAutoFlip(waitSeconds) {
+    _autoFlipAborted = false;
+
+    // Countdown display
+    for (let i = waitSeconds; i > 0; i--) {
+        if (_autoFlipAborted) return;
+        const cd = document.getElementById('flipCountdown');
+        if (cd) cd.textContent = `Flip 2 in ${i}s...`;
+        await new Promise(r => setTimeout(r, 1000));
+    }
+    if (_autoFlipAborted) return;
+
+    // Update UI to show transitioning
+    const cd = document.getElementById('flipCountdown');
+    if (cd) cd.textContent = 'Showing Flip 2...';
+
+    // Send AUTO_FLIP to backend
+    try {
+        const response = await fetch(`${CONFIG.backendUrl}/api/session/${sessionState.sessionId}/respond`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ response: 'AUTO_FLIP' })
+        });
+        if (!response.ok) throw new Error('Auto-flip failed');
+        const data = await response.json();
+
+        if (_autoFlipAborted) return;
+
+        addToHistory('JCC Flip 1 \u2192 Flip 2', 'info');
+        updateSessionInfo(data);
+        displayQuestion(data);
+        if (data.step_info) {
+            const stepEl = document.getElementById('stepInfo');
+            if (stepEl) stepEl.textContent = `Step ${data.step_info.step || 0} | Phase step ${data.step_info.phase_step_count || 0}`;
+        }
+    } catch (err) {
+        console.error('Auto-flip error:', err);
+        addToHistory('Auto-flip failed', 'error');
+        sessionState.intentsLocked = false;
     }
 }
 
@@ -1214,6 +1295,12 @@ function updatePhaseProgress(currentState) {
         if (state === currentState) div.classList.add('current');
         else if (idx < currentIdx) div.classList.add('completed');
 
+        // Make clickable — jump to any phase
+        if (state !== 'END' && state !== currentState) {
+            div.title = `Jump to ${FSM_STATE_NAMES[state] || state}`;
+            div.onclick = () => jumpToPhase(state);
+        }
+
         const label = document.createElement('span');
         label.className = 'phase-dot';
         label.textContent = state;
@@ -1226,6 +1313,47 @@ function updatePhaseProgress(currentState) {
         div.appendChild(name);
         container.appendChild(div);
     });
+
+    // Scroll the current phase into view
+    const currentEl = container.querySelector('.phase-step.current');
+    if (currentEl) currentEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+async function jumpToPhase(targetState) {
+    if (!sessionState.sessionId) {
+        alert('No active session');
+        return;
+    }
+    cancelAutoFlip();
+    try {
+        showLoading(true);
+        sessionState.intentsLocked = true;
+
+        const response = await fetch(`${CONFIG.backendUrl}/api/session/${sessionState.sessionId}/jump`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ state: targetState })
+        });
+
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error || 'Jump failed');
+        }
+        const data = await response.json();
+
+        addToHistory(`Phase jump → ${data.phase_name || targetState}`, 'warning');
+        updateSessionInfo(data);
+        displayQuestion(data);
+        updatePhaseProgress(data.state);
+        _saveSessionToStorage();
+        refreshDerivedVariables();
+    } catch (err) {
+        console.error('Phase jump failed:', err);
+        alert('Phase jump failed: ' + err.message);
+        sessionState.intentsLocked = false;
+    } finally {
+        showLoading(false);
+    }
 }
 
 // ── Escalation ──────────────────────────────────────────────────────────
@@ -1388,6 +1516,12 @@ function toggleHistory() {
     if (!content || !arrow) return;
     content.classList.toggle('collapsed');
     arrow.textContent = content.classList.contains('collapsed') ? '\u25B6' : '\u25BC';
+    // Auto-scroll to bottom when expanded
+    if (!content.classList.contains('collapsed')) {
+        requestAnimationFrame(() => {
+            content.scrollTop = content.scrollHeight;
+        });
+    }
 }
 
 // ── Keyboard Shortcuts ──────────────────────────────────────────────────

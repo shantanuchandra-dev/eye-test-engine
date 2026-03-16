@@ -59,3 +59,20 @@ class FSMRuntimeRow:
     duo_flip: int = 0
     next_state: str = ""
     row_active: bool = True
+
+    # ---------------------------------------
+    # FSM v2.3 additions
+    # ---------------------------------------
+
+    # JCC Axis tracking
+    axis_flip_count: int = 0
+
+    # JCC Power entry cylinder (used for relative cylinder displacement compensation)
+    jcc_power_start_re_cyl: Optional[float] = None
+    jcc_power_start_le_cyl: Optional[float] = None
+
+    # Near binocular search tracking
+    near_bino_start_add_r: Optional[float] = None
+    near_bino_start_add_l: Optional[float] = None
+    near_bino_direction: str = ""   # "PLUS" or "MINUS"
+    near_bino_reversed: bool = False

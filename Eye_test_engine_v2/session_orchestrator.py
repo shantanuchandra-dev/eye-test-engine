@@ -1,6 +1,6 @@
 """
 Session orchestrator for Eye Test Engine v2.
-Wraps FSMv2.2 RefractionFSMEngine with phoropter API integration.
+Wraps FSMv2.4 RefractionFSMEngine with phoropter API integration.
 """
 import importlib.util as _ilu
 import json
@@ -92,7 +92,7 @@ STATE_NAMES = {
 
 
 class SessionOrchestrator:
-    """Orchestrates an eye test session using FSMv2.2 engine."""
+    """Orchestrates an eye test session using FSMv2.4 engine."""
 
     def __init__(self, base_url: str, phoropter_id: str, calibration_path: str):
         self.base_url = base_url
@@ -125,7 +125,8 @@ class SessionOrchestrator:
         self._prev_aux_lens = "BINO"
         self._prev_add_r = 0.0
         self._prev_add_l = 0.0
-        self._jcc_mode = None  # Track current JCC mode: "axis" or "power"
+        self._jcc_mode = None     # Track current JCC mode: "axis" or "power"
+        self._jcc_flip_state = "flip1"  # Track JCC flip cycle: "flip1" or "flip2"
 
     def initialize(self, patient_data: dict) -> dict:
         """Initialize session with patient data. Returns first stimulus."""
@@ -159,10 +160,39 @@ class SessionOrchestrator:
 
         return self._build_response()
 
+    # JCC states that use the flip 1 / flip 2 cycle
+    JCC_STATES = ("E", "F", "H", "I")
+
     def process_response(self, response_value: str) -> dict:
-        """Process patient response, advance FSM, send phoropter commands."""
+        """Process patient response, advance FSM, send phoropter commands.
+
+        JCC Flip Cycle (states E/F/H/I):
+        ─────────────────────────────────
+        Flip 1 is the default position when:
+          • JCC chart command is sent  (entering JCC from non-JCC)
+          • power_axis_switch is sent  (E→F or H→I transition)
+        In all other cases (staying in same JCC state, e.g. E→E or F→F)
+        we must send an explicit "handle" to return to Flip 1.
+
+        Cycle:
+          Flip 1 (2 sec) → AUTO_FLIP → handle → Flip 2 → operator responds
+          → FSM adjusts → power sent → handle (if same state) → Flip 1 → repeat
+        """
         if self.current_row is None:
             return {"error": "Session not initialized"}
+
+        # ── AUTO_FLIP: Flip 1 → Flip 2 transition ─────────────────
+        if response_value == "AUTO_FLIP":
+            state = self.current_row.state
+            if state in self.JCC_STATES and self._jcc_flip_state == "flip1":
+                self._send_jcc_command("handle")
+                self._jcc_flip_state = "flip2"
+                print(f"[JCC] Flip 1→2 (state {state}): sent handle")
+                return self._build_response()
+            return self._build_response()
+
+        # ── Real response (from Flip 2): process via FSM ──────────
+        prev_state = self.current_row.state
 
         # Apply response to FSM
         finalized = self.fsm_engine.apply_response(
@@ -188,14 +218,126 @@ class SessionOrchestrator:
             return self._build_response(terminal=True)
 
         # Track state change
-        if next_row.state != self.current_row.state:
+        state_changed = next_row.state != prev_state
+        if state_changed:
             self._track_phase_entry(next_row.state)
 
         self.current_row = next_row
 
+        # ── Send phoropter commands + JCC Flip 1 positioning ──────
+        same_jcc = (not state_changed
+                    and self.current_row.state in self.JCC_STATES)
+
+        # When staying in the same JCC state, skip re-sending the chart
+        # (it's already displayed; re-clicking would reset flip position)
+        self._send_phoropter_commands(self.current_row,
+                                      skip_jcc_chart=same_jcc)
+
+        if self.current_row.state in self.JCC_STATES:
+            if state_changed:
+                # Chart click or power_axis_switch resets to Flip 1 automatically
+                print(f"[JCC] Entered {self.current_row.state} from {prev_state}: "
+                      f"Flip 1 auto (chart/switch)")
+            else:
+                # Same JCC state: power adjusted, need explicit handle for Flip 1
+                self._send_jcc_command("handle")
+                print(f"[JCC] Same state {self.current_row.state}: "
+                      f"sent handle for Flip 1")
+            self._jcc_flip_state = "flip1"
+        else:
+            self._jcc_flip_state = "flip1"
+
+        return self._build_response()
+
+    def jump_to_phase(self, target_state: str) -> dict:
+        """Jump to a specific FSM phase, keeping current power values."""
+        if self.current_row is None:
+            return {"error": "Session not initialized"}
+        if self.derived_vars is None:
+            return {"error": "Derived variables not set"}
+
+        valid_states = ("A", "B", "D", "E", "F", "G", "H", "I", "J", "K", "P", "Q", "R")
+        if target_state not in valid_states:
+            return {"error": f"Invalid target state: {target_state}"}
+
+        prev_state = self.current_row.state
+        row = self.current_row
+
+        # Determine chart_param — use current if available, fallback to a sensible default
+        chart_param = str(row.chart_param) if row.chart_param else "400"
+
+        # Build a new row for the target state using current power values
+        new_row = self.fsm_engine._row_for_state(
+            step=row.step + 1,
+            visit_id=row.visit_id,
+            state=target_state,
+            dv=self.derived_vars,
+            re_sph=row.re_sph,
+            re_cyl=row.re_cyl,
+            re_axis=row.re_axis,
+            le_sph=row.le_sph,
+            le_cyl=row.le_cyl,
+            le_axis=row.le_axis,
+            add_r=row.add_r,
+            add_l=row.add_l,
+            chart_param=chart_param,
+            phase_step_count=0,
+            same_streak=0,
+            prev_axis_response="",
+            duo_iter=0,
+            duo_flip=0,
+            axis_step=self.fsm_engine._axis_fixed_step(),
+            axis_flip_count=0,
+            jcc_power_start_re_cyl=row.re_cyl if target_state == "F" else None,
+            jcc_power_start_le_cyl=row.le_cyl if target_state == "I" else None,
+            near_bino_start_add_r=row.add_r if target_state == "R" else None,
+            near_bino_start_add_l=row.add_l if target_state == "R" else None,
+            near_bino_direction="",
+            near_bino_reversed=False,
+        )
+
+        self.current_row = new_row
+        self._track_phase_entry(target_state)
+        self._phase_jump_count += 1
+
+        # Record jump in history
+        self._row_counter += 1
+        sr = SessionRow(
+            row_number=self._row_counter,
+            timestamp=datetime.now().isoformat(timespec="milliseconds"),
+            interaction_type="PhaseJump",
+            r_sph=new_row.re_sph or 0.0,
+            r_cyl=new_row.re_cyl or 0.0,
+            r_axis=new_row.re_axis or 180.0,
+            r_add=new_row.add_r or 0.0,
+            l_sph=new_row.le_sph or 0.0,
+            l_cyl=new_row.le_cyl or 0.0,
+            l_axis=new_row.le_axis or 180.0,
+            l_add=new_row.add_l or 0.0,
+            occluder_state=STATE_OCCLUDER_MAP.get(target_state, ""),
+            chart_param=new_row.chart_param,
+            chart_display=new_row.chart_type,
+            change_delta=f"Jump: {prev_state} → {target_state}",
+            phase_name=new_row.phase_name,
+            state=target_state,
+            question="",
+            response_value="",
+        )
+        self.session_history.append(sr)
+
         # Send phoropter commands for new state
         self._send_phoropter_commands(self.current_row)
 
+        # Reset JCC flip state
+        if target_state in self.JCC_STATES:
+            self._jcc_flip_state = "flip1"
+        else:
+            self._jcc_flip_state = "flip1"
+
+        # Reset JCC mode tracking on jump
+        self._jcc_mode = None
+
+        print(f"[PHASE JUMP] {prev_state} → {target_state}")
         return self._build_response()
 
     def get_derived_variables_display(self) -> dict:
@@ -239,6 +381,11 @@ class SessionOrchestrator:
                 "Axis Step Policy": dv.dv_axis_step_policy,
                 "Duochrome Max Flips": dv.dv_duochrome_max_flips,
                 "Near Test Required": dv.dv_near_test_required,
+                "JCC Axis Same Required": dv.dv_jcc_axis_same_required,
+                "JCC Axis Max Flips": dv.dv_jcc_axis_max_flips,
+                "Near Binoc Step": f"{dv.dv_near_binoc_step_D}D",
+                "Near Binoc Max Plus Steps": dv.dv_near_binoc_max_plus_steps,
+                "Near Binoc Max Minus Steps": dv.dv_near_binoc_max_minus_steps,
             }
 
         if self.current_row:
@@ -265,6 +412,13 @@ class SessionOrchestrator:
                 "LE Power": f"{row.le_sph}/{row.le_cyl}x{row.le_axis}",
                 "ADD": f"R:{row.add_r} L:{row.add_l}",
                 "Next State": row.next_state,
+                "Axis Flip Count": row.axis_flip_count,
+                "JCC Power Start RE CYL": row.jcc_power_start_re_cyl,
+                "JCC Power Start LE CYL": row.jcc_power_start_le_cyl,
+                "Near Bino Start ADD R": row.near_bino_start_add_r,
+                "Near Bino Start ADD L": row.near_bino_start_add_l,
+                "Near Bino Direction": row.near_bino_direction or "(none)",
+                "Near Bino Reversed": row.near_bino_reversed,
             }
 
         return result
@@ -436,6 +590,31 @@ class SessionOrchestrator:
         if terminal:
             response["terminal_state"] = row.next_state
 
+        # JCC auto-flip: signal frontend to show Flip 1 with countdown
+        state = row.state if not terminal else (row.next_state or "")
+        if state in self.JCC_STATES and self._jcc_flip_state == "flip1" and not terminal:
+            response["auto_flip"] = True
+            response["flip_wait_seconds"] = 2
+            response["jcc_flip"] = "flip1"
+            # Override question for Flip 1
+            jcc_type = "Axis" if state in ("E", "H") else "Power"
+            eye = "Right Eye" if state in ("E", "F") else "Left Eye"
+            response["question"] = f"JCC {jcc_type} ({eye}) — Focus on the dot chart. This is Flip 1."
+            # Clear options: no response buttons during Flip 1
+            response["options"] = []
+        elif state in self.JCC_STATES and self._jcc_flip_state == "flip2" and not terminal:
+            response["auto_flip"] = False
+            response["jcc_flip"] = "flip2"
+            jcc_type = "Axis" if state in ("E", "H") else "Power"
+            eye = "Right Eye" if state in ("E", "F") else "Left Eye"
+            response["question"] = f"JCC {jcc_type} ({eye}) — This is Flip 2. Which was better?"
+            # Rename CANT_TELL → CANT_TELL in options but frontend shows as
+            # "CANT TELL / REPEAT".  We use a display_labels map so the
+            # actual response value stays CANT_TELL for FSM processing.
+            response["option_labels"] = {
+                "CANT_TELL": "CANT TELL / REPEAT",
+            }
+
         return response
 
     def _record_row(self, finalized: FSMRuntimeRow, response_value: str) -> None:
@@ -518,8 +697,14 @@ class SessionOrchestrator:
         if state not in self._phases_visited:
             self._phases_visited.append(state)
 
-    def _send_phoropter_commands(self, row: FSMRuntimeRow) -> None:
-        """Send appropriate phoropter commands for the current FSM state."""
+    def _send_phoropter_commands(self, row: FSMRuntimeRow, skip_jcc_chart: bool = False) -> None:
+        """Send appropriate phoropter commands for the current FSM state.
+
+        skip_jcc_chart: If True, skip sending the JCC chart command.
+                        Used when staying in the same JCC state — the chart
+                        is already displayed and re-clicking would interfere
+                        with the flip position.
+        """
         state = row.state
 
         # Determine target power
@@ -546,13 +731,28 @@ class SessionOrchestrator:
             if chart_info:
                 self._send_chart_command(chart_info["tab"], chart_info["chart_items"])
         elif chart_type == "jcc":
-            self._send_chart_command("Chart1", ["chart_19"])
+            if not skip_jcc_chart:
+                self._send_chart_command("Chart1", ["chart_19"])
         elif chart_type == "duochrome":
             self._send_chart_command("Chart1", ["chart_17"])
         elif chart_type == "bino":
             self._send_chart_command("Chart1", ["chart_20"])
         elif chart_type == "near":
             self._send_chart_command("Chart5", ["chart_5"])
+
+        # During JCC Power (F, I), the phoropter hardware automatically
+        # compensates sphere when cylinder changes.  We must NOT send sphere
+        # deltas to the phoropter — only cylinder (and axis).  The FSM still
+        # tracks the full sphere internally for display and history.
+        phoropter_re = {**target_re}
+        phoropter_le = {**target_le}
+        if state in ("F", "I"):
+            # Keep sphere at prev value so broker computes zero sphere clicks
+            phoropter_re["sph"] = self._prev_re["sph"]
+            phoropter_le["sph"] = self._prev_le["sph"]
+            print(f"[JCC Power] Suppressing SPH in phoropter command. "
+                  f"FSM SPH: RE={target_re['sph']}, LE={target_le['sph']}  "
+                  f"Phoropter SPH: RE={phoropter_re['sph']}, LE={phoropter_le['sph']}")
 
         # Send power + occluder with prev_state for accurate click calculation
         payload = {
@@ -562,8 +762,8 @@ class SessionOrchestrator:
                 "prev_right_eye": {**self._prev_re},
                 "prev_left_eye": {**self._prev_le},
                 "aux_lens": target_aux,
-                "right_eye": {**target_re},
-                "left_eye": {**target_le},
+                "right_eye": {**phoropter_re},
+                "left_eye": {**phoropter_le},
             }]
         }
 

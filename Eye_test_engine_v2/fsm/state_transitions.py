@@ -46,21 +46,26 @@ def compute_next_state(context: dict) -> str:
     timeout = context["timeout"]
     re_escalate = context["re_escalate"]
     le_escalate = context["le_escalate"]
-    same_streak = context["same_streak"]
-    power_same_n = context["power_same_n"]
-    duo_equal_n = context["duo_equal_n"]
-    duo_flip = context["duo_flip"]
-    duo_max = context["duo_max"]
-    bino_same_n = context["bino_same_n"]
+    same_streak = int(context["same_streak"])
+    power_same_n = int(context["power_same_n"])
+    duo_equal_n = int(context["duo_equal_n"])
+    duo_flip = int(context["duo_flip"])
+    duo_max = int(context["duo_max"])
+    bino_same_n = int(context["bino_same_n"])
     bino_flip = int(context.get("bino_flip", 0))
     bino_flip_limit = int(context.get("bino_flip_limit", 1))
     skip_bino_balance = bool(context.get("skip_bino_balance", False))
     near_target = context["near_target"]
-    near_required = context["near_required"]
-    immediate_review = context["immediate_review"]
+    near_required = bool(context["near_required"])
+    immediate_review = bool(context["immediate_review"])
     chart_idx = int(context["chart_idx"])
     target_chart_idx = int(context["target_chart_idx"])
     jcc_power_flip_limit_hit = bool(context["jcc_power_flip_limit_hit"])
+
+    # FSM v2.3 additions
+    axis_same_required = int(context.get("axis_same_required", 2))
+    axis_flip_count = int(context.get("axis_flip_count", 0))
+    axis_flip_max = int(context.get("axis_flip_max", 3))
 
     if immediate_review:
         return "ESCALATE"
@@ -82,7 +87,9 @@ def compute_next_state(context: dict) -> str:
     if state == "E":
         if timeout:
             return "ESCALATE"
-        if response in ("SAME", "CANT_TELL"):
+        if same_streak >= axis_same_required:
+            return "F"
+        if axis_flip_count >= axis_flip_max:
             return "F"
         return "E"
 
@@ -110,7 +117,9 @@ def compute_next_state(context: dict) -> str:
     if state == "H":
         if timeout:
             return "ESCALATE"
-        if response in ("SAME", "CANT_TELL"):
+        if same_streak >= axis_same_required:
+            return "I"
+        if axis_flip_count >= axis_flip_max:
             return "I"
         return "H"
 
@@ -156,7 +165,7 @@ def compute_next_state(context: dict) -> str:
     if state == "R":
         if timeout:
             return "ESCALATE"
-        if response in (near_target, "SAME"):
+        if response in (near_target, "SAME", "TARGET_OK"):
             return "END"
         return "R"
 

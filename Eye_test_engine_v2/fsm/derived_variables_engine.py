@@ -129,6 +129,27 @@ class DerivedVariablesEngine:
             age_bucket=age_bucket,
         )
 
+        # FSM v2.3 additions
+        jcc_axis_same_required = int(
+            self.cal.get("jcc_axis_same_required", 2)
+        )
+
+        jcc_axis_max_flips = int(
+            self.cal.get("jcc_axis_max_flips", 3)
+        )
+
+        near_binoc_step = float(
+            self.cal.get("near_binoc_step_D", 0.25)
+        )
+
+        near_binoc_max_plus = int(
+            self.cal.get("near_binoc_max_plus_steps", 4)
+        )
+
+        near_binoc_max_minus = int(
+            self.cal.get("near_binoc_max_minus_steps", 4)
+        )
+
         return DerivedVariables(
             visit_id=patient.visit_id,
             dv_age_bucket=age_bucket,
@@ -166,6 +187,13 @@ class DerivedVariablesEngine:
             dv_axis_step_policy=axis_step_policy,
             dv_duochrome_max_flips=duochrome_max_flips,
             dv_near_test_required=near_test_required,
+
+            dv_jcc_axis_same_required=jcc_axis_same_required,
+            dv_jcc_axis_max_flips=jcc_axis_max_flips,
+
+            dv_near_binoc_step_D=near_binoc_step,
+            dv_near_binoc_max_plus_steps=near_binoc_max_plus,
+            dv_near_binoc_max_minus_steps=near_binoc_max_minus,
         )
 
     def derive_as_dict(self, patient: PatientInput) -> dict:

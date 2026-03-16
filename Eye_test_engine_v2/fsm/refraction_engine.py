@@ -14,6 +14,7 @@ from .delta_calculators import (
     jcc_power_cyl_delta,
     jcc_power_sphere_compensation,
     near_add_delta,
+    near_binoc_ou_delta,
     wrap_axis,
 )
 from .escalation_rules import (
@@ -47,6 +48,9 @@ class RefractionFSMEngine:
             return int(self.cal.get("jcc_power_same_medium", 2))
         return int(self.cal.get("jcc_power_same_high", 2))
 
+    def _axis_fixed_step(self) -> float:
+        return float(self.cal.get("axis_fixed_step", 5))
+
     def _row_for_state(
         self,
         step: int,
@@ -68,6 +72,13 @@ class RefractionFSMEngine:
         duo_iter: int,
         duo_flip: int,
         axis_step: float,
+        axis_flip_count: int = 0,
+        jcc_power_start_re_cyl: Optional[float] = None,
+        jcc_power_start_le_cyl: Optional[float] = None,
+        near_bino_start_add_r: Optional[float] = None,
+        near_bino_start_add_l: Optional[float] = None,
+        near_bino_direction: str = "",
+        near_bino_reversed: bool = False,
     ) -> FSMRuntimeRow:
         target_chart = target_line_to_chart(dv.dv_target_distance_va, self.cal)
         target_chart_idx = get_chart_index(target_chart)
@@ -132,6 +143,13 @@ class RefractionFSMEngine:
             duo_flip=duo_flip,
             next_state=state,
             row_active=True,
+            axis_flip_count=axis_flip_count,
+            jcc_power_start_re_cyl=jcc_power_start_re_cyl,
+            jcc_power_start_le_cyl=jcc_power_start_le_cyl,
+            near_bino_start_add_r=near_bino_start_add_r,
+            near_bino_start_add_l=near_bino_start_add_l,
+            near_bino_direction=near_bino_direction,
+            near_bino_reversed=near_bino_reversed,
         )
 
         if state == "A":
@@ -141,7 +159,7 @@ class RefractionFSMEngine:
             row.chart_type = "SNELLEN_FEET"
             row.response_type = "READABILITY"
             row.eye = "BIN"
-            row.question = "Can you read this clearly?"
+            row.question = "Look at the letters on the screen. Are they clear to read, a little blurry, or can you not read them?"
             row.opt_1, row.opt_2, row.opt_3 = "READABLE", "NOT_READABLE", "BLURRY"
 
         elif state == "B":
@@ -151,7 +169,7 @@ class RefractionFSMEngine:
             row.chart_type = "SNELLEN_FEET"
             row.response_type = "READABILITY"
             row.eye = "RE"
-            row.question = "Can you read this clearly?"
+            row.question = "Looking at the letters again, are they clear, slightly blurry, or not readable?"
             row.opt_1, row.opt_2, row.opt_3 = "READABLE", "NOT_READABLE", "BLURRY"
 
         elif state == "D":
@@ -161,7 +179,7 @@ class RefractionFSMEngine:
             row.chart_type = "SNELLEN_FEET"
             row.response_type = "READABILITY"
             row.eye = "LE"
-            row.question = "Can you read this clearly?"
+            row.question = "Looking at the letters now, are they clear, a bit blurry, or not readable?"
             row.opt_1, row.opt_2, row.opt_3 = "READABLE", "NOT_READABLE", "BLURRY"
 
         elif state == "E":
@@ -171,7 +189,7 @@ class RefractionFSMEngine:
             row.chart_type = "DOT_CHART_JCC"
             row.response_type = "COMPARE_1_2"
             row.eye = "RE"
-            row.question = "Which is clearer: 1 or 2?"
+            row.question = "Look carefully at the dot pattern. Between view one and two, which one makes the dots look sharper or better aligned? Is it one, two, about the same, or hard to tell?"
             row.opt_1, row.opt_2, row.opt_3, row.opt_4 = "BETTER_1", "BETTER_2", "SAME", "CANT_TELL"
 
         elif state == "F":
@@ -181,7 +199,7 @@ class RefractionFSMEngine:
             row.chart_type = "DOT_CHART_JCC"
             row.response_type = "COMPARE_1_2"
             row.eye = "RE"
-            row.question = "Which is clearer: 1 or 2?"
+            row.question = "Again looking at the dot pattern, which view makes the dots look clearer or sharper — one, two, about the same, or hard to tell?"
             row.opt_1, row.opt_2, row.opt_3, row.opt_4 = "BETTER_1", "BETTER_2", "SAME", "CANT_TELL"
 
         elif state == "G":
@@ -191,7 +209,7 @@ class RefractionFSMEngine:
             row.chart_type = "RED_GREEN_DUOCHROME"
             row.response_type = "COLOR_CHOICE"
             row.eye = "RE"
-            row.question = "Which is clearer: RED or GREEN?"
+            row.question = "Looking at the letters on the red and green backgrounds, which side looks clearer — red, green, or do they look about the same?"
             row.opt_1, row.opt_2, row.opt_3, row.opt_4 = "RED_CLEARER", "GREEN_CLEARER", "EQUAL", "CANT_TELL"
 
         elif state == "H":
@@ -201,7 +219,7 @@ class RefractionFSMEngine:
             row.chart_type = "DOT_CHART_JCC"
             row.response_type = "COMPARE_1_2"
             row.eye = "LE"
-            row.question = "Which is clearer: 1 or 2?"
+            row.question = "Looking at the dot pattern, which one looks sharper — one, two, about the same, or hard to tell?"
             row.opt_1, row.opt_2, row.opt_3, row.opt_4 = "BETTER_1", "BETTER_2", "SAME", "CANT_TELL"
 
         elif state == "I":
@@ -211,7 +229,7 @@ class RefractionFSMEngine:
             row.chart_type = "DOT_CHART_JCC"
             row.response_type = "COMPARE_1_2"
             row.eye = "LE"
-            row.question = "Which is clearer: 1 or 2?"
+            row.question = "Comparing the two views of the dots, which looks clearer — one, two, about the same, or hard to tell?"
             row.opt_1, row.opt_2, row.opt_3, row.opt_4 = "BETTER_1", "BETTER_2", "SAME", "CANT_TELL"
 
         elif state == "J":
@@ -221,7 +239,7 @@ class RefractionFSMEngine:
             row.chart_type = "RED_GREEN_DUOCHROME"
             row.response_type = "COLOR_CHOICE"
             row.eye = "LE"
-            row.question = "Which is clearer: RED or GREEN?"
+            row.question = "Looking again at the red and green backgrounds, which side makes the letters clearer — red, green, or about the same?"
             row.opt_1, row.opt_2, row.opt_3, row.opt_4 = "RED_CLEARER", "GREEN_CLEARER", "EQUAL", "CANT_TELL"
 
         elif state == "K":
@@ -231,7 +249,7 @@ class RefractionFSMEngine:
             row.chart_type = "POLARIZED_BALANCE"
             row.response_type = "TOP_BOTTOM"
             row.eye = "BIN"
-            row.question = "Which is clearer: TOP or BOTTOM?"
+            row.question = "Look at the two rows of letters. Which row looks clearer — the top row, the bottom row, or do they look about the same?"
             row.opt_1, row.opt_2, row.opt_3, row.opt_4 = "TOP_CLEARER", "BOTTOM_CLEARER", "SAME", "CANT_TELL"
 
         elif state == "P":
@@ -241,7 +259,7 @@ class RefractionFSMEngine:
             row.chart_type = "NEAR_CHART"
             row.response_type = "NEAR_READABILITY"
             row.eye = "RE"
-            row.question = "Can you read the near target clearly?"
+            row.question = "Looking at the near text, is it clear to read, a bit blurry, or not readable?"
             row.opt_1, row.opt_2, row.opt_3 = "READABLE", "NOT_READABLE", "BLURRY"
 
         elif state == "Q":
@@ -251,7 +269,7 @@ class RefractionFSMEngine:
             row.chart_type = "NEAR_CHART"
             row.response_type = "NEAR_READABILITY"
             row.eye = "LE"
-            row.question = "Can you read the near target clearly?"
+            row.question = "Looking at the near text again, is it clear, blurry, or not readable?"
             row.opt_1, row.opt_2, row.opt_3 = "READABLE", "NOT_READABLE", "BLURRY"
 
         elif state == "R":
@@ -261,7 +279,7 @@ class RefractionFSMEngine:
             row.chart_type = "NEAR_CHART"
             row.response_type = "NEAR_BINOC"
             row.eye = "BIN"
-            row.question = "Is near clear and comfortable? (TARGET_OK/NOT_CLEAR)"
+            row.question = "Looking at the near text with both eyes, is it clear and comfortable, or still not clear?"
             row.opt_1, row.opt_2 = "TARGET_OK", "NOT_CLEAR"
 
         return row
@@ -288,7 +306,14 @@ class RefractionFSMEngine:
             prev_axis_response="",
             duo_iter=0,
             duo_flip=0,
-            axis_step=float(self.cal.get("axis_start_step", 5)),
+            axis_step=self._axis_fixed_step(),
+            axis_flip_count=0,
+            jcc_power_start_re_cyl=None,
+            jcc_power_start_le_cyl=None,
+            near_bino_start_add_r=None,
+            near_bino_start_add_l=None,
+            near_bino_direction="",
+            near_bino_reversed=False,
         )
 
     def _next_phase_step_count(self, current_row: FSMRuntimeRow, next_state: str) -> int:
@@ -333,7 +358,10 @@ class RefractionFSMEngine:
 
         next_duo_iter = row.duo_iter if row.next_state == row.state else 0
         next_duo_flip = row.duo_flip if row.next_state == row.state else 0
-        next_axis_step = row.axis_step if row.next_state == row.state else float(self.cal.get("axis_start_step", 5))
+        next_axis_step = row.axis_step if row.next_state == row.state else self._axis_fixed_step()
+        next_axis_flip_count = row.axis_flip_count if row.next_state == row.state else 0
+        next_jcc_power_start_re_cyl = row.jcc_power_start_re_cyl if row.next_state == row.state else None
+        next_jcc_power_start_le_cyl = row.jcc_power_start_le_cyl if row.next_state == row.state else None
 
         next_re_sph = (row.re_sph or 0.0) + (row.ds_re or 0.0)
         next_re_cyl = (row.re_cyl or 0.0) + (row.dc_re or 0.0)
@@ -345,6 +373,11 @@ class RefractionFSMEngine:
 
         next_add_r = (row.add_r or 0.0) + (row.dadd_r or 0.0)
         next_add_l = (row.add_l or 0.0) + (row.dadd_l or 0.0)
+
+        next_near_bino_start_add_r = row.near_bino_start_add_r if row.next_state == row.state else None
+        next_near_bino_start_add_l = row.near_bino_start_add_l if row.next_state == row.state else None
+        next_near_bino_direction = row.near_bino_direction if row.next_state == row.state else ""
+        next_near_bino_reversed = row.near_bino_reversed if row.next_state == row.state else False
 
         if row.next_state == "B" and row.state != "B":
             self._re_coarse_entry_chart[row.visit_id] = str(row.chart_param)
@@ -362,6 +395,18 @@ class RefractionFSMEngine:
             next_le_cyl = dv.dv_start_rx_LE_cyl
             next_le_axis = dv.dv_start_rx_LE_axis
             next_chart_param = str(entry_chart)
+
+        if row.next_state == "R" and row.state != "R":
+            next_near_bino_start_add_r = next_add_r
+            next_near_bino_start_add_l = next_add_l
+            next_near_bino_direction = ""
+            next_near_bino_reversed = False
+
+        if row.next_state == "F" and row.state != "F":
+            next_jcc_power_start_re_cyl = next_re_cyl
+
+        if row.next_state == "I" and row.state != "I":
+            next_jcc_power_start_le_cyl = next_le_cyl
 
         next_row = self._row_for_state(
             step=row.step + 1,
@@ -383,6 +428,13 @@ class RefractionFSMEngine:
             duo_iter=next_duo_iter,
             duo_flip=next_duo_flip,
             axis_step=next_axis_step,
+            axis_flip_count=next_axis_flip_count,
+            jcc_power_start_re_cyl=next_jcc_power_start_re_cyl,
+            jcc_power_start_le_cyl=next_jcc_power_start_le_cyl,
+            near_bino_start_add_r=next_near_bino_start_add_r,
+            near_bino_start_add_l=next_near_bino_start_add_l,
+            near_bino_direction=next_near_bino_direction,
+            near_bino_reversed=next_near_bino_reversed,
         )
 
         if next_row.state in ("F", "I", "G", "J", "K") and next_row.state == row.state:
@@ -432,11 +484,19 @@ class RefractionFSMEngine:
 
         elif current.state == "F":
             row.dc_re = jcc_power_cyl_delta(response_value, current.cyl_step)
-            row.ds_re = jcc_power_sphere_compensation(current.re_cyl, row.dc_re)
+            row.ds_re = jcc_power_sphere_compensation(
+                current_cyl=current.re_cyl,
+                proposed_cyl_delta=row.dc_re,
+                start_cyl=current.jcc_power_start_re_cyl,
+            )
 
         elif current.state == "I":
             row.dc_le = jcc_power_cyl_delta(response_value, current.cyl_step)
-            row.ds_le = jcc_power_sphere_compensation(current.le_cyl, row.dc_le)
+            row.ds_le = jcc_power_sphere_compensation(
+                current_cyl=current.le_cyl,
+                proposed_cyl_delta=row.dc_le,
+                start_cyl=current.jcc_power_start_le_cyl,
+            )
 
         elif current.state == "G":
             equal_reached = False
@@ -473,8 +533,39 @@ class RefractionFSMEngine:
             row.dadd_l = near_add_delta(response_value, self.cal)
 
         elif current.state == "R":
-            row.dadd_r = near_add_delta(response_value, self.cal)
-            row.dadd_l = near_add_delta(response_value, self.cal)
+            step = float(dv.dv_near_binoc_step_D)
+
+            if response_value == "TARGET_OK":
+                row.dadd_r = 0.0
+                row.dadd_l = 0.0
+
+            elif current.near_bino_direction == "":
+                # First failure at binocular near baseline: try +0.25 OU
+                row.near_bino_start_add_r = current.add_r if current.add_r is not None else 0.0
+                row.near_bino_start_add_l = current.add_l if current.add_l is not None else 0.0
+                row.near_bino_direction = "PLUS"
+                row.near_bino_reversed = False
+                row.dadd_r, row.dadd_l = near_binoc_ou_delta("PLUS", step)
+
+            elif current.near_bino_direction == "PLUS" and response_value == "NOT_CLEAR":
+                # PLUS trial failed: revert to baseline and start MINUS search
+                start_r = current.near_bino_start_add_r if current.near_bino_start_add_r is not None else 0.0
+                start_l = current.near_bino_start_add_l if current.near_bino_start_add_l is not None else 0.0
+
+                target_r = start_r - step
+                target_l = start_l - step
+
+                row.dadd_r = target_r - (current.add_r if current.add_r is not None else 0.0)
+                row.dadd_l = target_l - (current.add_l if current.add_l is not None else 0.0)
+
+                row.near_bino_direction = "MINUS"
+                row.near_bino_reversed = True
+
+            elif current.near_bino_direction == "MINUS" and response_value == "NOT_CLEAR":
+                # Continue reducing binocularly until target is OK
+                row.dadd_r, row.dadd_l = near_binoc_ou_delta("MINUS", step)
+                row.near_bino_direction = "MINUS"
+                row.near_bino_reversed = True
 
         if current.state in ("G", "J"):
             if response_value == "EQUAL":
@@ -518,24 +609,16 @@ class RefractionFSMEngine:
             row.duo_flip = 0
 
         if current.state in ("E", "H"):
-            start_step = float(self.cal.get("axis_start_step", 5))
-            step1 = float(self.cal.get("axis_reversal_step_1", 3))
-            step2 = float(self.cal.get("axis_reversal_step_2", 1))
+            row.axis_step = self._axis_fixed_step()
 
-            if (
-                current.prev_axis_response in ("", "SAME", "CANT_TELL")
-                or response_value in ("", "SAME", "CANT_TELL")
-            ):
-                row.axis_step = start_step
-            else:
-                reversed_pref = (
-                    (current.prev_axis_response == "BETTER_1" and response_value == "BETTER_2")
-                    or (current.prev_axis_response == "BETTER_2" and response_value == "BETTER_1")
-                )
-                if reversed_pref:
-                    row.axis_step = step1 if current.axis_step > step1 else step2
-                else:
-                    row.axis_step = current.axis_step
+            axis_flip = (
+                current.prev_axis_response in ("BETTER_1", "BETTER_2")
+                and response_value in ("BETTER_1", "BETTER_2")
+                and current.prev_axis_response != response_value
+            )
+            row.axis_flip_count = current.axis_flip_count + 1 if axis_flip else current.axis_flip_count
+        else:
+            row.axis_flip_count = 0
 
         re_escalate = should_escalate_re(
             anomaly_watch=bool(dv.dv_anomaly_watch),
@@ -563,9 +646,7 @@ class RefractionFSMEngine:
         bino_same_n = int(self.cal.get("bino_balance_same_required", 1))
         near_target = str(self.cal.get("near_binoc_target_response", "TARGET_OK"))
 
-        # Requested behavior:
-        # - skip binocular balance when unnecessary
-        # - bino flip limit fixed to 1
+        # Existing FSMv2.2 logic retained
         bino_flip_limit = 1
         skip_bino_balance = abs((current.re_sph or 0.0) - (current.le_sph or 0.0)) <= 0.25
 
@@ -594,6 +675,16 @@ class RefractionFSMEngine:
             "chart_idx": get_chart_index(str(current.chart_param)),
             "target_chart_idx": get_chart_index(target_line_to_chart(dv.dv_target_distance_va, self.cal)),
             "jcc_power_flip_limit_hit": row.duo_flip >= int(self.cal.get("jcc_power_max_flips", 4)),
+
+            # FSM v2.3 additions
+            "axis_same_required": int(dv.dv_jcc_axis_same_required),
+            "axis_flip_count": int(row.axis_flip_count),
+            "axis_flip_max": int(dv.dv_jcc_axis_max_flips),
+
+            "near_binoc_direction": row.near_bino_direction,
+            "near_binoc_reversed": bool(row.near_bino_reversed),
+            "near_binoc_max_plus_steps": int(dv.dv_near_binoc_max_plus_steps),
+            "near_binoc_max_minus_steps": int(dv.dv_near_binoc_max_minus_steps),
         }
 
         row.next_state = compute_next_state(context)

@@ -5,6 +5,7 @@ __pycache__/
 *.so
 venv/
 .env
+*FSMv2.*
 
 # IDE
 .idea/
