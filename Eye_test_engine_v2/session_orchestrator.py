@@ -1,6 +1,6 @@
 """
 Session orchestrator for Eye Test Engine v2.
-Wraps FSMv2.4 RefractionFSMEngine with phoropter API integration.
+Wraps FSMv3.0 RefractionFSMEngine with phoropter API integration.
 """
 import importlib.util as _ilu
 import json
@@ -37,9 +37,8 @@ CHART_PARAM_MAP = {
     "20_20_20": {"tab": "Chart1", "chart_items": ["chart_15"]},  # Snellen 20/20/20
 }
 
-# State to phoropter aux_lens mapping
+# State to phoropter aux_lens mapping (FSM v3.0: no State A)
 STATE_OCCLUDER_MAP = {
-    "A": "BINO",        # Distance baseline - both eyes
     "B": "AuxLensL",    # Coarse sphere RE - occlude left
     "D": "AuxLensR",    # Coarse sphere LE - occlude right
     "E": "AuxLensL",    # JCC Axis RE
@@ -54,9 +53,8 @@ STATE_OCCLUDER_MAP = {
     "R": "BINO",        # Near Binocular
 }
 
-# State to chart type mapping
+# State to chart type mapping (FSM v3.0: no State A)
 STATE_CHART_MAP = {
-    "A": "snellen",       # Distance baseline
     "B": "snellen",       # Coarse sphere RE
     "D": "snellen",       # Coarse sphere LE
     "E": "jcc",           # JCC Axis RE
@@ -71,9 +69,8 @@ STATE_CHART_MAP = {
     "R": "near",          # Near Binocular
 }
 
-# Phase names for UI display
+# Phase names for UI display (FSM v3.0: no State A)
 STATE_NAMES = {
-    "A": "Phase A: Distance Baseline",
     "B": "Phase B: Coarse Sphere RE",
     "D": "Phase D: Coarse Sphere LE",
     "E": "Phase E: JCC Axis RE",
@@ -90,9 +87,16 @@ STATE_NAMES = {
     "ESCALATE": "Escalation Required",
 }
 
+# Map aux_lens values to JCC eye-mode commands for explicit occluder switching
+_AUX_TO_JCC_MODE = {
+    "AuxLensL": "R",     # Occlude left -> test right eye
+    "AuxLensR": "L",     # Occlude right -> test left eye
+    "BINO": "BINO",      # Binocular mode
+}
+
 
 class SessionOrchestrator:
-    """Orchestrates an eye test session using FSMv2.4 engine."""
+    """Orchestrates an eye test session using FSMv3.0 engine."""
 
     def __init__(self, base_url: str, phoropter_id: str, calibration_path: str):
         self.base_url = base_url
@@ -256,7 +260,7 @@ class SessionOrchestrator:
         if self.derived_vars is None:
             return {"error": "Derived variables not set"}
 
-        valid_states = ("A", "B", "D", "E", "F", "G", "H", "I", "J", "K", "P", "Q", "R")
+        valid_states = ("B", "D", "E", "F", "G", "H", "I", "J", "K", "P", "Q", "R")
         if target_state not in valid_states:
             return {"error": f"Invalid target state: {target_state}"}
 
@@ -375,9 +379,12 @@ class SessionOrchestrator:
                 "Expected Convergence": dv.dv_expected_convergence_time,
                 "Branching Guardrails": dv.dv_branching_guardrails,
                 "Confidence Requirement": dv.dv_confidence_requirement,
+                "Accommodation Level": getattr(dv, "dv_accommodation_level", "Unknown"),
+                "Fogging Required": getattr(dv, "dv_fogging_required", False),
                 "Fogging Policy": dv.dv_fogging_policy,
                 "Fogging Amount": f"{dv.dv_fogging_amount_D}D",
                 "Fogging Clearance Mode": dv.dv_fogging_clearance_mode,
+                "Fogging Stop at Target VA": getattr(dv, "dv_fogging_stop_at_target_va", True),
                 "Axis Step Policy": dv.dv_axis_step_policy,
                 "Duochrome Max Flips": dv.dv_duochrome_max_flips,
                 "Near Test Required": dv.dv_near_test_required,
@@ -419,6 +426,10 @@ class SessionOrchestrator:
                 "Near Bino Start ADD L": row.near_bino_start_add_l,
                 "Near Bino Direction": row.near_bino_direction or "(none)",
                 "Near Bino Reversed": row.near_bino_reversed,
+                "Fog Active": getattr(row, "fog_active", False),
+                "Fog Start RE SPH": getattr(row, "fog_start_re_sph", None),
+                "Fog Start LE SPH": getattr(row, "fog_start_le_sph", None),
+                "Skip Bino Balance": getattr(row, "skip_bino_balance", False),
             }
 
         return result
@@ -754,11 +765,19 @@ class SessionOrchestrator:
                   f"FSM SPH: RE={target_re['sph']}, LE={target_le['sph']}  "
                   f"Phoropter SPH: RE={phoropter_re['sph']}, LE={phoropter_le['sph']}")
 
-        # Send power + occluder with prev_state for accurate click calculation
+        # If the occluder needs to change, send a JCC eye-mode command
+        # first (R/L/BINO) to physically switch the occluder, then send
+        # the power command with matching prev_aux_lens/aux_lens.
+        if self._prev_aux_lens != target_aux:
+            jcc_mode = _AUX_TO_JCC_MODE.get(target_aux, "BINO")
+            self._send_jcc_command(jcc_mode)
+            self._prev_aux_lens = target_aux
+
+        # Send power with matching prev/target occluder
         payload = {
             "test_cases": [{
                 "case_id": 1,
-                "prev_aux_lens": self._prev_aux_lens,
+                "prev_aux_lens": target_aux,
                 "prev_right_eye": {**self._prev_re},
                 "prev_left_eye": {**self._prev_le},
                 "aux_lens": target_aux,

@@ -28,6 +28,27 @@ def jcc_axis_delta(response_value: str, axis_step: float, positive_for_better_1:
         return -float(axis_step) if positive_for_better_1 else float(axis_step)
     return 0.0
 
+def clamp_cyl_delta_at_zero(current_cyl: Optional[float], proposed_cyl_delta: float) -> float:
+    """
+    FSM v3.0: Cylinder must never become positive.
+    If a proposed JCC power step would move cylinder above 0.00D,
+    clamp the effective delta so the new cylinder stops exactly at 0.00D.
+    """
+    if current_cyl is None:
+        return float(proposed_cyl_delta)
+
+    new_cyl = float(current_cyl) + float(proposed_cyl_delta)
+
+    if new_cyl > 0.0:
+        return -float(current_cyl)  # clamp exactly to zero
+
+    # Prevent tiny positive float drift
+    if abs(new_cyl) < 1e-9:
+        return -float(current_cyl)
+
+    return float(proposed_cyl_delta)
+
+
 def jcc_power_cyl_delta(response_value: str, cyl_step: float) -> float:
     if response_value == "BETTER_1":
         return float(cyl_step)

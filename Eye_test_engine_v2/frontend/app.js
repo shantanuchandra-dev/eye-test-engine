@@ -1457,6 +1457,29 @@ async function discardTest() {
     }
 }
 
+async function endAndRelease(e) {
+    if (e) e.preventDefault();
+    if (!confirm('End test and release phoropter?')) return;
+    try {
+        if (sessionState.sessionId) {
+            await fetch(`${CONFIG.backendUrl}/api/session/${sessionState.sessionId}/end`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'manual_end' })
+            });
+        }
+        _clearSessionStorage();
+        await releaseDevice();
+        window.location.href = 'intake.html';
+    } catch (err) {
+        console.error('End failed:', err);
+        // Still try to release and redirect
+        try { await releaseDevice(); } catch (_) {}
+        _clearSessionStorage();
+        window.location.href = 'intake.html';
+    }
+}
+
 // ── Phoropter Direct Controls ───────────────────────────────────────────
 async function resetPhoropter() {
     try {

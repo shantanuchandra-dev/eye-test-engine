@@ -3,41 +3,41 @@ def compute_phase_max(state: str, dv_expected_convergence_time: str, calibration
 
     if speed == "Fast":
         if state in ("B", "D"):
-            return int(calibration.get("timeout_coarse_fast", 24))
+            return int(calibration.get("timeout_coarse_fast", 30))
         if state in ("E", "F", "H", "I"):
             return int(calibration.get("timeout_jcc_fast", 10))
         if state in ("G", "J"):
-            return int(calibration.get("timeout_duochrome_fast", 8))
+            return int(calibration.get("timeout_duochrome_fast", 12))
         if state == "K":
             return int(calibration.get("timeout_bino_fast", 10))
         if state in ("P", "Q", "R"):
             return int(calibration.get("timeout_near_fast", 16))
-        return int(calibration.get("timeout_coarse_fast", 24))
+        return int(calibration.get("timeout_coarse_fast", 30))
 
     if speed == "Normal":
         if state in ("B", "D"):
-            return int(calibration.get("timeout_coarse_normal", 36))
+            return int(calibration.get("timeout_coarse_normal", 48))
         if state in ("E", "F", "H", "I"):
             return int(calibration.get("timeout_jcc_normal", 14))
         if state in ("G", "J"):
-            return int(calibration.get("timeout_duochrome_normal", 10))
+            return int(calibration.get("timeout_duochrome_normal", 14))
         if state == "K":
             return int(calibration.get("timeout_bino_normal", 14))
         if state in ("P", "Q", "R"):
             return int(calibration.get("timeout_near_normal", 22))
-        return int(calibration.get("timeout_coarse_normal", 36))
+        return int(calibration.get("timeout_coarse_normal", 48))
 
     if state in ("B", "D"):
-        return int(calibration.get("timeout_coarse_slow", 48))
+        return int(calibration.get("timeout_coarse_slow", 60))
     if state in ("E", "F", "H", "I"):
         return int(calibration.get("timeout_jcc_slow", 18))
     if state in ("G", "J"):
-        return int(calibration.get("timeout_duochrome_slow", 12))
+        return int(calibration.get("timeout_duochrome_slow", 16))
     if state == "K":
         return int(calibration.get("timeout_bino_slow", 18))
     if state in ("P", "Q", "R"):
         return int(calibration.get("timeout_near_slow", 28))
-    return int(calibration.get("timeout_coarse_slow", 48))
+    return int(calibration.get("timeout_coarse_slow", 60))
 
 
 def compute_next_state(context: dict) -> str:
@@ -61,6 +61,7 @@ def compute_next_state(context: dict) -> str:
     chart_idx = int(context["chart_idx"])
     target_chart_idx = int(context["target_chart_idx"])
     jcc_power_flip_limit_hit = bool(context["jcc_power_flip_limit_hit"])
+    jcc_cyl_at_zero = bool(context.get("jcc_cyl_at_zero", False))
 
     # FSM v2.3 additions
     axis_same_required = int(context.get("axis_same_required", 2))
@@ -70,16 +71,13 @@ def compute_next_state(context: dict) -> str:
     if immediate_review:
         return "ESCALATE"
 
-    if state == "A":
-        if response in ("NOT_READABLE", "BLURRY"):
-            return "B"
-        if response == "READABLE" and chart_idx >= target_chart_idx:
-            return "B"
-        return "A"
+    # FSM v3.0: No State A. Test starts directly at B.
 
     if state == "B":
         if re_escalate or timeout:
             return "ESCALATE"
+        if context.get("coarse_endpoint_reached") or context.get("coarse_oscillation_detected"):
+            return "E"
         if response == "READABLE" and chart_idx >= target_chart_idx:
             return "E"
         return "B"
@@ -96,6 +94,9 @@ def compute_next_state(context: dict) -> str:
     if state == "F":
         if timeout:
             return "ESCALATE"
+        # FSM v3.0: hard stop when cylinder reaches zero (no positive cyl allowed)
+        if jcc_cyl_at_zero:
+            return "G"
         if same_streak >= power_same_n or jcc_power_flip_limit_hit:
             return "G"
         return "F"
@@ -110,6 +111,8 @@ def compute_next_state(context: dict) -> str:
     if state == "D":
         if le_escalate or timeout:
             return "ESCALATE"
+        if context.get("coarse_endpoint_reached") or context.get("coarse_oscillation_detected"):
+            return "H"
         if response == "READABLE" and chart_idx >= target_chart_idx:
             return "H"
         return "D"
@@ -126,6 +129,9 @@ def compute_next_state(context: dict) -> str:
     if state == "I":
         if timeout:
             return "ESCALATE"
+        # FSM v3.0: hard stop when cylinder reaches zero
+        if jcc_cyl_at_zero:
+            return "J"
         if same_streak >= power_same_n or jcc_power_flip_limit_hit:
             return "J"
         return "I"

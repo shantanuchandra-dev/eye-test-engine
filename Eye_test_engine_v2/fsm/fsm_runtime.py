@@ -60,6 +60,17 @@ class FSMRuntimeRow:
     next_state: str = ""
     row_active: bool = True
 
+    # DV / debugging visibility
+    dv_near_test_required: bool = False
+    dv_add_expected: str = ""
+    skip_bino_balance: bool = False
+
+    # FSM v3.0 fogging visibility
+    dv_accommodation_level: str = "Unknown"
+    dv_fogging_required: bool = False
+    dv_fogging_stop_at_target_va: bool = True
+    fog_active: bool = False
+
     # ---------------------------------------
     # FSM v2.3 additions
     # ---------------------------------------
@@ -76,3 +87,7 @@ class FSMRuntimeRow:
     near_bino_start_add_l: Optional[float] = None
     near_bino_direction: str = ""   # "PLUS" or "MINUS"
     near_bino_reversed: bool = False
+
+    # FSM v3.0 fogging lifecycle tracking
+    fog_start_re_sph: Optional[float] = None
+    fog_start_le_sph: Optional[float] = None

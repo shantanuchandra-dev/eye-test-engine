@@ -40,6 +40,11 @@ class DerivedVariables:
     dv_duochrome_max_flips: int
     dv_near_test_required: bool
 
+    # FSM v3.0 additions
+    dv_accommodation_level: str = "Unknown"
+    dv_fogging_required: bool = False
+    dv_fogging_stop_at_target_va: bool = True
+
     # FSM v2.3 additions (defaults prevent breaking existing scripts)
 
     dv_jcc_axis_same_required: int = 2

@@ -40,6 +40,12 @@ class CalibrationLoader:
         if text.upper() == "FALSE":
             return False
 
+        # Strings containing underscores (e.g. chart labels like "200_150")
+        # must not be parsed as numbers — Python's int() treats _ as a
+        # digit separator, which would silently corrupt chart params.
+        if "_" in text:
+            return text
+
         try:
             if "." in text:
                 return float(text)

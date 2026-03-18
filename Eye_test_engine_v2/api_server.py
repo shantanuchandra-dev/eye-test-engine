@@ -326,7 +326,7 @@ def send_power(session_id):
 
     Because the phoropter was just reset to 0/0/180, we must reset the
     session's prev-state tracking to zeros so that _send_phoropter_commands()
-    computes the correct deltas (from 0/0/180 → target power).
+    computes the correct deltas (from 0/0/180 to target power).
     """
     if session_id not in sessions:
         return jsonify({"error": "Session not found"}), 404
@@ -345,7 +345,7 @@ def send_power(session_id):
         row = session.current_row
         target_re = {"sph": row.re_sph or 0.0, "cyl": row.re_cyl or 0.0, "axis": row.re_axis or 180.0}
         target_le = {"sph": row.le_sph or 0.0, "cyl": row.le_cyl or 0.0, "axis": row.le_axis or 180.0}
-        print(f"[send-power] Sending: prev={{0,0,180}} → RE={target_re}, LE={target_le}")
+        print(f"[send-power] Sending: prev=0/0/180 -> RE={target_re}, LE={target_le}")
         session._send_phoropter_commands(session.current_row)
         print(f"[send-power] Done. prev_re now={session._prev_re}, prev_le now={session._prev_le}")
         phoropter_ok = True

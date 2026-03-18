@@ -8,6 +8,7 @@ from .chart_scale import (
 )
 from .delta_calculators import (
     binocular_balance_delta,
+    clamp_cyl_delta_at_zero,
     coarse_sphere_delta,
     duochrome_sphere_delta,
     jcc_axis_delta,
@@ -79,6 +80,9 @@ class RefractionFSMEngine:
         near_bino_start_add_l: Optional[float] = None,
         near_bino_direction: str = "",
         near_bino_reversed: bool = False,
+        fog_active: bool = False,
+        fog_start_re_sph: Optional[float] = None,
+        fog_start_le_sph: Optional[float] = None,
     ) -> FSMRuntimeRow:
         target_chart = target_line_to_chart(dv.dv_target_distance_va, self.cal)
         target_chart_idx = get_chart_index(target_chart)
@@ -125,6 +129,15 @@ class RefractionFSMEngine:
             dv_requires_optom_review=bool(dv.dv_requires_optom_review),
             dv_expected_convergence_time=dv.dv_expected_convergence_time,
             dv_branching_guardrails=dv.dv_branching_guardrails,
+            dv_near_test_required=bool(getattr(dv, "dv_near_test_required", False)),
+            dv_add_expected=getattr(dv, "dv_add_expected", ""),
+            dv_accommodation_level=getattr(dv, "dv_accommodation_level", "Unknown"),
+            dv_fogging_required=bool(getattr(dv, "dv_fogging_required", False)),
+            dv_fogging_stop_at_target_va=bool(getattr(dv, "dv_fogging_stop_at_target_va", True)),
+            skip_bino_balance=False,
+            fog_active=fog_active,
+            fog_start_re_sph=fog_start_re_sph,
+            fog_start_le_sph=fog_start_le_sph,
             ds_re=0.0,
             dc_re=0.0,
             da_re=0.0,
@@ -152,24 +165,16 @@ class RefractionFSMEngine:
             near_bino_reversed=near_bino_reversed,
         )
 
-        if state == "A":
-            row.phase_name = "Distance Baseline"
-            row.phase_type = "DIST_BASELINE"
-            row.stimulus_type = "DIST_VA"
-            row.chart_type = "SNELLEN_FEET"
-            row.response_type = "READABILITY"
-            row.eye = "BIN"
-            row.question = "Look at the letters on the screen. Are they clear to read, a little blurry, or can you not read them?"
-            row.opt_1, row.opt_2, row.opt_3 = "READABLE", "NOT_READABLE", "BLURRY"
+        # FSM v3.0: No State A. Test starts directly at B.
 
-        elif state == "B":
+        if state == "B":
             row.phase_name = "Coarse Sphere RE"
             row.phase_type = "COARSE_SPHERE"
             row.stimulus_type = "COARSE_SPH"
             row.chart_type = "SNELLEN_FEET"
             row.response_type = "READABILITY"
             row.eye = "RE"
-            row.question = "Looking at the letters again, are they clear, slightly blurry, or not readable?"
+            row.question = "Looking at the letters, are they clear, slightly blurry, or not readable?"
             row.opt_1, row.opt_2, row.opt_3 = "READABLE", "NOT_READABLE", "BLURRY"
 
         elif state == "D":
@@ -285,14 +290,27 @@ class RefractionFSMEngine:
         return row
 
     def initialize_row(self, visit_id: str, dv, ar_re=None, ar_le=None) -> FSMRuntimeRow:
-        self._re_coarse_entry_chart[visit_id] = None
+        """FSM v3.0: Start directly at State B (no State A).
+        Fogging is applied once at coarse entry as accommodation control."""
+        coarse_start_chart = str(self.cal.get("coarse_start_chart", self.cal.get("dist_chart_2", "200_150")))
+        self._re_coarse_entry_chart[visit_id] = coarse_start_chart
+
+        # Apply fogging to RE starting sphere at coarse entry
+        re_start_sph = dv.dv_start_rx_RE_sph
+        fog_active = False
+        fog_start_re_sph = None
+
+        if getattr(dv, "dv_fogging_required", False) and re_start_sph is not None:
+            re_start_sph = float(re_start_sph) + float(dv.dv_fogging_amount_D or 0.0)
+            fog_active = True
+            fog_start_re_sph = re_start_sph
 
         return self._row_for_state(
             step=1,
             visit_id=visit_id,
-            state="A",
+            state="B",
             dv=dv,
-            re_sph=dv.dv_start_rx_RE_sph,
+            re_sph=re_start_sph,
             re_cyl=dv.dv_start_rx_RE_cyl,
             re_axis=dv.dv_start_rx_RE_axis,
             le_sph=dv.dv_start_rx_LE_sph,
@@ -300,7 +318,7 @@ class RefractionFSMEngine:
             le_axis=dv.dv_start_rx_LE_axis,
             add_r=0.0,
             add_l=0.0,
-            chart_param=str(self.cal.get("dist_chart_1", "400")),
+            chart_param=coarse_start_chart,
             phase_step_count=0,
             same_streak=0,
             prev_axis_response="",
@@ -314,6 +332,8 @@ class RefractionFSMEngine:
             near_bino_start_add_l=None,
             near_bino_direction="",
             near_bino_reversed=False,
+            fog_active=fog_active,
+            fog_start_re_sph=fog_start_re_sph,
         )
 
     def _next_phase_step_count(self, current_row: FSMRuntimeRow, next_state: str) -> int:
@@ -324,11 +344,6 @@ class RefractionFSMEngine:
         return current_row.phase_step_count + 1
 
     def _next_chart_param_from_row(self, row: FSMRuntimeRow) -> str:
-        if row.state == "A":
-            if row.response_value == "READABLE" and row.next_state == "A":
-                return row.next_chart_param
-            return row.chart_param
-
         if row.state == "B":
             if row.response_value == "READABLE" and row.next_state == "B":
                 return row.next_chart_param
@@ -373,25 +388,42 @@ class RefractionFSMEngine:
 
         next_add_r = (row.add_r or 0.0) + (row.dadd_r or 0.0)
         next_add_l = (row.add_l or 0.0) + (row.dadd_l or 0.0)
+        next_fog_active = row.fog_active
+        next_fog_start_re_sph = row.fog_start_re_sph
+        next_fog_start_le_sph = row.fog_start_le_sph
 
         next_near_bino_start_add_r = row.near_bino_start_add_r if row.next_state == row.state else None
         next_near_bino_start_add_l = row.near_bino_start_add_l if row.next_state == row.state else None
         next_near_bino_direction = row.near_bino_direction if row.next_state == row.state else ""
         next_near_bino_reversed = row.near_bino_reversed if row.next_state == row.state else False
 
+        # FSM v3.0: Entering coarse B from another state (e.g. shouldn't normally happen,
+        # but handle defensively)
         if row.next_state == "B" and row.state != "B":
-            self._re_coarse_entry_chart[row.visit_id] = str(row.chart_param)
-            next_re_sph = (dv.dv_start_rx_RE_sph or 0.0) + float(dv.dv_fogging_amount_D or 0.0)
+            next_chart_param = str(self.cal.get("coarse_start_chart", self.cal.get("dist_chart_2", "200_150")))
+            self._re_coarse_entry_chart[row.visit_id] = next_chart_param
+
+            base_sph = dv.dv_start_rx_RE_sph or 0.0
+            if getattr(dv, "dv_fogging_required", False):
+                base_sph += float(dv.dv_fogging_amount_D or 0.0)
+
+            next_re_sph = base_sph
             next_re_cyl = dv.dv_start_rx_RE_cyl
             next_re_axis = dv.dv_start_rx_RE_axis
-            next_chart_param = str(row.chart_param)
 
+        # Entering coarse D: apply fogging to LE starting sphere
         if row.next_state == "D" and row.state != "D":
             entry_chart = self._re_coarse_entry_chart.get(row.visit_id)
             if not entry_chart:
-                entry_chart = str(row.chart_param)
+                entry_chart = str(self.cal.get("coarse_start_chart", self.cal.get("dist_chart_2", "200_150")))
 
-            next_le_sph = (dv.dv_start_rx_LE_sph or 0.0) + float(dv.dv_fogging_amount_D or 0.0)
+            base_sph = dv.dv_start_rx_LE_sph or 0.0
+            if getattr(dv, "dv_fogging_required", False):
+                base_sph += float(dv.dv_fogging_amount_D or 0.0)
+                next_fog_active = True
+                next_fog_start_le_sph = base_sph
+
+            next_le_sph = base_sph
             next_le_cyl = dv.dv_start_rx_LE_cyl
             next_le_axis = dv.dv_start_rx_LE_axis
             next_chart_param = str(entry_chart)
@@ -435,6 +467,9 @@ class RefractionFSMEngine:
             near_bino_start_add_l=next_near_bino_start_add_l,
             near_bino_direction=next_near_bino_direction,
             near_bino_reversed=next_near_bino_reversed,
+            fog_active=next_fog_active,
+            fog_start_re_sph=next_fog_start_re_sph,
+            fog_start_le_sph=next_fog_start_le_sph,
         )
 
         if next_row.state in ("F", "I", "G", "J", "K") and next_row.state == row.state:
@@ -458,16 +493,18 @@ class RefractionFSMEngine:
         row.chart_idx = get_chart_index(str(current.chart_param))
         row.target_chart_idx = get_chart_index(target_line_to_chart(dv.dv_target_distance_va, self.cal))
         row.next_chart_param = get_next_chart(str(current.chart_param))
+        coarse_endpoint_reached = False
 
-        if current.state == "A":
-            pass
+        # FSM v3.0: No State A handling needed
 
-        elif current.state == "B":
+        if current.state == "B":
             row.ds_re = coarse_sphere_delta(response_value, current.sph_step)
             if response_value == "READABLE":
                 row.next_chart_param = get_next_chart(str(current.chart_param))
             else:
                 row.next_chart_param = str(current.chart_param)
+            if current.chart_idx >= row.target_chart_idx and response_value == "READABLE":
+                coarse_endpoint_reached = True
 
         elif current.state == "D":
             row.ds_le = coarse_sphere_delta(response_value, current.sph_step)
@@ -475,6 +512,8 @@ class RefractionFSMEngine:
                 row.next_chart_param = get_next_chart(str(current.chart_param))
             else:
                 row.next_chart_param = str(current.chart_param)
+            if current.chart_idx >= row.target_chart_idx and response_value == "READABLE":
+                coarse_endpoint_reached = True
 
         elif current.state == "E":
             row.da_re = jcc_axis_delta(response_value, current.axis_step, positive_for_better_1=True)
@@ -483,7 +522,9 @@ class RefractionFSMEngine:
             row.da_le = jcc_axis_delta(response_value, current.axis_step, positive_for_better_1=True)
 
         elif current.state == "F":
-            row.dc_re = jcc_power_cyl_delta(response_value, current.cyl_step)
+            # FSM v3.0: clamp cylinder at zero (no positive cyl)
+            proposed_dc = jcc_power_cyl_delta(response_value, current.cyl_step)
+            row.dc_re = clamp_cyl_delta_at_zero(current.re_cyl, proposed_dc)
             row.ds_re = jcc_power_sphere_compensation(
                 current_cyl=current.re_cyl,
                 proposed_cyl_delta=row.dc_re,
@@ -491,7 +532,9 @@ class RefractionFSMEngine:
             )
 
         elif current.state == "I":
-            row.dc_le = jcc_power_cyl_delta(response_value, current.cyl_step)
+            # FSM v3.0: clamp cylinder at zero (no positive cyl)
+            proposed_dc = jcc_power_cyl_delta(response_value, current.cyl_step)
+            row.dc_le = clamp_cyl_delta_at_zero(current.le_cyl, proposed_dc)
             row.ds_le = jcc_power_sphere_compensation(
                 current_cyl=current.le_cyl,
                 proposed_cyl_delta=row.dc_le,
@@ -627,6 +670,7 @@ class RefractionFSMEngine:
             ar_sph=float(ar_re.sphere if ar_re and ar_re.sphere is not None else dv.dv_start_rx_RE_sph or 0.0),
             max_delta_from_start=float(dv.dv_max_delta_from_start_sph),
             max_delta_from_ar=float(dv.dv_max_delta_from_ar_sph),
+            phase_step_count=int(current.phase_step_count or 0),
         )
 
         le_escalate = should_escalate_le(
@@ -636,6 +680,7 @@ class RefractionFSMEngine:
             ar_sph=float(ar_le.sphere if ar_le and ar_le.sphere is not None else dv.dv_start_rx_LE_sph or 0.0),
             max_delta_from_start=float(dv.dv_max_delta_from_start_sph),
             max_delta_from_ar=float(dv.dv_max_delta_from_ar_sph),
+            phase_step_count=int(current.phase_step_count or 0),
         )
 
         phase_max = compute_phase_max(current.state, dv.dv_expected_convergence_time, self.cal)
@@ -646,9 +691,9 @@ class RefractionFSMEngine:
         bino_same_n = int(self.cal.get("bino_balance_same_required", 1))
         near_target = str(self.cal.get("near_binoc_target_response", "TARGET_OK"))
 
-        # Existing FSMv2.2 logic retained
         bino_flip_limit = 1
         skip_bino_balance = abs((current.re_sph or 0.0) - (current.le_sph or 0.0)) <= 0.25
+        row.skip_bino_balance = skip_bino_balance
 
         context = {
             "state": current.state,
@@ -674,7 +719,13 @@ class RefractionFSMEngine:
             "target_chart_param": target_line_to_chart(dv.dv_target_distance_va, self.cal),
             "chart_idx": get_chart_index(str(current.chart_param)),
             "target_chart_idx": get_chart_index(target_line_to_chart(dv.dv_target_distance_va, self.cal)),
+            "coarse_endpoint_reached": coarse_endpoint_reached,
             "jcc_power_flip_limit_hit": row.duo_flip >= int(self.cal.get("jcc_power_max_flips", 4)),
+            # FSM v3.0: cylinder zero hard stop
+            "jcc_cyl_at_zero": (
+                (current.state == "F" and abs(((current.re_cyl or 0.0) + (row.dc_re or 0.0))) < 1e-9)
+                or (current.state == "I" and abs(((current.le_cyl or 0.0) + (row.dc_le or 0.0))) < 1e-9)
+            ),
 
             # FSM v2.3 additions
             "axis_same_required": int(dv.dv_jcc_axis_same_required),

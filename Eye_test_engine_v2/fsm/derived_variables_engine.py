@@ -103,13 +103,22 @@ class DerivedVariablesEngine:
             symptom_risk=symptom_risk,
             medical_risk=medical_risk,
         )
-        fog_policy = self._derive_fogging_policy(
+        accommodation_level = self._derive_accommodation_level(
             age_bucket=age_bucket,
             stability=stability,
             medical_risk=medical_risk,
             symptom_risk=symptom_risk,
         )
+        fog_policy = self._derive_fogging_policy(
+            age_bucket=age_bucket,
+            stability=stability,
+            medical_risk=medical_risk,
+            symptom_risk=symptom_risk,
+            accommodation_level=accommodation_level,
+        )
         fog_amount = self._derive_fogging_amount(fog_policy)
+        fogging_required = fog_policy != "No_Fog" and accommodation_level != "Unknown"
+        fogging_stop_at_target_va = bool(self.cal.get("fogging_clear_until_target_va", True))
         fog_clearance_mode = self._derive_fogging_clearance_mode(
             fog_policy=fog_policy,
             target_distance_va=target_distance_va,
@@ -187,6 +196,10 @@ class DerivedVariablesEngine:
             dv_axis_step_policy=axis_step_policy,
             dv_duochrome_max_flips=duochrome_max_flips,
             dv_near_test_required=near_test_required,
+
+            dv_accommodation_level=accommodation_level,
+            dv_fogging_required=fogging_required,
+            dv_fogging_stop_at_target_va=fogging_stop_at_target_va,
 
             dv_jcc_axis_same_required=jcc_axis_same_required,
             dv_jcc_axis_max_flips=jcc_axis_max_flips,
@@ -541,24 +554,55 @@ class DerivedVariablesEngine:
             return "Medium"
         return "Low"
 
-    def _derive_fogging_policy(
+    def _derive_accommodation_level(
         self,
         age_bucket: str,
         stability: str,
         medical_risk: str,
         symptom_risk: str,
     ) -> str:
-        if (
-            age_bucket == "Presbyope"
-            or stability == "Unstable"
-            or medical_risk == "High"
-            or symptom_risk == "High"
-        ):
+        """
+        FSM v3.0: Accommodation level drives fogging decisions.
+
+        - Child        → High accommodation risk → Strong_Fog
+        - Adult + unstable/moderate risk → Moderate accommodation risk → Standard_Fog
+        - Presbyope    → Low accommodation risk  → No_Fog
+        - Unknown      → Fogging disabled entirely
+        """
+        if age_bucket == "Child":
+            return "High"
+        if age_bucket == "Presbyope":
+            return "Low"
+        # Adult
+        if stability in ("Unstable", "Uncertain") or medical_risk == "Moderate" or symptom_risk == "Moderate":
+            return "Moderate"
+        if stability == "Stable" and medical_risk == "None" and symptom_risk == "None":
+            return "Low"
+        return "Moderate"
+
+    def _derive_fogging_policy(
+        self,
+        age_bucket: str,
+        stability: str,
+        medical_risk: str,
+        symptom_risk: str,
+        accommodation_level: str = "Unknown",
+    ) -> str:
+        """
+        FSM v3.0: Fogging as accommodation control.
+
+        - Children (High accommodation)      → Strong_Fog (1.0D)
+        - Unstable/moderate-risk adults       → Standard_Fog (0.75D)
+        - Presbyopes (Low accommodation)      → No_Fog (0.0D)
+        - Unknown accommodation               → No_Fog (disabled)
+        """
+        if accommodation_level == "Unknown":
+            return "No_Fog"
+        if accommodation_level == "High":
             return "Strong_Fog"
-        if age_bucket == "Adult" and stability == "Stable" and (
-            medical_risk == "Moderate" or symptom_risk == "Moderate"
-        ):
+        if accommodation_level == "Moderate":
             return "Standard_Fog"
+        # Low accommodation (Presbyopes, stable adults)
         return "No_Fog"
 
     def _derive_fogging_amount(self, fog_policy: str) -> float:
