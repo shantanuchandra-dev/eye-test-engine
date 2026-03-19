@@ -1410,7 +1410,8 @@ async function completeTest(data) {
 
     updatePhaseProgress('END');
     addToHistory('Test complete', 'success');
-    stopVoiceMode();
+    // stopVoiceMode is called when 'test_complete' message arrives (after TTS finishes)
+    if (!voiceState.enabled) stopVoiceMode();  // only if voice wasn't active
 }
 
 async function endTestWithStatus(status) {
@@ -1862,10 +1863,35 @@ function handleVoiceMessage(msg) {
         case 'state_update':
             if (msg.data) {
                 if (msg.data.is_terminal) {
+                    // Don't stop voice yet — let TTS speak the completion message first.
+                    // Voice will be stopped when 'test_complete' or 'exit_confirmed' arrives.
                     if (msg.data.terminal_state === 'ESCALATE') {
                         handleEscalation(msg.data);
                     } else {
-                        completeTest(msg.data);
+                        // Show completion UI but DON'T call stopVoiceMode here
+                        const questionText = document.getElementById('questionText');
+                        const intentButtons = document.getElementById('intentButtons');
+                        if (questionText) {
+                            const power = msg.data?.power || {};
+                            const r = power.right || { sph: 0, cyl: 0, axis: 180 };
+                            const l = power.left || { sph: 0, cyl: 0, axis: 180 };
+                            questionText.innerHTML = `
+                                <div style="color:#2e7d32;font-weight:600;font-size:1.2em;">TEST COMPLETE</div>
+                                <div style="margin-top:12px;">
+                                    <table style="width:100%;border-collapse:collapse;text-align:center;">
+                                        <tr style="font-weight:600;"><td></td><td>SPH</td><td>CYL</td><td>AXIS</td><td>ADD</td></tr>
+                                        <tr><td style="font-weight:600;">RE</td><td>${r.sph?.toFixed(2)}</td><td>${r.cyl?.toFixed(2)}</td><td>${Math.round(r.axis||180)}\u00b0</td><td>${(r.add||0).toFixed(2)}</td></tr>
+                                        <tr><td style="font-weight:600;">LE</td><td>${l.sph?.toFixed(2)}</td><td>${l.cyl?.toFixed(2)}</td><td>${Math.round(l.axis||180)}\u00b0</td><td>${(l.add||0).toFixed(2)}</td></tr>
+                                    </table>
+                                </div>`;
+                        }
+                        if (intentButtons) {
+                            intentButtons.innerHTML = `
+                                <button class="intent-button" style="background:#2e7d32;color:#fff;" onclick="endTestWithStatus('completed')">Save & End</button>
+                                <button class="intent-button" style="background:#f44336;color:#fff;" onclick="discardTest()">Discard</button>`;
+                        }
+                        updatePhaseProgress('END');
+                        addToHistory('Test complete', 'success');
                     }
                     return;
                 }
@@ -1874,7 +1900,19 @@ function handleVoiceMessage(msg) {
                 updatePhaseProgress(msg.data.state);
                 _saveSessionToStorage();
                 refreshDerivedVariables();
+                refreshScreenshotIfModalOpen();
             }
+            break;
+
+        case 'test_complete':
+            // TTS finished speaking the completion message — now safe to stop voice
+            stopVoiceMode();
+            break;
+
+        case 'exit_confirmed':
+            // User confirmed exit via voice — stop voice and show escalation UI
+            stopVoiceMode();
+            handleEscalation({ state: 'ESCALATE' });
             break;
 
         case 'speaking':
@@ -1895,7 +1933,9 @@ function handleVoiceMessage(msg) {
         case 'vad':
             // VAD detected speech activity from the mic
             if (msg.speaking) {
-                setVoiceChip('listening');  // animate bars when actually speaking
+                setVoiceChip('listening');
+            } else {
+                setVoiceChip('idle');
             }
             break;
     }

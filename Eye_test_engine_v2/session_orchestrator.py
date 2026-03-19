@@ -213,6 +213,9 @@ class SessionOrchestrator:
         # Check for end states
         if finalized.next_state in ("END", "ESCALATE"):
             self.current_row = finalized
+            # Show 20/20/20 chart on test completion
+            if finalized.next_state == "END":
+                self._send_chart_command("Chart1", ["chart_15"])
             return self._build_response(terminal=True)
 
         # Build next row

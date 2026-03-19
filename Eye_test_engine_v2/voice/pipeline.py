@@ -17,17 +17,33 @@ from faster_whisper import WhisperModel
 
 from voice.fuzzy_matcher import match_transcript
 
+# Exit keywords — if the user says any of these, confirm before stopping.
+EXIT_KEYWORDS = [
+    "stop", "stop the test", "ruko", "band karo", "bas",
+    "escalate", "need human", "doctor bulao", "optometrist",
+    "help", "need help", "madad", "sahayata",
+    "cancel", "abort", "quit", "end test",
+]
+
+def _is_exit_request(transcript: str) -> bool:
+    """Check if the transcript is an exit/escalation request."""
+    text = transcript.lower().strip()
+    for kw in EXIT_KEYWORDS:
+        if kw in text:
+            return True
+    return False
+
 # Rephrased questions for when patient doesn't respond within 3 seconds.
 # Simpler language, explicit options spelled out.
 import random
 
 REPHRASED_QUESTIONS = {
-    "READABILITY": "Clear, blurry, or can't read?",
-    "NEAR_READABILITY": "Clear, blurry, or can't read?",
-    "COMPARE_1_2": "One, two, or same?",
-    "COLOR_CHOICE": "Red, green, or same?",
-    "TOP_BOTTOM": "Top, bottom, or same?",
-    "NEAR_BINOC": "Clear, or not clear?",
+    "READABILITY": "Can you read the letters?",
+    "NEAR_READABILITY": "Can you read the text?",
+    "COMPARE_1_2": "Which one was better?",
+    "COLOR_CHOICE": "Which side is clearer?",
+    "TOP_BOTTOM": "Which row is clearer?",
+    "NEAR_BINOC": "Is it clear?",
 }
 
 # Varied follow-ups for repeated questions in the same phase.
@@ -52,7 +68,7 @@ SHORT_FOLLOWUP_POOL = {
         "How does this look?",
         "Next line.",
         "And now?",
-        "Better or worse?",
+        "Can you read this?",
     ],
     # Phase D: left eye coarse sphere — short, no options dictated
     "state_D": [
@@ -63,7 +79,7 @@ SHORT_FOLLOWUP_POOL = {
         "How does this look?",
         "Next line.",
         "And now?",
-        "Better or worse?",
+        "Can you read this?",
     ],
     "NEAR_READABILITY": [
         "And now? Clear, blurry, or can't read?",
@@ -72,14 +88,42 @@ SHORT_FOLLOWUP_POOL = {
         "This text — clear, blurry, or can't make it out?",
     ],
     "COMPARE_1_2": [
-        "One, two, or same?",
-        "First or second? Or about the same?",
-        "Which was sharper — one or two? Or equal?",
+        "Which was better?",
+        "And now?",
+        "Which one?",
+    ],
+    # JCC Axis RE — short follow-ups between flips
+    "state_E": [
+        "Which was better?",
+        "And this time?",
+        "Which one looked sharper?",
+        "Any difference?",
+    ],
+    # JCC Power RE
+    "state_F": [
+        "Which was better?",
+        "And now?",
+        "Which one was clearer?",
+        "Any difference?",
+    ],
+    # JCC Axis LE
+    "state_H": [
+        "Which was better?",
+        "And this time?",
+        "Which one looked sharper?",
+        "Any difference?",
+    ],
+    # JCC Power LE
+    "state_I": [
+        "Which was better?",
+        "And now?",
+        "Which one was clearer?",
+        "Any difference?",
     ],
     "COLOR_CHOICE": [
-        "Red, green, or same?",
-        "Red side or green side? Or equal?",
-        "Which background is clearer — red or green?",
+        "Which side is clearer?",
+        "Red or green?",
+        "Any difference?",
     ],
     "TOP_BOTTOM": [
         "Top, bottom, or same?",
@@ -157,7 +201,7 @@ HINDI_FOLLOWUP_POOL = {
         "कैसा लग रहा है?",
         "अगली पंक्ति।",
         "और अब?",
-        "बेहतर या ख़राब?",
+        "ये पढ़ पा रहे हैं?",
     ],
     "state_D": [
         "अब कैसा दिख रहा है?",
@@ -167,16 +211,41 @@ HINDI_FOLLOWUP_POOL = {
         "कैसा लग रहा है?",
         "अगली पंक्ति।",
         "और अब?",
-        "बेहतर या ख़राब?",
+        "ये पढ़ पा रहे हैं?",
     ],
     "COMPARE_1_2": [
-        "पहला या दूसरा?",
         "कौन सा बेहतर था?",
+        "और अब?",
+        "कौन सा?",
+    ],
+    "state_E": [
+        "कौन सा बेहतर था?",
+        "और इस बार?",
         "कौन सा तेज़ था?",
+        "कोई फ़र्क़?",
+    ],
+    "state_F": [
+        "कौन सा बेहतर था?",
+        "और अब?",
+        "कौन सा साफ़ था?",
+        "कोई फ़र्क़?",
+    ],
+    "state_H": [
+        "कौन सा बेहतर था?",
+        "और इस बार?",
+        "कौन सा तेज़ था?",
+        "कोई फ़र्क़?",
+    ],
+    "state_I": [
+        "कौन सा बेहतर था?",
+        "और अब?",
+        "कौन सा साफ़ था?",
+        "कोई फ़र्क़?",
     ],
     "COLOR_CHOICE": [
-        "लाल या हरा?",
         "कौन सी तरफ़ साफ़ है?",
+        "लाल या हरा?",
+        "कोई फ़र्क़?",
     ],
     "TOP_BOTTOM": [
         "ऊपर या नीचे?",
@@ -440,6 +509,9 @@ class VoicePipeline:
         # Track previous state to use short follow-ups for repeated same-phase questions
         self._prev_state = None
 
+        # Exit confirmation state
+        self._awaiting_exit_confirm = False
+
         self._running = True
 
     async def process_audio(self, audio_int16: bytes):
@@ -565,15 +637,44 @@ class VoicePipeline:
         if not transcript:
             return
 
+        print(f"[VOICE] Transcript: '{transcript}'")
+        await self.ws_send_json({"type": "transcript", "text": transcript})
+
+        # ── Handle exit confirmation response ──
+        if self._awaiting_exit_confirm:
+            self._awaiting_exit_confirm = False
+            text_lower = transcript.lower().strip()
+            is_yes = any(w in text_lower for w in ["yes", "haan", "ha", "confirm", "stop", "sure", "okay", "ok"])
+            if is_yes:
+                print(f"[VOICE] Exit confirmed")
+                await self.ws_send_json({"type": "exit_confirmed"})
+                end_msg = "ठीक है, परीक्षा रोक रहे हैं।" if self._lang == "hi" else "Okay, stopping the test. Please wait."
+                await self.tts.speak(end_msg)
+                self._cancel_silence_timer()
+                return
+            else:
+                print(f"[VOICE] Exit cancelled, resuming")
+                resume_msg = "ठीक है, परीक्षा जारी है।" if self._lang == "hi" else "Okay, let's continue."
+                await self.tts.speak(resume_msg)
+                self.start_silence_timer()
+                return
+
+        # ── Check for exit keywords ──
+        if _is_exit_request(transcript):
+            print(f"[VOICE] Exit keyword detected: '{transcript}'")
+            self._awaiting_exit_confirm = True
+            self._cancel_silence_timer()
+            confirm_msg = "क्या आप परीक्षा रोकना चाहते हैं? हाँ या ना बोलिए।" if self._lang == "hi" else "Do you want to stop the test? Say yes or no."
+            await self.tts.speak(confirm_msg)
+            return
+
         # Get current FSM state
         row = self.session.current_row
         if row is None:
             return
 
         response_type = row.response_type
-        print(f"[VOICE] Transcript: '{transcript}' | response_type: {response_type}")
-
-        await self.ws_send_json({"type": "transcript", "text": transcript})
+        print(f"[VOICE] response_type: {response_type}")
 
         # Fuzzy match
         matched_option, confidence = match_transcript(
@@ -596,8 +697,11 @@ class VoicePipeline:
             })
 
             if next_state.get("is_terminal"):
-                end_msg = "परीक्षा पूरी हो गई है। धन्यवाद।" if self._lang == "hi" else "The test is now complete. Thank you."
+                self._cancel_silence_timer()
+                end_msg = "परीक्षा पूरी हो गई है। धन्यवाद।" if self._lang == "hi" else "The eye test is now complete. Thank you for your patience."
+                # Speak FIRST, then notify frontend to show completion UI
                 await self.tts.speak(end_msg)
+                await self.ws_send_json({"type": "test_complete"})
                 return
 
             if next_state.get("auto_flip") and next_state.get("jcc_flip") == "flip1":

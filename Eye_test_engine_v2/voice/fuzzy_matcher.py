@@ -13,28 +13,34 @@ KEYWORD_MAP = {
         "READABLE": [
             "clear", "readable", "can read", "i can see", "yes", "fine",
             "sharp", "good", "visible", "okay", "ok",
+            "better", "much better", "improved", "clearer",
         ],
         "NOT_READABLE": [
             "not readable", "can't read", "cannot read", "nothing",
             "can't see", "cannot see", "no", "blank", "not visible",
+            "worse", "much worse", "worse than before", "can't see anything",
         ],
         "BLURRY": [
             "blurry", "blurred", "blur", "slightly blurry", "a bit blurry",
             "hazy", "fuzzy", "not clear", "not sharp", "foggy",
+            "a little worse", "slightly worse", "bit blurry",
         ],
     },
     "NEAR_READABILITY": {
         "READABLE": [
             "clear", "readable", "can read", "i can see", "yes", "fine",
             "sharp", "good", "visible", "okay", "ok",
+            "better", "much better", "improved", "clearer",
         ],
         "NOT_READABLE": [
             "not readable", "can't read", "cannot read", "nothing",
             "can't see", "cannot see", "no", "blank", "not visible",
+            "worse", "much worse", "worse than before",
         ],
         "BLURRY": [
             "blurry", "blurred", "blur", "slightly blurry", "a bit blurry",
             "hazy", "fuzzy", "not clear", "not sharp", "foggy",
+            "a little worse", "slightly worse", "bit blurry",
         ],
     },
     "COMPARE_1_2": {
