@@ -87,10 +87,16 @@
 - [ ] Cron setup: `0 2 * * * push` / `0 4 * * * pull`
 
 ### Regional Language Expansion
-- [ ] Tamil, Telugu, Kannada, Marathi voice support
-- [ ] Per-language Whisper models
-- [ ] Per-language fuzzy matcher keyword maps
-- [ ] Per-language HITL annotation categories
+- [x] Language registry: 10 languages (en, hi, te, ta, kn, mr, ml, gu, bn, pa)
+- [x] Per-language question translations (Telugu, Tamil, Kannada, Marathi)
+- [x] Per-language fuzzy matcher keyword maps (native script + romanized)
+- [x] Per-language follow-up phrases and rephrased questions
+- [x] Per-language system messages (test complete, no match, exit confirm)
+- [x] TTS voice config: Piper (te, ml) + Meta MMS-TTS (ta, kn, mr, gu, bn, pa)
+- [x] Whisper language code mapping for all 10 languages
+- [ ] Wire regional_languages.py into pipeline.py (replace hardcoded hi translations)
+- [ ] Download Piper voices for te, ml; download MMS models for ta, kn, mr, gu, bn, pa
+- [ ] Add regional languages to frontend voice dropdown
 
 ## Storage Budget
 
