@@ -16,6 +16,14 @@ import torch
 from faster_whisper import WhisperModel
 
 from voice.fuzzy_matcher import match_transcript
+from voice.regional_languages import (
+    SUPPORTED_LANGUAGES, WHISPER_LANG_CODES,
+    get_translation as _regional_translate,
+    get_followup as _regional_followup,
+    get_rephrased as _regional_rephrased,
+    get_message as _regional_message,
+    get_keywords as _regional_keywords,
+)
 
 # Exit keywords — if the user says any of these, confirm before stopping.
 EXIT_KEYWORDS = [
@@ -407,21 +415,21 @@ class MetaTTSProcessor:
     Same interface as DirectTTSProcessor so they're interchangeable.
     """
 
-    def __init__(self, ws_send_bytes, ws_send_json, model=None, tokenizer=None):
+    def __init__(self, ws_send_bytes, ws_send_json, model=None, tokenizer=None, model_id=None):
         self._ws_send_bytes = ws_send_bytes
         self._ws_send_json = ws_send_json
         self._speaking = False
 
         if model and tokenizer:
-            # Use pre-loaded model
             self._model = model
             self._tokenizer = tokenizer
         else:
             from transformers import VitsModel, AutoTokenizer
-            print("[TTS] Loading Meta MMS-TTS Hindi model...")
-            self._model = VitsModel.from_pretrained("facebook/mms-tts-hin")
-            self._tokenizer = AutoTokenizer.from_pretrained("facebook/mms-tts-hin")
-            print("[TTS] Meta MMS-TTS loaded")
+            mid = model_id or "facebook/mms-tts-hin"
+            print(f"[TTS] Loading Meta MMS-TTS: {mid}...")
+            self._model = VitsModel.from_pretrained(mid)
+            self._tokenizer = AutoTokenizer.from_pretrained(mid)
+            print(f"[TTS] Meta MMS-TTS loaded: {mid}")
 
         self._sample_rate = self._model.config.sampling_rate  # 16000
 
@@ -628,10 +636,12 @@ class VoicePipeline:
             return
 
         response_type = row.response_type
-        if self._lang == "hi":
+        if self._lang == "en":
+            rephrased = REPHRASED_QUESTIONS.get(response_type)
+        elif self._lang == "hi":
             rephrased = HINDI_REPHRASED.get(response_type)
         else:
-            rephrased = REPHRASED_QUESTIONS.get(response_type)
+            rephrased = _regional_rephrased(self._lang, response_type) or REPHRASED_QUESTIONS.get(response_type)
         if not rephrased:
             return
 
@@ -669,13 +679,23 @@ class VoicePipeline:
             if is_yes:
                 print(f"[VOICE] Exit confirmed")
                 await self.ws_send_json({"type": "exit_confirmed"})
-                end_msg = "ठीक है, परीक्षा रोक रहे हैं।" if self._lang == "hi" else "Okay, stopping the test. Please wait."
+                if self._lang == "hi":
+                    end_msg = "ठीक है, परीक्षा रोक रहे हैं।"
+                elif self._lang != "en":
+                    end_msg = _regional_message(self._lang, "exit_yes") or "Okay, stopping the test."
+                else:
+                    end_msg = "Okay, stopping the test. Please wait."
                 await self.tts.speak(end_msg)
                 self._cancel_silence_timer()
                 return
             else:
                 print(f"[VOICE] Exit cancelled, resuming")
-                resume_msg = "ठीक है, परीक्षा जारी है।" if self._lang == "hi" else "Okay, let's continue."
+                if self._lang == "hi":
+                    resume_msg = "ठीक है, परीक्षा जारी है।"
+                elif self._lang != "en":
+                    resume_msg = _regional_message(self._lang, "exit_no") or "Okay, let's continue."
+                else:
+                    resume_msg = "Okay, let's continue."
                 await self.tts.speak(resume_msg)
                 self.start_silence_timer()
                 return
@@ -685,7 +705,12 @@ class VoicePipeline:
             print(f"[VOICE] Exit keyword detected: '{transcript}'")
             self._awaiting_exit_confirm = True
             self._cancel_silence_timer()
-            confirm_msg = "क्या आप परीक्षा रोकना चाहते हैं? हाँ या ना बोलिए।" if self._lang == "hi" else "Do you want to stop the test? Say yes or no."
+            if self._lang == "hi":
+                confirm_msg = "क्या आप परीक्षा रोकना चाहते हैं? हाँ या ना बोलिए।"
+            elif self._lang != "en":
+                confirm_msg = _regional_message(self._lang, "exit_confirm") or "Do you want to stop? Say yes or no."
+            else:
+                confirm_msg = "Do you want to stop the test? Say yes or no."
             await self.tts.speak(confirm_msg)
             return
 
@@ -737,7 +762,12 @@ class VoicePipeline:
 
             if next_state.get("is_terminal"):
                 self._cancel_silence_timer()
-                end_msg = "परीक्षा पूरी हो गई है। धन्यवाद।" if self._lang == "hi" else "The eye test is now complete. Thank you for your patience."
+                if self._lang == "en":
+                    end_msg = "The eye test is now complete. Thank you for your patience."
+                elif self._lang == "hi":
+                    end_msg = "परीक्षा पूरी हो गई है। धन्यवाद।"
+                else:
+                    end_msg = _regional_message(self._lang, "test_complete") or "The eye test is now complete. Thank you."
                 # Speak FIRST, then notify frontend to show completion UI
                 await self.tts.speak(end_msg)
                 await self.ws_send_json({"type": "test_complete"})
@@ -775,16 +805,20 @@ class VoicePipeline:
                 response_type = next_state.get("response_type", "")
                 # Use short follow-up if staying in the same FSM state
                 if current_state and current_state == self._prev_state:
-                    if self._lang == "hi":
+                    if self._lang == "en":
+                        followup = _pick_followup(response_type, state=current_state)
+                    elif self._lang == "hi":
                         followup = _pick_hindi_followup(response_type, state=current_state)
                     else:
-                        followup = _pick_followup(response_type, state=current_state)
+                        followup = _regional_followup(self._lang, response_type, state=current_state) or _pick_followup(response_type, state=current_state)
                     if followup:
                         question = followup
+                elif self._lang == "en":
+                    question = _strip_intents(question)
                 elif self._lang == "hi":
                     question = _translate_to_hindi(question)
                 else:
-                    question = _strip_intents(question)
+                    question = _regional_translate(self._lang, question) or _strip_intents(question)
                 self._prev_state = current_state
                 await self.tts.speak(question)
                 self.start_silence_timer()
@@ -833,15 +867,19 @@ class VoicePipeline:
 
             print(f"[VOICE] No match for: '{transcript}'")
             await self.ws_send_json({"type": "no_match", "transcript": transcript})
-            no_match_msg = "समझ नहीं आया। कृपया फिर से बोलिए।" if self._lang == "hi" else "I didn't catch that clearly. Could you please repeat?"
+            if self._lang == "en":
+                no_match_msg = "I didn't catch that clearly. Could you please repeat?"
+            elif self._lang == "hi":
+                no_match_msg = "समझ नहीं आया। कृपया फिर से बोलिए।"
+            else:
+                no_match_msg = _regional_message(self._lang, "no_match") or "I didn't catch that. Please repeat."
             await self.tts.speak(no_match_msg)
             self.start_silence_timer()
 
     def _run_whisper(self, audio_float: np.ndarray) -> list:
         """Run faster-whisper transcription (called in thread)."""
-        # Use Hindi language detection when Hindi voice is selected,
-        # otherwise English. None = auto-detect (slower but handles both).
-        lang = "hi" if self._lang == "hi" else "en"
+        # Map language to Whisper language code
+        lang = WHISPER_LANG_CODES.get(self._lang, "en")
         segments, _ = self._whisper.transcribe(
             audio_float,
             language=lang,
@@ -863,7 +901,12 @@ class VoicePipeline:
         # Use a clean flip2 question — NOT the verbose orchestrator message
         flip2_msg = getattr(self, '_pending_flip2_msg', None)
         if not flip2_msg:
-            flip2_msg = "यह दूसरा है। पहला या दूसरा?" if self._lang == "hi" else "This is two. Which is better, one or two?"
+            if self._lang == "hi":
+                flip2_msg = "यह दूसरा है। पहला या दूसरा?"
+            elif self._lang != "en":
+                flip2_msg = _regional_message(self._lang, "flip2") or "This is two. Which is better?"
+            else:
+                flip2_msg = "This is two. Which is better, one or two?"
         self._has_rephrased = False
         self._cancel_silence_timer()
         await self.tts.speak(flip2_msg)

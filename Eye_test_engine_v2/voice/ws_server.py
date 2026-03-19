@@ -83,14 +83,32 @@ async def voice_websocket(websocket: WebSocket, session_id: str, lang: str = "en
             pass
 
     # Build TTS based on selected voice
-    if voice == "meta-mms-hindi" and _mms_model:
-        print(f"[VOICE WS] Using voice: Meta MMS-TTS Hindi", flush=True)
-        tts = MetaTTSProcessor(
-            ws_send_bytes=ws_send_bytes,
-            ws_send_json=ws_send_json,
-            model=_mms_model,
-            tokenizer=_mms_tokenizer,
-        )
+    # Meta MMS voices: meta-mms-hindi, meta-mms-tamil, meta-mms-kannada, etc.
+    MMS_VOICE_MAP = {
+        "meta-mms-hindi": "facebook/mms-tts-hin",
+        "meta-mms-tamil": "facebook/mms-tts-tam",
+        "meta-mms-kannada": "facebook/mms-tts-kan",
+        "meta-mms-marathi": "facebook/mms-tts-mar",
+    }
+
+    if voice in MMS_VOICE_MAP:
+        mms_model_id = MMS_VOICE_MAP[voice]
+        print(f"[VOICE WS] Using voice: Meta MMS {mms_model_id}", flush=True)
+        if voice == "meta-mms-hindi" and _mms_model:
+            # Use pre-loaded Hindi model
+            tts = MetaTTSProcessor(
+                ws_send_bytes=ws_send_bytes,
+                ws_send_json=ws_send_json,
+                model=_mms_model,
+                tokenizer=_mms_tokenizer,
+            )
+        else:
+            # Load MMS model on-demand for other languages
+            tts = MetaTTSProcessor(
+                ws_send_bytes=ws_send_bytes,
+                ws_send_json=ws_send_json,
+                model_id=mms_model_id,
+            )
     else:
         piper_voice = _resolve_piper_voice(voice_name=voice if voice else None, lang=lang)
         piper_onnx = str(PIPER_MODEL_DIR / f"{piper_voice}.onnx")

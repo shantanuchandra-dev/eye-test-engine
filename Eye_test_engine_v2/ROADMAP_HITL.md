@@ -94,9 +94,11 @@
 - [x] Per-language system messages (test complete, no match, exit confirm)
 - [x] TTS voice config: Piper (te, ml) + Meta MMS-TTS (ta, kn, mr, gu, bn, pa)
 - [x] Whisper language code mapping for all 10 languages
-- [ ] Wire regional_languages.py into pipeline.py (replace hardcoded hi translations)
-- [ ] Download Piper voices for te, ml; download MMS models for ta, kn, mr, gu, bn, pa
-- [ ] Add regional languages to frontend voice dropdown
+- [x] Wire regional_languages.py into pipeline.py (all language-specific code uses regional lookups)
+- [x] Add 5 regional languages to frontend voice dropdown (te, ta, kn, mr, ml)
+- [x] MMS models load on-demand for ta, kn, mr (no pre-download needed)
+- [ ] Download Piper voices for te, ml (te_IN-venkatesh-medium, ml_IN-arjun-medium)
+- [ ] Add gu, bn, pa to frontend dropdown (MMS models available but no translations yet)
 
 ## Storage Budget
 
