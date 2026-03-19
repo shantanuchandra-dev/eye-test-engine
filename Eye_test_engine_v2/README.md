@@ -170,6 +170,38 @@ See [curl_API.md](curl_API.md) for phoropter device control.
 | POST | `/api/devices/{id}/release` | Release device |
 | POST | `/api/phoropter/{id}/reset` | Reset to 0/0/180 |
 
+## HITL Review Tool
+
+Audio from every voice session is automatically recorded to `~/.eye_test_audio/` for quality review and model training.
+
+### Access the Review Tool
+
+Open `http://localhost:5050/review.html`. Register with your email and password on first use.
+
+### Features
+
+- Stats dashboard: total utterances, needs review, accuracy
+- Filter by date, session, status (needs review / reviewed / not understood)
+- Inline audio playback
+- Correct intent selection per utterance
+- Mark as garbage/noise
+- Bulk approve correctly-matched utterances
+- Export training datasets (Whisper format or intent classifier format)
+
+### Audio Storage
+
+```
+~/.eye_test_audio/
+    2026-03-20/
+        session_xxx/
+            manifest.jsonl    # metadata per utterance
+            utt_0001.flac     # audio files
+            utt_0002.flac
+            session_summary.json
+```
+
+See [ROADMAP_HITL.md](ROADMAP_HITL.md) for the full Phase 1 + Phase 2 plan.
+
 ## Environment Variables
 
 | Variable | Default | Description |

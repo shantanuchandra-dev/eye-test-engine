@@ -125,6 +125,52 @@ Both run in the same process — Flask in a thread, Pipecat on asyncio. Concurre
 voice + click responses to the same session could race. In practice this is unlikely
 (one operator per session), but production hardening should add per-session locking.
 
+## HITL Audio Annotation Pipeline
+
+```
+Voice Pipeline                          Review Tool
+┌────────────────────┐                 ┌─────────────────────┐
+│ Patient speaks     │                 │ /review.html        │
+│   ↓                │                 │                     │
+│ VAD → STT → Match  │                 │ Reviewer logs in    │
+│   ↓                │                 │ Listens to audio    │
+│ AudioRecorder      │───manifest──→   │ Corrects intents    │
+│   ↓                │   + FLAC        │ Bulk approves       │
+│ ~/.eye_test_audio/ │                 │ Exports dataset     │
+└────────────────────┘                 └─────────┬───────────┘
+                                                 │
+                                                 ↓
+                                       Training Pipeline (Phase 2)
+                                       ┌─────────────────────┐
+                                       │ Whisper fine-tuning  │
+                                       │ Intent classifier    │
+                                       │ A/B testing          │
+                                       └─────────────────────┘
+```
+
+### Audio Storage (`~/.eye_test_audio/`)
+
+- Hidden directory, organized by date/session
+- FLAC format (lossless, ~40% of WAV, training-friendly)
+- JSONL manifest per session with full metadata per utterance
+- Captures: transcript, intent, confidence, FSM state, patient data, mic info, ambient RMS
+- Flagged utterances: `needs_review: true` for unrecognized/low-confidence
+
+### Review API (`/api/review/*`)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/auth/register` | POST | Self-registration |
+| `/auth/login` | POST | Get auth token |
+| `/utterances` | GET | List with filters |
+| `/utterances/{sid}/{uid}` | PUT | Annotate/correct |
+| `/bulk-approve` | POST | Bulk approve |
+| `/stats` | GET | Review statistics |
+| `/export` | GET | Export training data |
+| `/audio/{path}` | GET | Serve audio file |
+| `/dates` | GET | Available dates |
+| `/sessions` | GET | Sessions per date |
+
 ## Deployment Modes
 
 | Mode | Command | What runs |
