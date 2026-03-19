@@ -42,7 +42,7 @@
 - [x] Auto-retrain cron: Monday 3am, if >50 new annotations since last train
 - [x] Model versioning (v1, v2, ...) stored in `voice/models/whisper-finetuned/`
 - [x] CTranslate2 conversion for faster-whisper compatibility
-- [ ] *Requires training deps:* `pip install datasets evaluate jiwer soundfile`
+- [x] Training deps installed: `datasets evaluate jiwer soundfile`
 
 ### Intent Classifier (Fallback)
 - [x] Train audio → intent classifier: `python -m voice.training.intent_classifier --train`
@@ -75,7 +75,7 @@
 - [x] Checks if enough new data (>50 annotations) before training
 - [x] Runs: fine-tune → A/B test → confidence optimizer → matcher expansion
 - [x] Logs all runs to `~/.eye_test_audio/_analysis/retrain_log.jsonl`
-- [ ] Cron setup: `0 3 * * 1 cd /path/to && venv/bin/python -m voice.training.weekly_retrain`
+- [x] Cron setup script: `bash voice/training/setup_cron.sh --apply`
 
 ### Central Server Sync
 - [x] Push audio data: `python -m voice.training.server_sync --push`
@@ -84,7 +84,7 @@
 - [x] Tracks sync state, only pushes new files
 - [x] Show status: `python -m voice.training.server_sync --status`
 - [ ] Central server API implementation (receiver side)
-- [ ] Cron setup: `0 2 * * * push` / `0 4 * * * pull`
+- [x] Cron setup: included in `setup_cron.sh` (uncomment sync lines after configuring server)
 
 ### Regional Language Expansion
 - [x] Language registry: 10 languages (en, hi, te, ta, kn, mr, ml, gu, bn, pa)
@@ -97,8 +97,9 @@
 - [x] Wire regional_languages.py into pipeline.py (all language-specific code uses regional lookups)
 - [x] Add 5 regional languages to frontend voice dropdown (te, ta, kn, mr, ml)
 - [x] MMS models load on-demand for ta, kn, mr (no pre-download needed)
-- [ ] Download Piper voices for te, ml (te_IN-venkatesh-medium, ml_IN-arjun-medium)
+- [x] Download Piper voices for te, ml (te_IN-venkatesh-medium, ml_IN-arjun-medium)
 - [ ] Add gu, bn, pa to frontend dropdown (MMS models available but no translations yet)
+- [ ] Add question translations for ml, gu, bn, pa
 
 ## Storage Budget
 

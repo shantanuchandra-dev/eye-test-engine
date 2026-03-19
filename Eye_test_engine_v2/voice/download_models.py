@@ -26,6 +26,8 @@ PIPER_VOICES = {
     "en_US-kusal-medium": "en/en_US/kusal/medium",
     "en_US-lessac-medium": "en/en_US/lessac/medium",
     "hi_IN-pratham-medium": "hi/hi_IN/pratham/medium",
+    "te_IN-venkatesh-medium": "te/te_IN/venkatesh/medium",
+    "ml_IN-arjun-medium": "ml/ml_IN/arjun/medium",
 }
 PIPER_HF_BASE = "https://huggingface.co/rhasspy/piper-voices/resolve/main"
 
