@@ -649,11 +649,11 @@
             background: #fff;
             border-radius: 8px;
             box-shadow: 0 4px 24px rgba(0,0,0,0.25);
-            width: 380px;
+            width: 570px;
             overflow: hidden;
             resize: both;
-            min-width: 250px;
-            min-height: 200px;
+            min-width: 375px;
+            min-height: 300px;
         }
         .screenshot-header {
             display: flex;
@@ -680,7 +680,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            min-height: 180px;
+            min-height: 270px;
             overflow: hidden;
             background: #f5f5f5;
         }
@@ -835,6 +835,12 @@
             <button class="btn-live" onclick="toggleScreenshotModal()" title="Live View">Live</button>
             <button class="btn-reset" onclick="resetPhoropter()" title="Reset to 0/0/180">Reset</button>
             <button id="voiceModeBtn" onclick="toggleVoiceMode()" title="Toggle voice mode" style="background:rgba(76,175,80,0.7);">🎤 Voice</button>
+            <select id="voiceSelect" title="AI Optometrist voice" style="font-size:0.72rem;padding:2px 4px;border-radius:4px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);cursor:pointer;">
+                <option value="en_US-kusal-medium">English (Indian)</option>
+                <option value="en_US-lessac-medium">English (US)</option>
+                <option value="hi_IN-pratham-medium" data-lang="hi">Hindi (Piper)</option>
+                <option value="meta-mms-hindi" data-lang="hi">Hindi (Meta MMS)</option>
+            </select>
             <span id="voiceIndicator" style="display:none;width:8px;height:8px;border-radius:50%;background:#4caf50;animation:pulse 1s infinite;margin-left:4px;"></span>
             <span id="voiceChip" class="voice-chip" style="display:none;">
                 <span id="voiceChipBars" class="voice-bars"><span></span><span></span><span></span><span></span></span>

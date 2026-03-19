@@ -36,3 +36,4 @@ Eye_test_engine_v2/voice/models/silero/
 
 # Claude local
 .claude/plans/
+*metadata.json

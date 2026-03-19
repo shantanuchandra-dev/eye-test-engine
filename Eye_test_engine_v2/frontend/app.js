@@ -1358,6 +1358,7 @@ async function jumpToPhase(targetState) {
 
 // ── Escalation ──────────────────────────────────────────────────────────
 function handleEscalation(data) {
+    stopVoiceMode();
     const questionText = document.getElementById('questionText');
     const intentButtons = document.getElementById('intentButtons');
 
@@ -1409,9 +1410,11 @@ async function completeTest(data) {
 
     updatePhaseProgress('END');
     addToHistory('Test complete', 'success');
+    stopVoiceMode();
 }
 
 async function endTestWithStatus(status) {
+    stopVoiceMode();
     try {
         showLoading(true);
         const resp = await fetch(`${CONFIG.backendUrl}/api/session/${sessionState.sessionId}/end`, {
@@ -1447,6 +1450,7 @@ async function endTestWithStatus(status) {
 
 async function discardTest() {
     if (!confirm('Discard this test? Data will not be saved.')) return;
+    stopVoiceMode();
     try {
         await fetch(`${CONFIG.backendUrl}/api/session/${sessionState.sessionId}/discard`, { method: 'POST' });
         _clearSessionStorage();
@@ -1614,8 +1618,19 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Auto-start voice mode if session is active
     if (sessionState.sessionId) {
-        // Small delay to let the UI settle before requesting mic permission
         setTimeout(() => startVoiceMode(), 1000);
+    }
+
+    // Reconnect voice when dropdown changes
+    const voiceSelect = document.getElementById('voiceSelect');
+    if (voiceSelect) {
+        voiceSelect.addEventListener('change', () => {
+            if (voiceState.enabled) {
+                // Reconnect with the new voice
+                stopVoiceMode();
+                setTimeout(() => startVoiceMode(), 500);
+            }
+        });
     }
 });
 
@@ -1642,7 +1657,11 @@ const VOICE_WS_PORT = 8766;
 
 function getVoiceWsUrl() {
     const host = window.location.hostname || 'localhost';
-    return `ws://${host}:${VOICE_WS_PORT}/ws/voice/${sessionState.sessionId}`;
+    const voiceSelect = document.getElementById('voiceSelect');
+    const selectedOption = voiceSelect ? voiceSelect.selectedOptions[0] : null;
+    const voice = selectedOption ? selectedOption.value : 'en_US-kusal-medium';
+    const lang = selectedOption && selectedOption.dataset.lang ? selectedOption.dataset.lang : 'en';
+    return `ws://${host}:${VOICE_WS_PORT}/ws/voice/${sessionState.sessionId}?lang=${lang}&voice=${voice}`;
 }
 
 async function toggleVoiceMode() {

@@ -23,6 +23,7 @@ SILERO_DIR = MODELS_DIR / "silero"
 
 # Piper voices to download (name → HuggingFace sub-path)
 PIPER_VOICES = {
+    "en_US-kusal-medium": "en/en_US/kusal/medium",
     "en_US-lessac-medium": "en/en_US/lessac/medium",
     "hi_IN-pratham-medium": "hi/hi_IN/pratham/medium",
 }

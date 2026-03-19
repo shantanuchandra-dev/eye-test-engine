@@ -9,7 +9,7 @@ import numpy as np
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from voice.pipeline import (
-    VoicePipeline, DirectTTSProcessor,
+    VoicePipeline, DirectTTSProcessor, MetaTTSProcessor,
     _resolve_whisper_model, _resolve_piper_voice, _resolve_silero_hub_dir,
     PIPER_MODEL_DIR, SAMPLE_RATE,
 )
@@ -21,6 +21,8 @@ _sessions_ref = None
 # Pre-loaded models (shared across sessions, loaded once at startup)
 _whisper_model = None
 _silero_hub = None
+_mms_model = None
+_mms_tokenizer = None
 
 
 def set_sessions_ref(sessions_dict):
@@ -30,7 +32,7 @@ def set_sessions_ref(sessions_dict):
 
 def preload_models():
     """Call once at startup to pre-load heavy models."""
-    global _whisper_model, _silero_hub
+    global _whisper_model, _silero_hub, _mms_model, _mms_tokenizer
     from faster_whisper import WhisperModel
 
     whisper_path = _resolve_whisper_model()
@@ -41,9 +43,19 @@ def preload_models():
     print(f"[VOICE] Whisper model loaded")
     print(f"[VOICE] Silero hub: {_silero_hub or 'default'}")
 
+    # Pre-load Meta MMS-TTS Hindi model
+    try:
+        from transformers import VitsModel, AutoTokenizer
+        print(f"[VOICE] Pre-loading Meta MMS-TTS Hindi model...")
+        _mms_model = VitsModel.from_pretrained("facebook/mms-tts-hin")
+        _mms_tokenizer = AutoTokenizer.from_pretrained("facebook/mms-tts-hin")
+        print(f"[VOICE] Meta MMS-TTS loaded (sample_rate={_mms_model.config.sampling_rate})")
+    except Exception as e:
+        print(f"[VOICE] Meta MMS-TTS failed to load: {e} (Hindi Meta voice will be unavailable)")
+
 
 @fastapi_app.websocket("/ws/voice/{session_id}")
-async def voice_websocket(websocket: WebSocket, session_id: str, lang: str = "en"):
+async def voice_websocket(websocket: WebSocket, session_id: str, lang: str = "en", voice: str = ""):
     await websocket.accept()
 
     if _sessions_ref is None:
@@ -70,14 +82,24 @@ async def voice_websocket(websocket: WebSocket, session_id: str, lang: str = "en
         except Exception:
             pass
 
-    # Build TTS (fast — just loads the onnx voice)
-    piper_voice = _resolve_piper_voice(lang=lang)
-    piper_onnx = str(PIPER_MODEL_DIR / f"{piper_voice}.onnx")
-    tts = DirectTTSProcessor(
-        voice_path=piper_onnx,
-        ws_send_bytes=ws_send_bytes,
-        ws_send_json=ws_send_json,
-    )
+    # Build TTS based on selected voice
+    if voice == "meta-mms-hindi" and _mms_model:
+        print(f"[VOICE WS] Using voice: Meta MMS-TTS Hindi", flush=True)
+        tts = MetaTTSProcessor(
+            ws_send_bytes=ws_send_bytes,
+            ws_send_json=ws_send_json,
+            model=_mms_model,
+            tokenizer=_mms_tokenizer,
+        )
+    else:
+        piper_voice = _resolve_piper_voice(voice_name=voice if voice else None, lang=lang)
+        piper_onnx = str(PIPER_MODEL_DIR / f"{piper_voice}.onnx")
+        print(f"[VOICE WS] Using voice: Piper {piper_voice}", flush=True)
+        tts = DirectTTSProcessor(
+            voice_path=piper_onnx,
+            ws_send_bytes=ws_send_bytes,
+            ws_send_json=ws_send_json,
+        )
 
     # Build pipeline using pre-loaded whisper model
     try:
@@ -87,6 +109,7 @@ async def voice_websocket(websocket: WebSocket, session_id: str, lang: str = "en
             tts=tts,
             silero_hub_dir=_silero_hub,
             whisper_model=_whisper_model,
+            lang=lang,
         )
         print(f"[VOICE WS] Ready: session={session_id}", flush=True)
     except Exception as e:
@@ -104,10 +127,16 @@ async def voice_websocket(websocket: WebSocket, session_id: str, lang: str = "en
         "data": {"status": "active", **state},
     })
 
-    # Speak the first question
+    # Speak the first question, then start silence timer
     question = state.get("question", "")
     if question and not (state.get("auto_flip") and state.get("jcc_flip") == "flip1"):
-        asyncio.create_task(tts.speak(question))
+        if lang == "hi":
+            from voice.pipeline import _translate_to_hindi
+            question = _translate_to_hindi(question)
+        async def _speak_first_question():
+            await tts.speak(question)
+            pipeline.start_silence_timer()
+        asyncio.create_task(_speak_first_question())
 
     await ws_send_json({"type": "voice_ready", "tts_sample_rate": tts.sample_rate})
 

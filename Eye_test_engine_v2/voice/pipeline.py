@@ -17,6 +17,236 @@ from faster_whisper import WhisperModel
 
 from voice.fuzzy_matcher import match_transcript
 
+# Rephrased questions for when patient doesn't respond within 3 seconds.
+# Simpler language, explicit options spelled out.
+import random
+
+REPHRASED_QUESTIONS = {
+    "READABILITY": "Clear, blurry, or can't read?",
+    "NEAR_READABILITY": "Clear, blurry, or can't read?",
+    "COMPARE_1_2": "One, two, or same?",
+    "COLOR_CHOICE": "Red, green, or same?",
+    "TOP_BOTTOM": "Top, bottom, or same?",
+    "NEAR_BINOC": "Clear, or not clear?",
+}
+
+# Varied follow-ups for repeated questions in the same phase.
+# A random one is picked each time to avoid sounding robotic.
+SHORT_FOLLOWUP_POOL = {
+    "READABILITY": [
+        "How about now? Clear, blurry, or can't read?",
+        "And these letters? Clear, blurry, or not readable?",
+        "Can you read this line? Clear, blurry, or no?",
+        "What about now? Readable, blurry, or not at all?",
+        "This row — clear, blurry, or can't make it out?",
+        "Better or worse? Clear, blurry, or unreadable?",
+        "How does this look? Clear, a bit blurry, or can't read?",
+        "Next line. Clear, blurry, or not readable?",
+    ],
+    # Phase B: right eye coarse sphere — short, no options dictated
+    "state_B": [
+        "How about now?",
+        "And this line?",
+        "What about these letters?",
+        "Any change?",
+        "How does this look?",
+        "Next line.",
+        "And now?",
+        "Better or worse?",
+    ],
+    # Phase D: left eye coarse sphere — short, no options dictated
+    "state_D": [
+        "How about now?",
+        "And this line?",
+        "What about these letters?",
+        "Any change?",
+        "How does this look?",
+        "Next line.",
+        "And now?",
+        "Better or worse?",
+    ],
+    "NEAR_READABILITY": [
+        "And now? Clear, blurry, or can't read?",
+        "How about the small text now? Clear, blurry, or no?",
+        "Can you read this? Clear, blurry, or not readable?",
+        "This text — clear, blurry, or can't make it out?",
+    ],
+    "COMPARE_1_2": [
+        "One, two, or same?",
+        "First or second? Or about the same?",
+        "Which was sharper — one or two? Or equal?",
+    ],
+    "COLOR_CHOICE": [
+        "Red, green, or same?",
+        "Red side or green side? Or equal?",
+        "Which background is clearer — red or green?",
+    ],
+    "TOP_BOTTOM": [
+        "Top, bottom, or same?",
+        "Upper row or lower row? Or equal?",
+        "Which row is clearer — top or bottom?",
+    ],
+    "NEAR_BINOC": [
+        "Clear, or not clear?",
+        "Comfortable to read? Yes or no?",
+    ],
+}
+
+
+def _pick_followup(response_type: str, state: str = "") -> str:
+    """Pick a random short follow-up for a repeated same-phase question."""
+    pool = SHORT_FOLLOWUP_POOL.get(f"state_{state}") or SHORT_FOLLOWUP_POOL.get(response_type)
+    if pool:
+        return random.choice(pool)
+    return ""
+
+
+# ── Hinglish translations (used when hi_IN voice is selected) ─────────
+# Maps FSM question → Hinglish equivalent. Spoken by hi_IN Piper voice.
+HINDI_QUESTIONS = {
+    "Looking at the letters, are they clear, slightly blurry, or not readable?":
+        "अक्षरों को देखिए, क्या ये साफ़ दिख रहे हैं, थोड़े धुंधले हैं, या पढ़ नहीं पा रहे?",
+    "Looking at the letters now, are they clear, a bit blurry, or not readable?":
+        "अब अक्षरों को देखिए, साफ़ हैं, धुंधले हैं, या पढ़ नहीं पा रहे?",
+    "Look carefully at the dot pattern. Between view one and two, which one makes the dots look sharper or better aligned? Is it one, two, about the same, or hard to tell?":
+        "बिंदुओं को ध्यान से देखिए। पहला दृश्य बेहतर है या दूसरा? या दोनों एक जैसे हैं? या समझ नहीं आ रहा?",
+    "Again looking at the dot pattern, which view makes the dots look clearer or sharper — one, two, about the same, or hard to tell?":
+        "फिर से बिंदुओं को देखिए। कौन सा दृश्य ज़्यादा साफ़ है — पहला, दूसरा, एक जैसा, या पता नहीं?",
+    "Looking at the letters on the red and green backgrounds, which side looks clearer — red, green, or do they look about the same?":
+        "लाल और हरे रंग पर अक्षर देखिए। कौन सी तरफ़ ज़्यादा साफ़ है — लाल, हरा, या दोनों एक जैसे?",
+    "Looking at the dot pattern, which one looks sharper — one, two, about the same, or hard to tell?":
+        "बिंदुओं को देखिए, कौन सा तेज़ है — पहला, दूसरा, एक जैसा, या पता नहीं?",
+    "Comparing the two views of the dots, which looks clearer — one, two, about the same, or hard to tell?":
+        "दोनों दृश्यों की तुलना करें। कौन सा साफ़ है — पहला, दूसरा, एक जैसा, या पता नहीं?",
+    "Looking again at the red and green backgrounds, which side makes the letters clearer — red, green, or about the same?":
+        "फिर से लाल और हरा देखिए। कौन सी तरफ़ बेहतर है — लाल, हरा, या एक जैसा?",
+    "Look at the two rows of letters. Which row looks clearer — the top row, the bottom row, or do they look about the same?":
+        "दो पंक्तियाँ देखिए। कौन सी पंक्ति साफ़ है — ऊपर वाली, नीचे वाली, या दोनों एक जैसी?",
+    "Looking at the near text, is it clear to read, a bit blurry, or not readable?":
+        "पास का लिखावट देखिए। साफ़ है, धुंधला है, या पढ़ नहीं पा रहे?",
+    "Looking at the near text again, is it clear, blurry, or not readable?":
+        "फिर से पास का लिखावट देखिए। साफ़, धुंधला, या पढ़ नहीं पा रहे?",
+    "Looking at the near text with both eyes, is it clear and comfortable, or still not clear?":
+        "दोनों आँखों से पास का लिखावट देखिए। साफ़ और आरामदायक है, या अभी भी साफ़ नहीं?",
+}
+
+HINDI_REPHRASED = {
+    "READABILITY": "साफ़ है, धुंधला है, या पढ़ नहीं पा रहे?",
+    "NEAR_READABILITY": "साफ़ है, धुंधला है, या नहीं पढ़ पा रहे?",
+    "COMPARE_1_2": "पहला, दूसरा, या एक जैसा?",
+    "COLOR_CHOICE": "लाल, हरा, या एक जैसा?",
+    "TOP_BOTTOM": "ऊपर, नीचे, या एक जैसा?",
+    "NEAR_BINOC": "साफ़ है, या नहीं?",
+}
+
+HINDI_FOLLOWUP_POOL = {
+    "READABILITY": [
+        "अब कैसा दिख रहा है?",
+        "और ये अक्षर?",
+        "कोई बदलाव?",
+        "ये कैसा लग रहा है?",
+        "अगली पंक्ति।",
+        "और अब?",
+        "बेहतर है या ख़राब?",
+    ],
+    "state_B": [
+        "अब कैसा दिख रहा है?",
+        "और ये पंक्ति?",
+        "ये अक्षर कैसे हैं?",
+        "कोई बदलाव?",
+        "कैसा लग रहा है?",
+        "अगली पंक्ति।",
+        "और अब?",
+        "बेहतर या ख़राब?",
+    ],
+    "state_D": [
+        "अब कैसा दिख रहा है?",
+        "और ये पंक्ति?",
+        "ये अक्षर कैसे हैं?",
+        "कोई बदलाव?",
+        "कैसा लग रहा है?",
+        "अगली पंक्ति।",
+        "और अब?",
+        "बेहतर या ख़राब?",
+    ],
+    "COMPARE_1_2": [
+        "पहला या दूसरा?",
+        "कौन सा बेहतर था?",
+        "कौन सा तेज़ था?",
+    ],
+    "COLOR_CHOICE": [
+        "लाल या हरा?",
+        "कौन सी तरफ़ साफ़ है?",
+    ],
+    "TOP_BOTTOM": [
+        "ऊपर या नीचे?",
+        "कौन सी पंक्ति साफ़ है?",
+    ],
+    "NEAR_READABILITY": [
+        "अब कैसा है?",
+        "ये पढ़ पा रहे हो?",
+    ],
+    "NEAR_BINOC": [
+        "साफ़ है या नहीं?",
+        "आराम से पढ़ पा रहे हैं?",
+    ],
+}
+
+
+# Voice-friendly versions of FSM questions — just the question, no options listed.
+VOICE_QUESTIONS = {
+    "Looking at the letters, are they clear, slightly blurry, or not readable?":
+        "Looking at the letters, can you read them clearly?",
+    "Looking at the letters now, are they clear, a bit blurry, or not readable?":
+        "Now looking at the letters, can you read them clearly?",
+    "Look carefully at the dot pattern. Between view one and two, which one makes the dots look sharper or better aligned? Is it one, two, about the same, or hard to tell?":
+        "Look carefully at the dot pattern. Which view makes the dots look sharper?",
+    "Again looking at the dot pattern, which view makes the dots look clearer or sharper — one, two, about the same, or hard to tell?":
+        "Looking at the dots again, which view is clearer?",
+    "Looking at the letters on the red and green backgrounds, which side looks clearer — red, green, or do they look about the same?":
+        "Looking at the red and green backgrounds, which side looks clearer?",
+    "Looking at the dot pattern, which one looks sharper — one, two, about the same, or hard to tell?":
+        "Looking at the dots, which one looks sharper?",
+    "Comparing the two views of the dots, which looks clearer — one, two, about the same, or hard to tell?":
+        "Comparing the two views, which looks clearer?",
+    "Looking again at the red and green backgrounds, which side makes the letters clearer — red, green, or about the same?":
+        "Looking at the red and green again, which side is clearer?",
+    "Look at the two rows of letters. Which row looks clearer — the top row, the bottom row, or do they look about the same?":
+        "Look at the two rows. Which row looks clearer?",
+    "Looking at the near text, is it clear to read, a bit blurry, or not readable?":
+        "Looking at the near text, can you read it clearly?",
+    "Looking at the near text again, is it clear, blurry, or not readable?":
+        "Looking at the near text again, can you read it?",
+    "Looking at the near text with both eyes, is it clear and comfortable, or still not clear?":
+        "With both eyes, is the near text clear and comfortable?",
+}
+
+
+def _strip_intents(text: str) -> str:
+    """Return the voice-friendly version of a question (no options dictated).
+    Also strips JCC phase name prefixes like 'JCC Axis (Right Eye) — '.
+    """
+    # Check exact match first
+    if text in VOICE_QUESTIONS:
+        return VOICE_QUESTIONS[text]
+    # Strip JCC phase prefix: "JCC Axis (Right Eye) — This is Flip 2. Which was better?"
+    if text.startswith("JCC ") and " — " in text:
+        text = text.split(" — ", 1)[1]
+    return text
+
+
+def _translate_to_hindi(text: str) -> str:
+    """Translate a question to Hindi. Returns original if no translation found."""
+    return HINDI_QUESTIONS.get(text, text)
+
+
+def _pick_hindi_followup(response_type: str, state: str = "") -> str:
+    """Pick a random Hindi follow-up."""
+    pool = HINDI_FOLLOWUP_POOL.get(f"state_{state}") or HINDI_FOLLOWUP_POOL.get(response_type)
+    if pool:
+        return random.choice(pool)
+    return ""
+
 # ── Local model paths ────────────────────────────────────────────────────
 _VOICE_DIR = Path(__file__).resolve().parent
 MODELS_DIR = _VOICE_DIR / "models"
@@ -25,7 +255,7 @@ PIPER_MODEL_DIR = MODELS_DIR / "piper"
 SILERO_MODEL_DIR = MODELS_DIR / "silero"
 
 DEFAULT_PIPER_VOICES = {
-    "en": "en_US-lessac-medium",
+    "en": "en_US-kusal-medium",
     "hi": "hi_IN-pratham-medium",
 }
 
@@ -102,6 +332,61 @@ class DirectTTSProcessor:
         self._speaking = False
 
 
+class MetaTTSProcessor:
+    """Synthesizes Hindi speech via Meta MMS-TTS (facebook/mms-tts-hin).
+
+    Same interface as DirectTTSProcessor so they're interchangeable.
+    """
+
+    def __init__(self, ws_send_bytes, ws_send_json, model=None, tokenizer=None):
+        self._ws_send_bytes = ws_send_bytes
+        self._ws_send_json = ws_send_json
+        self._speaking = False
+
+        if model and tokenizer:
+            # Use pre-loaded model
+            self._model = model
+            self._tokenizer = tokenizer
+        else:
+            from transformers import VitsModel, AutoTokenizer
+            print("[TTS] Loading Meta MMS-TTS Hindi model...")
+            self._model = VitsModel.from_pretrained("facebook/mms-tts-hin")
+            self._tokenizer = AutoTokenizer.from_pretrained("facebook/mms-tts-hin")
+            print("[TTS] Meta MMS-TTS loaded")
+
+        self._sample_rate = self._model.config.sampling_rate  # 16000
+
+    @property
+    def sample_rate(self) -> int:
+        return self._sample_rate
+
+    async def speak(self, text: str):
+        if not text:
+            return
+        self._speaking = True
+        await self._ws_send_json({"type": "tts_start", "text": text})
+        try:
+            audio_bytes = await asyncio.to_thread(self._synthesize, text)
+            if self._speaking and audio_bytes:
+                await self._ws_send_bytes(b'\x01' + audio_bytes)
+        except Exception as e:
+            print(f"[TTS Meta] Error: {e}")
+        finally:
+            self._speaking = False
+            await self._ws_send_json({"type": "tts_end"})
+
+    def _synthesize(self, text: str) -> bytes:
+        inputs = self._tokenizer(text, return_tensors="pt")
+        with torch.no_grad():
+            output = self._model(**inputs)
+        waveform = output.waveform[0].numpy()
+        wav_int16 = (waveform * 32767).astype(np.int16)
+        return wav_int16.tobytes()
+
+    def stop(self):
+        self._speaking = False
+
+
 class VoicePipeline:
     """Direct voice pipeline: VAD → STT → fuzzy match → FSM → TTS.
 
@@ -110,15 +395,17 @@ class VoicePipeline:
     """
 
     def __init__(self, session, ws_send_json, tts, silero_hub_dir=None,
-                 whisper_model=None, confidence_threshold=60.0):
+                 whisper_model=None, confidence_threshold=60.0, lang="en"):
         """
         Args:
             whisper_model: Pre-loaded WhisperModel instance, or a path string.
+            lang: Language code ('en' or 'hi'). 'hi' enables Hinglish translation.
         """
         self.session = session
         self.ws_send_json = ws_send_json
         self.tts = tts
         self._confidence_threshold = confidence_threshold
+        self._lang = lang
 
         # Load Silero VAD
         if silero_hub_dir:
@@ -144,6 +431,14 @@ class VoicePipeline:
 
         # Audio buffer for STT (accumulates while user is speaking)
         self._speech_buffer = np.array([], dtype=np.int16)
+
+        # Silence timer: if no speech detected for 3s, rephrase the question
+        self._silence_timer = None
+        self._silence_timeout_sec = 3.0
+        self._has_rephrased = False  # only rephrase once per question
+
+        # Track previous state to use short follow-ups for repeated same-phase questions
+        self._prev_state = None
 
         self._running = True
 
@@ -198,6 +493,7 @@ class VoicePipeline:
             if not self._vad_speaking and self._speech_streak >= self._speech_trigger:
                 self._vad_speaking = True
                 self._speech_buffer = np.array([], dtype=np.int16)
+                self._cancel_silence_timer()  # patient is speaking, cancel rephrase
                 await self.ws_send_json({"type": "vad", "speaking": True})
 
             # Debounced stop: need several consecutive silence chunks
@@ -210,6 +506,46 @@ class VoicePipeline:
             # Accumulate speech audio
             if self._vad_speaking:
                 self._speech_buffer = np.concatenate([self._speech_buffer, chunk])
+
+    def start_silence_timer(self):
+        """Start the silence timer. Called after TTS finishes a question."""
+        self._cancel_silence_timer()
+        self._silence_timer = asyncio.create_task(self._silence_timer_task())
+
+    def _cancel_silence_timer(self):
+        if self._silence_timer is not None:
+            self._silence_timer.cancel()
+            self._silence_timer = None
+
+    async def _silence_timer_task(self):
+        """Wait for silence timeout, then trigger rephrase."""
+        try:
+            await asyncio.sleep(self._silence_timeout_sec)
+            await self._on_silence_timeout()
+        except asyncio.CancelledError:
+            pass
+
+    async def _on_silence_timeout(self):
+        """Called when patient hasn't spoken for 3 seconds after a question."""
+        if not self._running or self._vad_speaking or self._has_rephrased:
+            return
+
+        row = self.session.current_row
+        if row is None:
+            return
+
+        response_type = row.response_type
+        if self._lang == "hi":
+            rephrased = HINDI_REPHRASED.get(response_type)
+        else:
+            rephrased = REPHRASED_QUESTIONS.get(response_type)
+        if not rephrased:
+            return
+
+        self._has_rephrased = True
+        print(f"[VOICE] Silence timeout — rephrasing ({response_type})")
+        await self.tts.speak(rephrased)
+        # After rephrasing, start another timer (but won't rephrase again due to _has_rephrased)
 
     async def _transcribe_and_process(self):
         """Run STT on the speech buffer and process the result."""
@@ -260,21 +596,47 @@ class VoicePipeline:
             })
 
             if next_state.get("is_terminal"):
-                await self.tts.speak("The test is now complete. Thank you.")
+                end_msg = "परीक्षा पूरी हो गई है। धन्यवाद।" if self._lang == "hi" else "The test is now complete. Thank you."
+                await self.tts.speak(end_msg)
                 return
 
             if next_state.get("auto_flip") and next_state.get("jcc_flip") == "flip1":
                 flip_wait = next_state.get("flip_wait_seconds", 2)
-                asyncio.create_task(self._handle_jcc_auto_flip(flip_wait))
+                # Clean flip1 message — no phase name prefix
+                if self._lang == "hi":
+                    flip1_msg = "चार्ट पर ध्यान दीजिए। यह पहला दृश्य है।"
+                else:
+                    flip1_msg = "Focus on the dot chart. This is view one."
+                asyncio.create_task(self._handle_jcc_flip1_then_flip2(flip1_msg, flip_wait))
                 return
 
             question = next_state.get("question", "")
             if question:
+                self._has_rephrased = False
+                self._cancel_silence_timer()
+                current_state = next_state.get("state")
+                response_type = next_state.get("response_type", "")
+                # Use short follow-up if staying in the same FSM state
+                if current_state and current_state == self._prev_state:
+                    if self._lang == "hi":
+                        followup = _pick_hindi_followup(response_type, state=current_state)
+                    else:
+                        followup = _pick_followup(response_type, state=current_state)
+                    if followup:
+                        question = followup
+                elif self._lang == "hi":
+                    question = _translate_to_hindi(question)
+                else:
+                    question = _strip_intents(question)
+                self._prev_state = current_state
                 await self.tts.speak(question)
+                self.start_silence_timer()
         else:
             print(f"[VOICE] No match for: '{transcript}'")
             await self.ws_send_json({"type": "no_match", "transcript": transcript})
-            await self.tts.speak("I didn't catch that clearly. Could you please repeat?")
+            no_match_msg = "समझ नहीं आया। कृपया फिर से बोलिए।" if self._lang == "hi" else "I didn't catch that clearly. Could you please repeat?"
+            await self.tts.speak(no_match_msg)
+            self.start_silence_timer()
 
     def _run_whisper(self, audio_float: np.ndarray) -> list:
         """Run faster-whisper transcription (called in thread)."""
@@ -286,8 +648,11 @@ class VoicePipeline:
         )
         return [seg.text for seg in segments]
 
-    async def _handle_jcc_auto_flip(self, wait_seconds: float):
+    async def _handle_jcc_flip1_then_flip2(self, flip1_msg: str, wait_seconds: float):
+        """Speak Flip 1 instruction, wait, then auto-flip to Flip 2 and speak that question."""
+        await self.tts.speak(flip1_msg)
         await asyncio.sleep(wait_seconds)
+
         next_state = self.session.process_response("AUTO_FLIP")
         await self.ws_send_json({
             "type": "state_update",
@@ -295,10 +660,18 @@ class VoicePipeline:
         })
         question = next_state.get("question", "")
         if question:
+            self._has_rephrased = False
+            self._cancel_silence_timer()
+            if self._lang == "hi":
+                question = _translate_to_hindi(question)
+            else:
+                question = _strip_intents(question)
             await self.tts.speak(question)
+            self.start_silence_timer()
 
     def stop(self):
         self._running = False
+        self._cancel_silence_timer()
 
 
 def build_pipeline(session, ws_send_json, ws_send_bytes,
