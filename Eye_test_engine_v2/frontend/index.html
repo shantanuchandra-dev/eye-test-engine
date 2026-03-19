@@ -264,6 +264,42 @@
             color: #222;
             line-height: 1.5;
             font-weight: 500;
+            position: relative;
+            transition: color 0.3s;
+        }
+        #questionText.speaking {
+            color: #1565c0;
+        }
+        #questionText.speaking::before {
+            content: '';
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            margin-right: 8px;
+            vertical-align: middle;
+            background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%231565c0'%3E%3Cpath d='M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z'/%3E%3C/svg%3E") no-repeat center/contain;
+            animation: speakerPulse 1s ease-in-out infinite;
+        }
+        @keyframes speakerPulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.15); }
+        }
+        /* Animated underline sweep while speaking */
+        #questionText.speaking::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            height: 2px;
+            background: linear-gradient(90deg, #1565c0, #42a5f5, #1565c0);
+            background-size: 200% 100%;
+            animation: speakingSweep 1.5s linear infinite;
+            width: 100%;
+            border-radius: 1px;
+        }
+        @keyframes speakingSweep {
+            0% { background-position: 100% 0; }
+            100% { background-position: -100% 0; }
         }
 
         /* ── Response Buttons ───────────────────────── */
@@ -725,6 +761,63 @@
             .app-shell { grid-template-columns: 1fr; }
             .sidebar { display: none; }
         }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        #voiceModeBtn.voice-active {
+            background: rgba(76,175,80,1) !important;
+            box-shadow: 0 0 8px rgba(76,175,80,0.6);
+        }
+        /* Voice status chip — shows listening + heard text */
+        .voice-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(255,255,255,0.15);
+            border-radius: 12px;
+            padding: 3px 10px;
+            font-size: 0.75rem;
+            color: #fff;
+            max-width: 280px;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            transition: background 0.3s, opacity 0.4s;
+        }
+        .voice-chip.heard {
+            background: rgba(76,175,80,0.5);
+        }
+        .voice-chip.no-match {
+            background: rgba(244,67,54,0.45);
+        }
+        /* Animated sound bars (listening indicator) */
+        .voice-bars {
+            display: inline-flex;
+            align-items: flex-end;
+            gap: 2px;
+            height: 14px;
+        }
+        .voice-bars span {
+            display: inline-block;
+            width: 3px;
+            background: #4caf50;
+            border-radius: 1px;
+            animation: vbar 0.8s ease-in-out infinite;
+        }
+        .voice-bars span:nth-child(1) { height: 4px; animation-delay: 0s; }
+        .voice-bars span:nth-child(2) { height: 8px; animation-delay: 0.15s; }
+        .voice-bars span:nth-child(3) { height: 12px; animation-delay: 0.3s; }
+        .voice-bars span:nth-child(4) { height: 6px; animation-delay: 0.45s; }
+        .voice-chip:not(.listening) .voice-bars span {
+            animation: none;
+            height: 4px;
+            background: rgba(255,255,255,0.4);
+        }
+        @keyframes vbar {
+            0%, 100% { height: 4px; }
+            50% { height: 14px; }
+        }
     </style>
 </head>
 <body>
@@ -741,6 +834,12 @@
             <button id="acquireDeviceBtn" style="display:none;" onclick="acquireSelectedDevice()">Acquire</button>
             <button class="btn-live" onclick="toggleScreenshotModal()" title="Live View">Live</button>
             <button class="btn-reset" onclick="resetPhoropter()" title="Reset to 0/0/180">Reset</button>
+            <button id="voiceModeBtn" onclick="toggleVoiceMode()" title="Toggle voice mode" style="background:rgba(76,175,80,0.7);">🎤 Voice</button>
+            <span id="voiceIndicator" style="display:none;width:8px;height:8px;border-radius:50%;background:#4caf50;animation:pulse 1s infinite;margin-left:4px;"></span>
+            <span id="voiceChip" class="voice-chip" style="display:none;">
+                <span id="voiceChipBars" class="voice-bars"><span></span><span></span><span></span><span></span></span>
+                <span id="voiceChipText"></span>
+            </span>
             <span class="spacer"></span>
             <span id="sessionId" class="session-label">-</span>
         </div>
@@ -786,6 +885,7 @@
                     </div>
                     <div id="questionText">Waiting for session...</div>
                     <div id="intentButtons"></div>
+                    <div id="voiceTranscript" style="margin-top:8px;font-size:0.85rem;color:#78909c;font-style:italic;opacity:0.5;min-height:1.2em;transition:opacity 0.3s;"></div>
                 </div>
 
                 <!-- Inline status bar -->
