@@ -479,6 +479,15 @@ class VoicePipeline:
         self._confidence_threshold = confidence_threshold
         self._lang = lang
 
+        # Intent classifier fallback (loaded lazily if model exists)
+        self._intent_classifier = None
+        try:
+            from voice.training.intent_classifier import IntentClassifierInference
+            self._intent_classifier = IntentClassifierInference()
+            print("[VOICE] Intent classifier loaded as fallback")
+        except (FileNotFoundError, ImportError):
+            pass  # No classifier model yet, that's fine
+
         # Audio recorder
         from voice.audio_recorder import AudioRecorder
         self._recorder = AudioRecorder(
@@ -780,6 +789,48 @@ class VoicePipeline:
                 await self.tts.speak(question)
                 self.start_silence_timer()
         else:
+            # Try intent classifier as fallback (if available and audio was recorded)
+            if self._intent_classifier and hasattr(self._recorder, '_session_dir'):
+                try:
+                    # Find the latest recorded audio file
+                    last_utt = self._recorder._utt_counter
+                    audio_file = self._recorder._session_dir / f"utt_{last_utt:04d}.flac"
+                    if not audio_file.exists():
+                        audio_file = self._recorder._session_dir / f"utt_{last_utt:04d}.wav"
+                    if audio_file.exists():
+                        clf_intent, clf_conf = self._intent_classifier.predict(str(audio_file))
+                        if clf_intent and clf_conf > 70:
+                            print(f"[VOICE] Classifier fallback: {clf_intent} ({clf_conf:.0f}%)")
+                            matched_option = clf_intent
+                            confidence = clf_conf
+                            await self.ws_send_json({
+                                "type": "match",
+                                "option": matched_option,
+                                "confidence": confidence,
+                                "transcript": transcript,
+                                "source": "classifier",
+                            })
+                            # Process as if matched
+                            next_state = self.session.process_response(matched_option)
+                            await self.ws_send_json({
+                                "type": "state_update",
+                                "data": {"status": "active", **next_state},
+                            })
+                            question = next_state.get("question", "")
+                            if question:
+                                self._has_rephrased = False
+                                self._cancel_silence_timer()
+                                if self._lang == "hi":
+                                    question = _translate_to_hindi(question)
+                                else:
+                                    question = _strip_intents(question)
+                                self._prev_state = next_state.get("state")
+                                await self.tts.speak(question)
+                                self.start_silence_timer()
+                            return
+                except Exception as e:
+                    print(f"[VOICE] Classifier fallback error: {e}")
+
             print(f"[VOICE] No match for: '{transcript}'")
             await self.ws_send_json({"type": "no_match", "transcript": transcript})
             no_match_msg = "समझ नहीं आया। कृपया फिर से बोलिए।" if self._lang == "hi" else "I didn't catch that clearly. Could you please repeat?"

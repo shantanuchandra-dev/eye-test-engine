@@ -45,9 +45,11 @@
 - [ ] *Requires training deps:* `pip install datasets evaluate jiwer soundfile`
 
 ### Intent Classifier (Fallback)
-- [ ] Train audio → intent classifier from HITL-labeled data
-- [ ] Runs when fuzzy matcher confidence < threshold
-- [ ] Architecture: small CNN or wav2vec2 fine-tuned on intent labels
+- [x] Train audio → intent classifier: `python -m voice.training.intent_classifier --train`
+- [x] Runs as fallback when fuzzy matcher confidence < threshold
+- [x] Architecture: audio features (energy + ZCR + spectral centroid) → 2-layer MLP
+- [x] Integrated into voice pipeline — loads lazily if model exists
+- [x] Evaluate: `python -m voice.training.intent_classifier --eval`
 
 ### A/B Testing Framework
 - [x] Run old model vs new model on same audio: `python -m voice.training.ab_testing`
@@ -76,9 +78,13 @@
 - [ ] Cron setup: `0 3 * * 1 cd /path/to && venv/bin/python -m voice.training.weekly_retrain`
 
 ### Central Server Sync
-- [ ] Clinic machines push audio + manifest to central server daily
-- [ ] Central HITL tool aggregates all clinic data
-- [ ] Retrained models pushed back to clinic machines
+- [x] Push audio data: `python -m voice.training.server_sync --push`
+- [x] Pull retrained models: `python -m voice.training.server_sync --pull`
+- [x] Supports rsync (SYNC_RSYNC_TARGET) and HTTP API (SYNC_SERVER_URL)
+- [x] Tracks sync state, only pushes new files
+- [x] Show status: `python -m voice.training.server_sync --status`
+- [ ] Central server API implementation (receiver side)
+- [ ] Cron setup: `0 2 * * * push` / `0 4 * * * pull`
 
 ### Regional Language Expansion
 - [ ] Tamil, Telugu, Kannada, Marathi voice support
