@@ -18,19 +18,19 @@
         /* ── Full-viewport shell ────────────────────── */
         .app-shell {
             display: grid;
-            grid-template-columns: 180px 1fr;
+            grid-template-columns: 216px 1fr;
             grid-template-rows: auto 1fr;
             height: 100vh;
             transition: grid-template-columns 0.25s ease;
         }
         .app-shell.logs-expanded {
-            grid-template-columns: 180px 1fr 320px;
+            grid-template-columns: 216px 1fr 320px;
         }
         .app-shell.debug-expanded {
-            grid-template-columns: 180px 1fr 340px;
+            grid-template-columns: 216px 1fr 340px;
         }
         .app-shell.logs-expanded.debug-expanded {
-            grid-template-columns: 180px 1fr 320px 340px;
+            grid-template-columns: 216px 1fr 320px 340px;
         }
 
         /* ── Top Bar (spans full width) ─────────────── */
@@ -465,24 +465,109 @@
             color: #333;
         }
 
-        /* ── History (collapsed in sidebar) ─────────── */
-        .history-toggle {
+        /* ── Sidebar sections ─────────────────────────── */
+        .sidebar-section {
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+        .sidebar-section-header {
             font-size: 0.7rem;
+            font-weight: 700;
             color: #888;
             cursor: pointer;
-            padding: 0.3rem 0;
+            padding: 0.3rem 0.2rem;
             display: flex;
             align-items: center;
             gap: 0.3rem;
+            border-bottom: 1px solid #f0f0f0;
+            flex-shrink: 0;
         }
-        .history-toggle:hover { color: #0d47a1; }
-        .history-toggle .arrow { font-size: 0.6rem; }
+        .sidebar-section-header:hover { color: #0d47a1; }
+        .sidebar-section-header .arrow { font-size: 0.6rem; transition: transform 0.2s; }
+        /* Expanded section takes available space */
+        .sidebar-section:not(.section-collapsed) {
+            flex: 1;
+        }
+        .sidebar-section.section-collapsed > *:not(.sidebar-section-header) {
+            display: none;
+        }
+
+        /* ── Voice Log (chat-style) ─────────────────────── */
+        .voice-log-container {
+            flex: 1;
+            overflow-y: auto;
+            font-size: 0.7rem;
+            padding: 4px 4px;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            background: #f0f0f0;
+            border-radius: 4px;
+        }
+        .voice-bubble {
+            max-width: 85%;
+            padding: 4px 8px;
+            border-radius: 8px;
+            line-height: 1.35;
+            position: relative;
+            word-wrap: break-word;
+        }
+        .voice-bubble .bubble-time {
+            font-size: 0.55rem;
+            color: rgba(0,0,0,0.35);
+            margin-left: 6px;
+            float: right;
+            margin-top: 2px;
+        }
+        /* AI bubble — left aligned, light green (WhatsApp incoming) */
+        .voice-bubble.ai {
+            align-self: flex-start;
+            background: #fff;
+            color: #333;
+            border-top-left-radius: 2px;
+            border-left: 3px solid #4caf50;
+        }
+        /* User bubble — right aligned, light blue (WhatsApp outgoing) */
+        .voice-bubble.user {
+            align-self: flex-end;
+            background: #dcf8c6;
+            color: #222;
+            border-top-right-radius: 2px;
+        }
+        .voice-bubble.user .bubble-intent {
+            display: block;
+            font-size: 0.6rem;
+            font-weight: 600;
+            color: #2e7d32;
+            margin-top: 1px;
+        }
+        .voice-bubble.user.nomatch {
+            background: #ffcdd2;
+        }
+        .voice-bubble.user.nomatch .bubble-intent {
+            color: #c62828;
+        }
+        /* System message — centered, gray */
+        .voice-bubble.system {
+            align-self: center;
+            background: rgba(0,0,0,0.06);
+            color: #888;
+            font-size: 0.6rem;
+            border-radius: 10px;
+            padding: 2px 10px;
+        }
+
+        /* ── History ────────────────────────────────────── */
         #historyContent {
-            max-height: 180px;
+            flex: 1;
             overflow-y: auto;
             font-size: 0.72rem;
         }
-        #historyContent.collapsed { display: none; }
+        #progressContent {
+            flex: 1;
+            overflow-y: auto;
+        }
         .history-entry {
             padding: 2px 0;
             border-bottom: 1px solid #f5f5f5;
@@ -852,14 +937,36 @@
 
         <!-- ── Sidebar ──────────────────────────────── -->
         <div class="sidebar">
-            <div class="sidebar-title">Progress</div>
-            <div id="phaseProgress"></div>
-            <div class="sidebar-footer">
-                <div class="history-toggle" onclick="toggleHistory()">
-                    <span id="historyArrow" class="arrow">&#x25B6;</span>
-                    History
+            <!-- Progress -->
+            <div class="sidebar-section section-collapsed">
+                <div class="sidebar-section-header" onclick="toggleSidebarSection('progress')">
+                    <span id="progressArrow" class="arrow">&#x25B6;</span>
+                    <span class="sidebar-title" style="margin-bottom:0;">Progress</span>
                 </div>
-                <div id="historyContent" class="collapsed"></div>
+                <div id="progressContent">
+                    <div id="phaseProgress"></div>
+                </div>
+            </div>
+
+            <!-- Voice Log -->
+            <div class="sidebar-section">
+                <div class="sidebar-section-header" onclick="toggleSidebarSection('voiceLog')">
+                    <span id="voiceLogArrow" class="arrow">&#x25BC;</span>
+                    <span class="sidebar-title" style="margin-bottom:0;">Voice Log</span>
+                </div>
+                <div id="voiceLogContent" class="voice-log-container"></div>
+            </div>
+
+            <!-- History -->
+            <div class="sidebar-section">
+                <div class="sidebar-section-header" onclick="toggleSidebarSection('history')">
+                    <span id="historyArrow" class="arrow">&#x25BC;</span>
+                    <span class="sidebar-title" style="margin-bottom:0;">History</span>
+                </div>
+                <div id="historyContent"></div>
+            </div>
+
+            <div class="sidebar-footer">
                 <div style="margin-top:0.4rem;">
                     <a href="intake.html">New Test</a>
                     <span class="divider">|</span>

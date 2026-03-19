@@ -613,7 +613,7 @@ class SessionOrchestrator:
             # Override question for Flip 1
             jcc_type = "Axis" if state in ("E", "H") else "Power"
             eye = "Right Eye" if state in ("E", "F") else "Left Eye"
-            response["question"] = f"JCC {jcc_type} ({eye}) — Focus on the dot chart. This is Flip 1."
+            response["question"] = f"Focus on the dot chart. This is Flip 1."
             # Clear options: no response buttons during Flip 1
             response["options"] = []
         elif state in self.JCC_STATES and self._jcc_flip_state == "flip2" and not terminal:
@@ -621,7 +621,7 @@ class SessionOrchestrator:
             response["jcc_flip"] = "flip2"
             jcc_type = "Axis" if state in ("E", "H") else "Power"
             eye = "Right Eye" if state in ("E", "F") else "Left Eye"
-            response["question"] = f"JCC {jcc_type} ({eye}) — This is Flip 2. Which was better?"
+            response["question"] = f"This is Flip 2. Which was better?"
             # Rename CANT_TELL → CANT_TELL in options but frontend shows as
             # "CANT TELL / REPEAT".  We use a display_labels map so the
             # actual response value stays CANT_TELL for FSM processing.

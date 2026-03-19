@@ -1552,6 +1552,64 @@ function toggleHistory() {
     }
 }
 
+function toggleSidebarSection(sectionId) {
+    const header = document.getElementById(sectionId + 'Arrow');
+    if (!header) return;
+    // The section is the parent .sidebar-section of the header's parent
+    const section = header.closest('.sidebar-section');
+    if (!section) return;
+    section.classList.toggle('section-collapsed');
+    const collapsed = section.classList.contains('section-collapsed');
+    header.textContent = collapsed ? '\u25B6' : '\u25BC';
+    if (!collapsed) {
+        const content = document.getElementById(sectionId + 'Content');
+        if (content) requestAnimationFrame(() => { content.scrollTop = content.scrollHeight; });
+    }
+}
+
+function addVoiceLog(type, text, intent) {
+    const container = document.getElementById('voiceLogContent');
+    if (!container) return;
+    const bubble = document.createElement('div');
+    const time = new Date().toLocaleTimeString(undefined, { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const timeHtml = `<span class="bubble-time">${time}</span>`;
+
+    if (type === 'spoken') {
+        // User spoke — right-aligned green bubble (will be updated to match/nomatch)
+        bubble.className = 'voice-bubble user';
+        bubble.id = 'voice-last-spoken';
+        bubble.innerHTML = `"${text}" ${timeHtml}`;
+    } else if (type === 'match') {
+        // Update the last spoken bubble with the intent, or create new
+        const last = document.getElementById('voice-last-spoken');
+        if (last) {
+            last.removeAttribute('id');
+            last.innerHTML = `"${text}" ${timeHtml}<span class="bubble-intent">&check; ${intent}</span>`;
+            container.scrollTop = container.scrollHeight;
+            return;
+        }
+        bubble.className = 'voice-bubble user';
+        bubble.innerHTML = `"${text}" ${timeHtml}<span class="bubble-intent">&check; ${intent}</span>`;
+    } else if (type === 'nomatch') {
+        const last = document.getElementById('voice-last-spoken');
+        if (last) {
+            last.removeAttribute('id');
+            last.classList.add('nomatch');
+            last.innerHTML = `"${text}" ${timeHtml}<span class="bubble-intent">? not recognized</span>`;
+            container.scrollTop = container.scrollHeight;
+            return;
+        }
+        bubble.className = 'voice-bubble user nomatch';
+        bubble.innerHTML = `"${text}" ${timeHtml}<span class="bubble-intent">? not recognized</span>`;
+    } else if (type === 'system') {
+        bubble.className = 'voice-bubble ai';
+        bubble.innerHTML = `${text} ${timeHtml}`;
+    }
+
+    container.appendChild(bubble);
+    container.scrollTop = container.scrollHeight;
+}
+
 // ── Keyboard Shortcuts ──────────────────────────────────────────────────
 document.addEventListener('keydown', (e) => {
     // Number keys 1-6 for response buttons
@@ -1841,14 +1899,15 @@ function handleVoiceMessage(msg) {
             break;
 
         case 'transcript':
-            // Show what the patient said in the chip
             showVoiceTranscript(msg.text);
             setVoiceChip('heard', `"${msg.text}"`);
+            addVoiceLog('spoken', msg.text);
             break;
 
         case 'match':
             addToHistory(`Voice: "${msg.transcript}" → ${msg.option} (${msg.confidence.toFixed(0)}%)`, 'info');
             setVoiceChip('heard', `"${msg.transcript}" → ${msg.option.replace(/_/g, ' ')}`);
+            addVoiceLog('match', msg.transcript, msg.option.replace(/_/g, ' '));
             clearTimeout(_voiceChipTimer);
             _voiceChipTimer = setTimeout(() => setVoiceChip('idle'), 2000);
             break;
@@ -1856,6 +1915,7 @@ function handleVoiceMessage(msg) {
         case 'no_match':
             addToHistory(`Voice: "${msg.transcript}" — not recognized, repeating`, 'warning');
             setVoiceChip('no-match', `"${msg.transcript}" — try again`);
+            addVoiceLog('nomatch', msg.transcript);
             clearTimeout(_voiceChipTimer);
             _voiceChipTimer = setTimeout(() => setVoiceChip('idle'), 2000);
             break;
@@ -1905,12 +1965,12 @@ function handleVoiceMessage(msg) {
             break;
 
         case 'test_complete':
-            // TTS finished speaking the completion message — now safe to stop voice
+            addVoiceLog('system', 'Test complete');
             stopVoiceMode();
             break;
 
         case 'exit_confirmed':
-            // User confirmed exit via voice — stop voice and show escalation UI
+            addVoiceLog('system', 'Test stopped by patient');
             stopVoiceMode();
             handleEscalation({ state: 'ESCALATE' });
             break;
@@ -1920,8 +1980,8 @@ function handleVoiceMessage(msg) {
             break;
 
         case 'tts_start':
-            // Piper TTS is synthesizing and streaming audio
             setQuestionSpeaking(true);
+            addVoiceLog('system', 'AI: ' + (msg.text || '').substring(0, 60) + (msg.text && msg.text.length > 60 ? '...' : ''));
             break;
 
         case 'tts_end':

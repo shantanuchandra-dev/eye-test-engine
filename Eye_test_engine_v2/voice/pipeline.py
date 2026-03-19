@@ -23,6 +23,10 @@ EXIT_KEYWORDS = [
     "escalate", "need human", "doctor bulao", "optometrist",
     "help", "need help", "madad", "sahayata",
     "cancel", "abort", "quit", "end test",
+    # Devanagari Hindi
+    "रुको", "बंद करो", "बस", "रोको",
+    "मदद", "सहायता", "डॉक्टर बुलाओ",
+    "बंद", "रुकिए",
 ]
 
 def _is_exit_request(transcript: str) -> bool:
@@ -40,7 +44,7 @@ import random
 REPHRASED_QUESTIONS = {
     "READABILITY": "Can you read the letters?",
     "NEAR_READABILITY": "Can you read the text?",
-    "COMPARE_1_2": "Which one was better?",
+    "COMPARE_1_2": "First one or second one?",
     "COLOR_CHOICE": "Which side is clearer?",
     "TOP_BOTTOM": "Which row is clearer?",
     "NEAR_BINOC": "Is it clear?",
@@ -88,37 +92,33 @@ SHORT_FOLLOWUP_POOL = {
         "This text — clear, blurry, or can't make it out?",
     ],
     "COMPARE_1_2": [
-        "Which was better?",
-        "And now?",
-        "Which one?",
+        "And this time?",
+        "Any difference?",
+        "How about now?",
     ],
-    # JCC Axis RE — short follow-ups between flips
     "state_E": [
-        "Which was better?",
         "And this time?",
-        "Which one looked sharper?",
+        "Which looked sharper?",
         "Any difference?",
+        "How about now?",
     ],
-    # JCC Power RE
     "state_F": [
-        "Which was better?",
         "And now?",
-        "Which one was clearer?",
+        "Which was clearer?",
         "Any difference?",
+        "How about this time?",
     ],
-    # JCC Axis LE
     "state_H": [
-        "Which was better?",
         "And this time?",
-        "Which one looked sharper?",
+        "Which looked sharper?",
         "Any difference?",
+        "How about now?",
     ],
-    # JCC Power LE
     "state_I": [
-        "Which was better?",
         "And now?",
-        "Which one was clearer?",
+        "Which was clearer?",
         "Any difference?",
+        "How about this time?",
     ],
     "COLOR_CHOICE": [
         "Which side is clearer?",
@@ -214,33 +214,33 @@ HINDI_FOLLOWUP_POOL = {
         "ये पढ़ पा रहे हैं?",
     ],
     "COMPARE_1_2": [
-        "कौन सा बेहतर था?",
-        "और अब?",
-        "कौन सा?",
+        "और इस बार?",
+        "कोई फ़र्क़?",
+        "अब कैसा?",
     ],
     "state_E": [
-        "कौन सा बेहतर था?",
         "और इस बार?",
-        "कौन सा तेज़ था?",
         "कोई फ़र्क़?",
+        "अब कैसा?",
+        "कौन सा तेज़ था?",
     ],
     "state_F": [
-        "कौन सा बेहतर था?",
         "और अब?",
-        "कौन सा साफ़ था?",
         "कोई फ़र्क़?",
+        "इस बार कैसा?",
+        "कौन सा साफ़ था?",
     ],
     "state_H": [
-        "कौन सा बेहतर था?",
         "और इस बार?",
-        "कौन सा तेज़ था?",
         "कोई फ़र्क़?",
+        "अब कैसा?",
+        "कौन सा तेज़ था?",
     ],
     "state_I": [
-        "कौन सा बेहतर था?",
         "और अब?",
-        "कौन सा साफ़ था?",
         "कोई फ़र्क़?",
+        "इस बार कैसा?",
+        "कौन सा साफ़ था?",
     ],
     "COLOR_CHOICE": [
         "कौन सी तरफ़ साफ़ है?",
@@ -706,11 +706,25 @@ class VoicePipeline:
 
             if next_state.get("auto_flip") and next_state.get("jcc_flip") == "flip1":
                 flip_wait = next_state.get("flip_wait_seconds", 2)
-                # Clean flip1 message — no phase name prefix
-                if self._lang == "hi":
-                    flip1_msg = "चार्ट पर ध्यान दीजिए। यह पहला दृश्य है।"
-                else:
-                    flip1_msg = "Focus on the dot chart. This is view one."
+                # Paired flip messages — flip1 and flip2 use matching terminology
+                _flip_pairs_en = [
+                    ("This is one.", "This is two. Which is better, one or two?"),
+                    ("This is the first.", "And this is the second. First or second?"),
+                    ("Option one.", "Option two. Which option was better?"),
+                    ("Number one.", "Number two. Which number was better?"),
+                    ("Here is view one.", "Here is view two. Which view was better?"),
+                ]
+                _flip_pairs_hi = [
+                    ("यह है एक।", "यह है दो। कौन सा बेहतर है, एक या दो?"),
+                    ("यह पहला है।", "यह दूसरा है। पहला या दूसरा?"),
+                    ("विकल्प एक।", "विकल्प दो। कौन सा विकल्प बेहतर था?"),
+                    ("नंबर एक।", "नंबर दो। कौन सा नंबर बेहतर था?"),
+                    ("पहला दृश्य।", "दूसरा दृश्य। कौन सा दृश्य बेहतर था?"),
+                ]
+                pair = random.choice(_flip_pairs_hi) if self._lang == "hi" else random.choice(_flip_pairs_en)
+                flip1_msg = pair[0]
+                # Store flip2 msg for the handler to use
+                self._pending_flip2_msg = pair[1]
                 asyncio.create_task(self._handle_jcc_flip1_then_flip2(flip1_msg, flip_wait))
                 return
 
@@ -744,16 +758,19 @@ class VoicePipeline:
 
     def _run_whisper(self, audio_float: np.ndarray) -> list:
         """Run faster-whisper transcription (called in thread)."""
+        # Use Hindi language detection when Hindi voice is selected,
+        # otherwise English. None = auto-detect (slower but handles both).
+        lang = "hi" if self._lang == "hi" else "en"
         segments, _ = self._whisper.transcribe(
             audio_float,
-            language="en",
+            language=lang,
             beam_size=3,
             vad_filter=False,  # We already did VAD
         )
         return [seg.text for seg in segments]
 
     async def _handle_jcc_flip1_then_flip2(self, flip1_msg: str, wait_seconds: float):
-        """Speak Flip 1 instruction, wait, then auto-flip to Flip 2 and speak that question."""
+        """Speak Flip 1 instruction, wait, then auto-flip to Flip 2 and ask."""
         await self.tts.speak(flip1_msg)
         await asyncio.sleep(wait_seconds)
 
@@ -762,16 +779,14 @@ class VoicePipeline:
             "type": "state_update",
             "data": {"status": "active", **next_state},
         })
-        question = next_state.get("question", "")
-        if question:
-            self._has_rephrased = False
-            self._cancel_silence_timer()
-            if self._lang == "hi":
-                question = _translate_to_hindi(question)
-            else:
-                question = _strip_intents(question)
-            await self.tts.speak(question)
-            self.start_silence_timer()
+        # Use a clean flip2 question — NOT the verbose orchestrator message
+        flip2_msg = getattr(self, '_pending_flip2_msg', None)
+        if not flip2_msg:
+            flip2_msg = "यह दूसरा है। पहला या दूसरा?" if self._lang == "hi" else "This is two. Which is better, one or two?"
+        self._has_rephrased = False
+        self._cancel_silence_timer()
+        await self.tts.speak(flip2_msg)
+        self.start_silence_timer()
 
     def stop(self):
         self._running = False
