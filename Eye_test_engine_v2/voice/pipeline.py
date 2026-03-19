@@ -464,17 +464,29 @@ class VoicePipeline:
     """
 
     def __init__(self, session, ws_send_json, tts, silero_hub_dir=None,
-                 whisper_model=None, confidence_threshold=60.0, lang="en"):
+                 whisper_model=None, confidence_threshold=60.0, lang="en",
+                 session_id="", mic_device=""):
         """
         Args:
             whisper_model: Pre-loaded WhisperModel instance, or a path string.
             lang: Language code ('en' or 'hi'). 'hi' enables Hinglish translation.
+            session_id: Session ID for audio recording.
+            mic_device: Mic device label from browser.
         """
         self.session = session
         self.ws_send_json = ws_send_json
         self.tts = tts
         self._confidence_threshold = confidence_threshold
         self._lang = lang
+
+        # Audio recorder
+        from voice.audio_recorder import AudioRecorder
+        self._recorder = AudioRecorder(
+            session_id=session_id,
+            session_orchestrator=session,
+            lang=lang,
+            mic_device=mic_device,
+        )
 
         # Load Silero VAD
         if silero_hub_dir:
@@ -681,6 +693,24 @@ class VoicePipeline:
             transcript, response_type, self._confidence_threshold
         )
 
+        # Compute ambient RMS for the utterance
+        ambient_rms = float(np.sqrt(np.mean(audio_float ** 2)))
+
+        # Record utterance audio for HITL
+        try:
+            self._recorder.record_utterance(
+                audio_int16=audio,
+                transcript=transcript,
+                response_type=response_type,
+                matched_option=matched_option,
+                confidence=confidence,
+                fsm_state=row.state,
+                phase_name=row.phase_name or "",
+                ambient_rms=ambient_rms,
+            )
+        except Exception as e:
+            print(f"[RECORDER] Error: {e}")
+
         if matched_option:
             print(f"[VOICE] Matched: {matched_option} (confidence: {confidence:.1f})")
             await self.ws_send_json({
@@ -791,6 +821,10 @@ class VoicePipeline:
     def stop(self):
         self._running = False
         self._cancel_silence_timer()
+        try:
+            self._recorder.write_session_summary()
+        except Exception as e:
+            print(f"[RECORDER] Summary error: {e}")
 
 
 def build_pipeline(session, ws_send_json, ws_send_bytes,

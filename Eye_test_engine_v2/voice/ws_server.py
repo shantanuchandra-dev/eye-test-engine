@@ -110,6 +110,7 @@ async def voice_websocket(websocket: WebSocket, session_id: str, lang: str = "en
             silero_hub_dir=_silero_hub,
             whisper_model=_whisper_model,
             lang=lang,
+            session_id=session_id,
         )
         print(f"[VOICE WS] Ready: session={session_id}", flush=True)
     except Exception as e:
