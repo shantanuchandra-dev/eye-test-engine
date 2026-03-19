@@ -466,13 +466,13 @@
                 <div class="form-group" style="min-width:140px">
                     <label>Phoropter</label>
                     <select id="phoropterId">
-                        <option value="test">Test (safe mode)</option>
+                        <option value="test" selected>Test (safe mode)</option>
                     </select>
                 </div>
                 <span id="deviceBadge" class="device-badge pending">Not acquired</span>
                 <div class="form-group" style="min-width:130px">
                     <label>Operator</label>
-                    <input type="text" id="operatorName" placeholder="Name" value="">
+                    <input type="text" id="operatorName" placeholder="Name" value="DrShan">
                 </div>
                 <button class="btn btn-secondary btn-sm" onclick="quickFill()">Quick Fill</button>
                 <button class="btn btn-outline btn-sm" id="acquireBtn" onclick="acquireDevice()">Acquire</button>
@@ -500,7 +500,7 @@
                 <div class="form-row">
                     <div class="form-group">
                         <label>Patient Name <span class="req">*</span></label>
-                        <input type="text" id="patientName" required placeholder="e.g. John Smith">
+                        <input type="text" id="patientName" required placeholder="e.g. John Smith" value="Test_Shan">
                     </div>
                     <div class="form-group">
                         <label>Age <span class="req">*</span></label>
@@ -853,9 +853,9 @@
                 } catch (e) {
                     console.error('[intake] Could not load devices:', e);
                 }
-                // Restore saved phoropter
+                // Default to Test; restore saved phoropter only if previously set
                 const saved = localStorage.getItem('phoropterId');
-                if (saved) $('phoropterId').value = saved;
+                $('phoropterId').value = saved || 'test';
             }
             loadDevices();
 
@@ -944,6 +944,7 @@
 
                 toast('Demo data filled', 'info', 2000);
             };
+            quickFill();  // Default: Quick fill on page load (must run after quickFill is defined)
 
             // ── Reset ────────────────────────────────────
             window.resetForm = function () {

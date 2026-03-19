@@ -110,7 +110,11 @@ class VoicePipeline:
     """
 
     def __init__(self, session, ws_send_json, tts, silero_hub_dir=None,
-                 whisper_model="small", confidence_threshold=60.0):
+                 whisper_model=None, confidence_threshold=60.0):
+        """
+        Args:
+            whisper_model: Pre-loaded WhisperModel instance, or a path string.
+        """
         self.session = session
         self.ws_send_json = ws_send_json
         self.tts = tts
@@ -125,10 +129,18 @@ class VoicePipeline:
         self._vad_speaking = False
         self._vad_buffer = np.array([], dtype=np.int16)
         self._vad_chunk_size = 512  # Silero needs 512 samples at 16kHz
+        self._speech_streak = 0     # consecutive speech chunks (debounce)
+        self._silence_streak = 0    # consecutive silence chunks (debounce)
+        self._speech_trigger = 3    # need 3 consecutive speech chunks (~96ms) to trigger
+        self._silence_trigger = 8   # need 8 consecutive silence chunks (~256ms) to stop
 
-        # Load faster-whisper
-        print(f"[VOICE] Loading Whisper model: {whisper_model}")
-        self._whisper = WhisperModel(whisper_model, device="cpu", compute_type="int8")
+        # Use pre-loaded whisper model or load new one
+        if isinstance(whisper_model, WhisperModel):
+            self._whisper = whisper_model
+        else:
+            model_path = whisper_model or _resolve_whisper_model()
+            print(f"[VOICE] Loading Whisper model: {model_path}")
+            self._whisper = WhisperModel(model_path, device="cpu", compute_type="int8")
 
         # Audio buffer for STT (accumulates while user is speaking)
         self._speech_buffer = np.array([], dtype=np.int16)
@@ -159,25 +171,39 @@ class VoicePipeline:
             chunk = self._vad_buffer[:self._vad_chunk_size]
             self._vad_buffer = self._vad_buffer[self._vad_chunk_size:]
 
-            # Run Silero VAD
+            # Run Silero VAD with amplitude gate
             try:
                 audio_float = chunk.astype(np.float32) / 32768.0
-                tensor = torch.from_numpy(audio_float)
-                confidence = self._vad_model(tensor, SAMPLE_RATE).item()
-                is_speech = confidence > 0.5
+                # Skip VAD if audio is near-silence (RMS below threshold)
+                rms = np.sqrt(np.mean(audio_float ** 2))
+                if rms < 0.01:
+                    # Too quiet — treat as silence without running VAD
+                    is_speech = False
+                else:
+                    tensor = torch.from_numpy(audio_float)
+                    confidence = self._vad_model(tensor, SAMPLE_RATE).item()
+                    is_speech = confidence > 0.6  # raised threshold to reduce false positives
             except Exception as e:
                 print(f"[VAD] Error: {e}")
                 continue
 
-            if is_speech and not self._vad_speaking:
+            if is_speech:
+                self._speech_streak += 1
+                self._silence_streak = 0
+            else:
+                self._silence_streak += 1
+                self._speech_streak = 0
+
+            # Debounced start: need several consecutive speech chunks
+            if not self._vad_speaking and self._speech_streak >= self._speech_trigger:
                 self._vad_speaking = True
                 self._speech_buffer = np.array([], dtype=np.int16)
                 await self.ws_send_json({"type": "vad", "speaking": True})
 
-            elif not is_speech and self._vad_speaking:
+            # Debounced stop: need several consecutive silence chunks
+            elif self._vad_speaking and self._silence_streak >= self._silence_trigger:
                 self._vad_speaking = False
                 await self.ws_send_json({"type": "vad", "speaking": False})
-                # Speech ended — run STT on accumulated buffer
                 if len(self._speech_buffer) > SAMPLE_RATE * 0.3:  # min 0.3s
                     await self._transcribe_and_process()
 

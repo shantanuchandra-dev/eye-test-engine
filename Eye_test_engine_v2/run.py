@@ -26,8 +26,11 @@ if __name__ == "__main__":
         from werkzeug.serving import make_server
 
         # Share the sessions dict with the voice WebSocket server
-        from voice.ws_server import set_sessions_ref, fastapi_app
+        from voice.ws_server import set_sessions_ref, preload_models, fastapi_app
         set_sessions_ref(sessions)
+
+        # Pre-load heavy models (Whisper ~2s, Silero ~0.5s) before starting servers
+        preload_models()
 
         voice_port = int(os.environ.get("VOICE_PORT", 8766))
 

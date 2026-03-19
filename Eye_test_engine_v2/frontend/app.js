@@ -1663,30 +1663,58 @@ async function startVoiceMode() {
         // Request mic access
         voiceState.micStream = await navigator.mediaDevices.getUserMedia({
             audio: {
-                sampleRate: 16000,
-                channelCount: 1,
                 echoCancellation: true,
                 noiseSuppression: true,
+                autoGainControl: true,
             }
         });
 
-        // Create AudioContext for mic capture (use default hardware rate, downsample to 16kHz)
+        const tracks = voiceState.micStream.getAudioTracks();
+        console.log(`[VOICE] Mic: "${tracks[0]?.label}" enabled=${tracks[0]?.enabled} muted=${tracks[0]?.muted}`);
+
+        // Use AudioContext + AudioWorklet (or fallback to AnalyserNode polling)
+        // for reliable mic capture. ScriptProcessorNode is deprecated and
+        // often delivers zero-filled buffers in modern Chrome.
         voiceState.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (voiceState.audioCtx.state === 'suspended') {
+            await voiceState.audioCtx.resume();
+        }
         const micRate = voiceState.audioCtx.sampleRate;
-        console.log(`[VOICE] Mic AudioContext sample rate: ${micRate}Hz`);
+        console.log(`[VOICE] AudioContext: rate=${micRate}Hz state=${voiceState.audioCtx.state}`);
 
-        // Connect mic to script processor for raw PCM capture
-        const source = voiceState.audioCtx.createMediaStreamSource(voiceState.micStream);
-        voiceState.scriptNode = voiceState.audioCtx.createScriptProcessor(4096, 1, 1);
+        const micSource = voiceState.audioCtx.createMediaStreamSource(voiceState.micStream);
 
-        voiceState.scriptNode.onaudioprocess = (e) => {
+        // Use AnalyserNode to poll raw PCM data on a timer.
+        // This is more reliable than ScriptProcessorNode in modern Chrome.
+        const analyser = voiceState.audioCtx.createAnalyser();
+        analyser.fftSize = 2048;  // gives us 1024 time-domain samples per read
+        micSource.connect(analyser);
+        // Must connect to destination (even silently) for the graph to be active
+        const silentGain = voiceState.audioCtx.createGain();
+        silentGain.gain.value = 0;  // mute the mic playback
+        analyser.connect(silentGain);
+        silentGain.connect(voiceState.audioCtx.destination);
+
+        const timeDomainBuf = new Float32Array(analyser.fftSize);
+        let _pollCount = 0;
+
+        // Poll analyser at ~30Hz (every ~33ms) to capture audio
+        voiceState._micPollInterval = setInterval(() => {
             if (!voiceState.ws || voiceState.ws.readyState !== WebSocket.OPEN) return;
-            let float32 = e.inputBuffer.getChannelData(0);
 
-            // Downsample to 16kHz if mic rate is higher
+            analyser.getFloatTimeDomainData(timeDomainBuf);
+
+            _pollCount++;
+            if (_pollCount <= 5 || _pollCount % 200 === 0) {
+                const maxVal = Math.max(...Array.from(timeDomainBuf.slice(0, 500)).map(Math.abs));
+                console.log(`[VOICE] Mic poll #${_pollCount}: max=${maxVal.toFixed(4)}`);
+            }
+
+            // Downsample to 16kHz
+            let float32 = timeDomainBuf;
             if (micRate !== 16000) {
                 const ratio = micRate / 16000;
-                const outLen = Math.floor(float32.length / ratio);
+                const outLen = Math.floor(analyser.fftSize / ratio);
                 const resampled = new Float32Array(outLen);
                 for (let i = 0; i < outLen; i++) {
                     resampled[i] = float32[Math.round(i * ratio)];
@@ -1694,17 +1722,14 @@ async function startVoiceMode() {
                 float32 = resampled;
             }
 
-            // Convert float32 [-1,1] to int16
+            // Convert float32 [-1, 1] to int16
             const int16 = new Int16Array(float32.length);
             for (let i = 0; i < float32.length; i++) {
                 const s = Math.max(-1, Math.min(1, float32[i]));
                 int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
             }
             voiceState.ws.send(int16.buffer);
-        };
-
-        source.connect(voiceState.scriptNode);
-        voiceState.scriptNode.connect(voiceState.audioCtx.destination);
+        }, 33);  // ~30 polls per second
 
         // Pre-create TTS playback context (user gesture satisfies autoplay policy)
         voiceState.playbackCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 22050 });
@@ -1754,6 +1779,10 @@ async function startVoiceMode() {
 function stopVoiceMode() {
     voiceState.enabled = false;
 
+    if (voiceState._micPollInterval) {
+        clearInterval(voiceState._micPollInterval);
+        voiceState._micPollInterval = null;
+    }
     if (voiceState.ws) {
         try { voiceState.ws.send(JSON.stringify({ type: 'stop' })); } catch (_) {}
         try { voiceState.ws.close(); } catch (_) {}
