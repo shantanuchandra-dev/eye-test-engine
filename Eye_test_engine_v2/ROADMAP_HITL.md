@@ -37,10 +37,12 @@
 ## Phase 2: Training & A/B Testing (Future)
 
 ### Whisper Fine-Tuning
-- [ ] Export HITL annotations as Whisper training format (audio + transcript pairs)
-- [ ] Fine-tuning script using `faster-whisper` or HuggingFace `transformers`
-- [ ] Auto-retrain cron: Monday 3am, if >50 new annotations since last train
-- [ ] Model versioning (v1, v2, ...) stored in `voice/models/whisper-finetuned/`
+- [x] Export HITL annotations as Whisper training format (audio + transcript pairs)
+- [x] Fine-tuning script: `python -m voice.training.whisper_finetune`
+- [x] Auto-retrain cron: Monday 3am, if >50 new annotations since last train
+- [x] Model versioning (v1, v2, ...) stored in `voice/models/whisper-finetuned/`
+- [x] CTranslate2 conversion for faster-whisper compatibility
+- [ ] *Requires training deps:* `pip install datasets evaluate jiwer soundfile`
 
 ### Intent Classifier (Fallback)
 - [ ] Train audio → intent classifier from HITL-labeled data
@@ -48,20 +50,30 @@
 - [ ] Architecture: small CNN or wav2vec2 fine-tuned on intent labels
 
 ### A/B Testing Framework
-- [ ] Run old model vs new model on same audio
-- [ ] Track metrics: accuracy, review rate, completion time
-- [ ] Dashboard showing A/B comparison
-- [ ] Auto-promote model if new version outperforms
+- [x] Run old model vs new model on same audio: `python -m voice.training.ab_testing`
+- [x] Track metrics: accuracy, review rate, avg inference time
+- [x] Detailed disagreement report with per-utterance comparison
+- [x] Auto-promotion recommendation based on accuracy + review rate
+- [x] Results saved to `~/.eye_test_audio/_analysis/ab_test_results.json`
 
 ### Confidence Threshold Optimizer
-- [ ] Analyze HITL annotations to find optimal fuzzy match threshold
-- [ ] Per-response-type thresholds (READABILITY may need different threshold than COMPARE_1_2)
-- [ ] Report: false positive rate vs false negative rate at different thresholds
+- [x] Analyze HITL annotations: `python -m voice.training.confidence_optimizer`
+- [x] Per-response-type thresholds (sweeps 40-100% in 5% steps)
+- [x] Report: precision, recall, F1, false positive/negative at each threshold
+- [x] Results saved to `~/.eye_test_audio/_analysis/confidence_analysis.json`
 
 ### Fuzzy Matcher Auto-Expansion
-- [ ] Extract new keyword aliases from HITL corrections
-- [ ] Auto-suggest additions to KEYWORD_MAP
-- [ ] One-click apply to fuzzy_matcher.py
+- [x] Extract new keyword aliases from HITL corrections: `python -m voice.training.matcher_expansion`
+- [x] Auto-suggest additions to KEYWORD_MAP grouped by response_type
+- [x] Generate code patch for manual review
+- [x] Results saved to `~/.eye_test_audio/_analysis/matcher_suggestions.json`
+
+### Weekly Retrain Orchestrator
+- [x] `python -m voice.training.weekly_retrain` — runs all steps in sequence
+- [x] Checks if enough new data (>50 annotations) before training
+- [x] Runs: fine-tune → A/B test → confidence optimizer → matcher expansion
+- [x] Logs all runs to `~/.eye_test_audio/_analysis/retrain_log.jsonl`
+- [ ] Cron setup: `0 3 * * 1 cd /path/to && venv/bin/python -m voice.training.weekly_retrain`
 
 ### Central Server Sync
 - [ ] Clinic machines push audio + manifest to central server daily
