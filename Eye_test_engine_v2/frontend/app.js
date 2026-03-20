@@ -2,7 +2,7 @@
 // Integrates with Flask API backend and Phoropter broker
 
 // Railway backend URL — used when frontend is hosted separately (e.g. Vercel)
-const RAILWAY_BACKEND = 'https://loggingphoropterui-production.up.railway.app';
+const RAILWAY_BACKEND = 'https://eye-test-engine-production.up.railway.app';
 
 const CONFIG = {
     backendUrl: (typeof window !== 'undefined' && window.BACKEND_URL)
