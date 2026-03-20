@@ -532,6 +532,14 @@ _FRONTEND_DIR = Path(__file__).parent / "frontend"
 def serve_index():
     return send_from_directory(_FRONTEND_DIR, "index.html")
 
+# ── HITL Review API ────────────────────────────────
+try:
+    from voice.review_api import review_bp
+    app.register_blueprint(review_bp, url_prefix="/api/review")
+except ImportError:
+    pass
+
+
 @app.route("/<path:path>")
 def serve_frontend(path):
     if path.startswith("api/"):

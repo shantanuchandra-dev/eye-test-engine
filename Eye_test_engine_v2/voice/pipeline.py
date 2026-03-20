@@ -1,0 +1,953 @@
+"""Voice pipeline for Eye Test Engine v2.
+
+Direct pipeline (no pipecat PipelineTask): mic audio → VAD → STT → fuzzy match.
+TTS is handled by DirectTTSProcessor which sends audio directly to the browser.
+
+All models are loaded from voice/models/ (local directory).
+Run `python -m voice.download_models` to download them first.
+"""
+
+import asyncio
+import numpy as np
+from pathlib import Path
+from typing import Optional
+
+import torch
+from faster_whisper import WhisperModel
+
+from voice.fuzzy_matcher import match_transcript
+from voice.regional_languages import (
+    SUPPORTED_LANGUAGES, WHISPER_LANG_CODES,
+    get_translation as _regional_translate,
+    get_followup as _regional_followup,
+    get_rephrased as _regional_rephrased,
+    get_message as _regional_message,
+    get_keywords as _regional_keywords,
+)
+
+# Exit keywords — if the user says any of these, confirm before stopping.
+EXIT_KEYWORDS = [
+    "stop", "stop the test", "ruko", "band karo", "bas",
+    "escalate", "need human", "doctor bulao", "optometrist",
+    "help", "need help", "madad", "sahayata",
+    "cancel", "abort", "quit", "end test",
+    # Devanagari Hindi
+    "रुको", "बंद करो", "बस", "रोको",
+    "मदद", "सहायता", "डॉक्टर बुलाओ",
+    "बंद", "रुकिए",
+]
+
+def _is_exit_request(transcript: str) -> bool:
+    """Check if the transcript is an exit/escalation request."""
+    text = transcript.lower().strip()
+    for kw in EXIT_KEYWORDS:
+        if kw in text:
+            return True
+    return False
+
+# Rephrased questions for when patient doesn't respond within 3 seconds.
+# Simpler language, explicit options spelled out.
+import random
+
+REPHRASED_QUESTIONS = {
+    "READABILITY": "Can you read the letters?",
+    "NEAR_READABILITY": "Can you read the text?",
+    "COMPARE_1_2": "First one or second one?",
+    "COLOR_CHOICE": "Which side is clearer?",
+    "TOP_BOTTOM": "Which row is clearer?",
+    "NEAR_BINOC": "Is it clear?",
+}
+
+# Varied follow-ups for repeated questions in the same phase.
+# A random one is picked each time to avoid sounding robotic.
+SHORT_FOLLOWUP_POOL = {
+    "READABILITY": [
+        "How about now? Clear, blurry, or can't read?",
+        "And these letters? Clear, blurry, or not readable?",
+        "Can you read this line? Clear, blurry, or no?",
+        "What about now? Readable, blurry, or not at all?",
+        "This row — clear, blurry, or can't make it out?",
+        "Better or worse? Clear, blurry, or unreadable?",
+        "How does this look? Clear, a bit blurry, or can't read?",
+        "Next line. Clear, blurry, or not readable?",
+    ],
+    # Phase B: right eye coarse sphere — short, no options dictated
+    "state_B": [
+        "How about now?",
+        "And this line?",
+        "What about these letters?",
+        "Any change?",
+        "How does this look?",
+        "Next line.",
+        "And now?",
+        "Can you read this?",
+    ],
+    # Phase D: left eye coarse sphere — short, no options dictated
+    "state_D": [
+        "How about now?",
+        "And this line?",
+        "What about these letters?",
+        "Any change?",
+        "How does this look?",
+        "Next line.",
+        "And now?",
+        "Can you read this?",
+    ],
+    "NEAR_READABILITY": [
+        "And now? Clear, blurry, or can't read?",
+        "How about the small text now? Clear, blurry, or no?",
+        "Can you read this? Clear, blurry, or not readable?",
+        "This text — clear, blurry, or can't make it out?",
+    ],
+    "COMPARE_1_2": [
+        "And this time?",
+        "Any difference?",
+        "How about now?",
+    ],
+    "state_E": [
+        "And this time?",
+        "Which looked sharper?",
+        "Any difference?",
+        "How about now?",
+    ],
+    "state_F": [
+        "And now?",
+        "Which was clearer?",
+        "Any difference?",
+        "How about this time?",
+    ],
+    "state_H": [
+        "And this time?",
+        "Which looked sharper?",
+        "Any difference?",
+        "How about now?",
+    ],
+    "state_I": [
+        "And now?",
+        "Which was clearer?",
+        "Any difference?",
+        "How about this time?",
+    ],
+    "COLOR_CHOICE": [
+        "Which side is clearer?",
+        "Red or green?",
+        "Any difference?",
+    ],
+    "TOP_BOTTOM": [
+        "Top, bottom, or same?",
+        "Upper row or lower row? Or equal?",
+        "Which row is clearer — top or bottom?",
+    ],
+    "NEAR_BINOC": [
+        "Clear, or not clear?",
+        "Comfortable to read? Yes or no?",
+    ],
+}
+
+
+def _pick_followup(response_type: str, state: str = "") -> str:
+    """Pick a random short follow-up for a repeated same-phase question."""
+    pool = SHORT_FOLLOWUP_POOL.get(f"state_{state}") or SHORT_FOLLOWUP_POOL.get(response_type)
+    if pool:
+        return random.choice(pool)
+    return ""
+
+
+# ── Hinglish translations (used when hi_IN voice is selected) ─────────
+# Maps FSM question → Hinglish equivalent. Spoken by hi_IN Piper voice.
+HINDI_QUESTIONS = {
+    "Looking at the letters, are they clear, slightly blurry, or not readable?":
+        "अक्षरों को देखिए, क्या ये साफ़ दिख रहे हैं, थोड़े धुंधले हैं, या पढ़ नहीं पा रहे?",
+    "Looking at the letters now, are they clear, a bit blurry, or not readable?":
+        "अब अक्षरों को देखिए, साफ़ हैं, धुंधले हैं, या पढ़ नहीं पा रहे?",
+    "Look carefully at the dot pattern. Between view one and two, which one makes the dots look sharper or better aligned? Is it one, two, about the same, or hard to tell?":
+        "बिंदुओं को ध्यान से देखिए। पहला दृश्य बेहतर है या दूसरा? या दोनों एक जैसे हैं? या समझ नहीं आ रहा?",
+    "Again looking at the dot pattern, which view makes the dots look clearer or sharper — one, two, about the same, or hard to tell?":
+        "फिर से बिंदुओं को देखिए। कौन सा दृश्य ज़्यादा साफ़ है — पहला, दूसरा, एक जैसा, या पता नहीं?",
+    "Looking at the letters on the red and green backgrounds, which side looks clearer — red, green, or do they look about the same?":
+        "लाल और हरे रंग पर अक्षर देखिए। कौन सी तरफ़ ज़्यादा साफ़ है — लाल, हरा, या दोनों एक जैसे?",
+    "Looking at the dot pattern, which one looks sharper — one, two, about the same, or hard to tell?":
+        "बिंदुओं को देखिए, कौन सा तेज़ है — पहला, दूसरा, एक जैसा, या पता नहीं?",
+    "Comparing the two views of the dots, which looks clearer — one, two, about the same, or hard to tell?":
+        "दोनों दृश्यों की तुलना करें। कौन सा साफ़ है — पहला, दूसरा, एक जैसा, या पता नहीं?",
+    "Looking again at the red and green backgrounds, which side makes the letters clearer — red, green, or about the same?":
+        "फिर से लाल और हरा देखिए। कौन सी तरफ़ बेहतर है — लाल, हरा, या एक जैसा?",
+    "Look at the two rows of letters. Which row looks clearer — the top row, the bottom row, or do they look about the same?":
+        "दो पंक्तियाँ देखिए। कौन सी पंक्ति साफ़ है — ऊपर वाली, नीचे वाली, या दोनों एक जैसी?",
+    "Looking at the near text, is it clear to read, a bit blurry, or not readable?":
+        "पास का लिखावट देखिए। साफ़ है, धुंधला है, या पढ़ नहीं पा रहे?",
+    "Looking at the near text again, is it clear, blurry, or not readable?":
+        "फिर से पास का लिखावट देखिए। साफ़, धुंधला, या पढ़ नहीं पा रहे?",
+    "Looking at the near text with both eyes, is it clear and comfortable, or still not clear?":
+        "दोनों आँखों से पास का लिखावट देखिए। साफ़ और आरामदायक है, या अभी भी साफ़ नहीं?",
+}
+
+HINDI_REPHRASED = {
+    "READABILITY": "साफ़ है, धुंधला है, या पढ़ नहीं पा रहे?",
+    "NEAR_READABILITY": "साफ़ है, धुंधला है, या नहीं पढ़ पा रहे?",
+    "COMPARE_1_2": "पहला, दूसरा, या एक जैसा?",
+    "COLOR_CHOICE": "लाल, हरा, या एक जैसा?",
+    "TOP_BOTTOM": "ऊपर, नीचे, या एक जैसा?",
+    "NEAR_BINOC": "साफ़ है, या नहीं?",
+}
+
+HINDI_FOLLOWUP_POOL = {
+    "READABILITY": [
+        "अब कैसा दिख रहा है?",
+        "और ये अक्षर?",
+        "कोई बदलाव?",
+        "ये कैसा लग रहा है?",
+        "अगली पंक्ति।",
+        "और अब?",
+        "बेहतर है या ख़राब?",
+    ],
+    "state_B": [
+        "अब कैसा दिख रहा है?",
+        "और ये पंक्ति?",
+        "ये अक्षर कैसे हैं?",
+        "कोई बदलाव?",
+        "कैसा लग रहा है?",
+        "अगली पंक्ति।",
+        "और अब?",
+        "ये पढ़ पा रहे हैं?",
+    ],
+    "state_D": [
+        "अब कैसा दिख रहा है?",
+        "और ये पंक्ति?",
+        "ये अक्षर कैसे हैं?",
+        "कोई बदलाव?",
+        "कैसा लग रहा है?",
+        "अगली पंक्ति।",
+        "और अब?",
+        "ये पढ़ पा रहे हैं?",
+    ],
+    "COMPARE_1_2": [
+        "और इस बार?",
+        "कोई फ़र्क़?",
+        "अब कैसा?",
+    ],
+    "state_E": [
+        "और इस बार?",
+        "कोई फ़र्क़?",
+        "अब कैसा?",
+        "कौन सा तेज़ था?",
+    ],
+    "state_F": [
+        "और अब?",
+        "कोई फ़र्क़?",
+        "इस बार कैसा?",
+        "कौन सा साफ़ था?",
+    ],
+    "state_H": [
+        "और इस बार?",
+        "कोई फ़र्क़?",
+        "अब कैसा?",
+        "कौन सा तेज़ था?",
+    ],
+    "state_I": [
+        "और अब?",
+        "कोई फ़र्क़?",
+        "इस बार कैसा?",
+        "कौन सा साफ़ था?",
+    ],
+    "COLOR_CHOICE": [
+        "कौन सी तरफ़ साफ़ है?",
+        "लाल या हरा?",
+        "कोई फ़र्क़?",
+    ],
+    "TOP_BOTTOM": [
+        "ऊपर या नीचे?",
+        "कौन सी पंक्ति साफ़ है?",
+    ],
+    "NEAR_READABILITY": [
+        "अब कैसा है?",
+        "ये पढ़ पा रहे हो?",
+    ],
+    "NEAR_BINOC": [
+        "साफ़ है या नहीं?",
+        "आराम से पढ़ पा रहे हैं?",
+    ],
+}
+
+
+# Voice-friendly versions of FSM questions — just the question, no options listed.
+VOICE_QUESTIONS = {
+    "Looking at the letters, are they clear, slightly blurry, or not readable?":
+        "Looking at the letters, can you read them clearly?",
+    "Looking at the letters now, are they clear, a bit blurry, or not readable?":
+        "Now looking at the letters, can you read them clearly?",
+    "Look carefully at the dot pattern. Between view one and two, which one makes the dots look sharper or better aligned? Is it one, two, about the same, or hard to tell?":
+        "Look carefully at the dot pattern. Which view makes the dots look sharper?",
+    "Again looking at the dot pattern, which view makes the dots look clearer or sharper — one, two, about the same, or hard to tell?":
+        "Looking at the dots again, which view is clearer?",
+    "Looking at the letters on the red and green backgrounds, which side looks clearer — red, green, or do they look about the same?":
+        "Looking at the red and green backgrounds, which side looks clearer?",
+    "Looking at the dot pattern, which one looks sharper — one, two, about the same, or hard to tell?":
+        "Looking at the dots, which one looks sharper?",
+    "Comparing the two views of the dots, which looks clearer — one, two, about the same, or hard to tell?":
+        "Comparing the two views, which looks clearer?",
+    "Looking again at the red and green backgrounds, which side makes the letters clearer — red, green, or about the same?":
+        "Looking at the red and green again, which side is clearer?",
+    "Look at the two rows of letters. Which row looks clearer — the top row, the bottom row, or do they look about the same?":
+        "Look at the two rows. Which row looks clearer?",
+    "Looking at the near text, is it clear to read, a bit blurry, or not readable?":
+        "Looking at the near text, can you read it clearly?",
+    "Looking at the near text again, is it clear, blurry, or not readable?":
+        "Looking at the near text again, can you read it?",
+    "Looking at the near text with both eyes, is it clear and comfortable, or still not clear?":
+        "With both eyes, is the near text clear and comfortable?",
+}
+
+
+def _strip_intents(text: str) -> str:
+    """Return the voice-friendly version of a question (no options dictated).
+    Also strips JCC phase name prefixes like 'JCC Axis (Right Eye) — '.
+    """
+    # Check exact match first
+    if text in VOICE_QUESTIONS:
+        return VOICE_QUESTIONS[text]
+    # Strip JCC phase prefix: "JCC Axis (Right Eye) — This is Flip 2. Which was better?"
+    if text.startswith("JCC ") and " — " in text:
+        text = text.split(" — ", 1)[1]
+    return text
+
+
+def _translate_to_hindi(text: str) -> str:
+    """Translate a question to Hindi. Returns original if no translation found."""
+    return HINDI_QUESTIONS.get(text, text)
+
+
+def _pick_hindi_followup(response_type: str, state: str = "") -> str:
+    """Pick a random Hindi follow-up."""
+    pool = HINDI_FOLLOWUP_POOL.get(f"state_{state}") or HINDI_FOLLOWUP_POOL.get(response_type)
+    if pool:
+        return random.choice(pool)
+    return ""
+
+# ── Local model paths ────────────────────────────────────────────────────
+_VOICE_DIR = Path(__file__).resolve().parent
+MODELS_DIR = _VOICE_DIR / "models"
+WHISPER_MODEL_DIR = MODELS_DIR / "whisper-small"
+PIPER_MODEL_DIR = MODELS_DIR / "piper"
+SILERO_MODEL_DIR = MODELS_DIR / "silero"
+
+DEFAULT_PIPER_VOICES = {
+    "en": "en_US-kusal-medium",
+    "hi": "hi_IN-pratham-medium",
+}
+
+SAMPLE_RATE = 16000
+CHANNELS = 1
+
+
+def _resolve_whisper_model() -> str:
+    if WHISPER_MODEL_DIR.exists():
+        model_bins = list(WHISPER_MODEL_DIR.rglob("model.bin"))
+        if model_bins:
+            return str(model_bins[0].parent)
+    return "small"
+
+
+def _resolve_piper_voice(voice_name: Optional[str] = None, lang: str = "en") -> str:
+    if voice_name is None:
+        voice_name = DEFAULT_PIPER_VOICES.get(lang, DEFAULT_PIPER_VOICES["en"])
+    onnx_path = PIPER_MODEL_DIR / f"{voice_name}.onnx"
+    if onnx_path.exists():
+        return voice_name
+    if PIPER_MODEL_DIR.exists():
+        onnx_files = list(PIPER_MODEL_DIR.glob("*.onnx"))
+        if onnx_files:
+            return onnx_files[0].stem
+    return voice_name
+
+
+def _resolve_silero_hub_dir() -> Optional[str]:
+    if SILERO_MODEL_DIR.exists() and any(SILERO_MODEL_DIR.iterdir()):
+        return str(SILERO_MODEL_DIR)
+    return None
+
+
+class DirectTTSProcessor:
+    """Synthesizes speech via Piper and sends audio bytes directly to the WebSocket."""
+
+    def __init__(self, voice_path: str, ws_send_bytes, ws_send_json):
+        from piper import PiperVoice
+        self._voice = PiperVoice.load(voice_path)
+        self._ws_send_bytes = ws_send_bytes
+        self._ws_send_json = ws_send_json
+        self._sample_rate = self._voice.config.sample_rate
+        self._speaking = False
+
+    @property
+    def sample_rate(self) -> int:
+        return self._sample_rate
+
+    async def speak(self, text: str):
+        if not text:
+            return
+        self._speaking = True
+        await self._ws_send_json({"type": "tts_start", "text": text})
+        try:
+            chunks = await asyncio.to_thread(self._synthesize, text)
+            for chunk_bytes in chunks:
+                if not self._speaking:
+                    break
+                await self._ws_send_bytes(b'\x01' + chunk_bytes)
+        except Exception as e:
+            print(f"[TTS] Error: {e}")
+        finally:
+            self._speaking = False
+            await self._ws_send_json({"type": "tts_end"})
+
+    def _synthesize(self, text: str) -> list:
+        chunks = []
+        for audio_chunk in self._voice.synthesize(text):
+            chunks.append(audio_chunk.audio_int16_bytes)
+        return chunks
+
+    def stop(self):
+        self._speaking = False
+
+
+class MetaTTSProcessor:
+    """Synthesizes Hindi speech via Meta MMS-TTS (facebook/mms-tts-hin).
+
+    Same interface as DirectTTSProcessor so they're interchangeable.
+    """
+
+    def __init__(self, ws_send_bytes, ws_send_json, model=None, tokenizer=None, model_id=None):
+        self._ws_send_bytes = ws_send_bytes
+        self._ws_send_json = ws_send_json
+        self._speaking = False
+
+        if model and tokenizer:
+            self._model = model
+            self._tokenizer = tokenizer
+        else:
+            from transformers import VitsModel, AutoTokenizer
+            mid = model_id or "facebook/mms-tts-hin"
+            print(f"[TTS] Loading Meta MMS-TTS: {mid}...")
+            self._model = VitsModel.from_pretrained(mid)
+            self._tokenizer = AutoTokenizer.from_pretrained(mid)
+            print(f"[TTS] Meta MMS-TTS loaded: {mid}")
+
+        self._sample_rate = self._model.config.sampling_rate  # 16000
+
+    @property
+    def sample_rate(self) -> int:
+        return self._sample_rate
+
+    async def speak(self, text: str):
+        if not text:
+            return
+        self._speaking = True
+        await self._ws_send_json({"type": "tts_start", "text": text})
+        try:
+            audio_bytes = await asyncio.to_thread(self._synthesize, text)
+            if self._speaking and audio_bytes:
+                await self._ws_send_bytes(b'\x01' + audio_bytes)
+        except Exception as e:
+            print(f"[TTS Meta] Error: {e}")
+        finally:
+            self._speaking = False
+            await self._ws_send_json({"type": "tts_end"})
+
+    def _synthesize(self, text: str) -> bytes:
+        inputs = self._tokenizer(text, return_tensors="pt")
+        with torch.no_grad():
+            output = self._model(**inputs)
+        waveform = output.waveform[0].numpy()
+        wav_int16 = (waveform * 32767).astype(np.int16)
+        return wav_int16.tobytes()
+
+    def stop(self):
+        self._speaking = False
+
+
+class VoicePipeline:
+    """Direct voice pipeline: VAD → STT → fuzzy match → FSM → TTS.
+
+    Runs without pipecat PipelineTask. Audio frames are pushed directly
+    into process_audio() from the WebSocket handler.
+    """
+
+    def __init__(self, session, ws_send_json, tts, silero_hub_dir=None,
+                 whisper_model=None, confidence_threshold=60.0, lang="en",
+                 session_id="", mic_device=""):
+        """
+        Args:
+            whisper_model: Pre-loaded WhisperModel instance, or a path string.
+            lang: Language code ('en' or 'hi'). 'hi' enables Hinglish translation.
+            session_id: Session ID for audio recording.
+            mic_device: Mic device label from browser.
+        """
+        self.session = session
+        self.ws_send_json = ws_send_json
+        self.tts = tts
+        self._confidence_threshold = confidence_threshold
+        self._lang = lang
+
+        # Intent classifier fallback (loaded lazily if model exists)
+        self._intent_classifier = None
+        try:
+            from voice.training.intent_classifier import IntentClassifierInference
+            self._intent_classifier = IntentClassifierInference()
+            print("[VOICE] Intent classifier loaded as fallback")
+        except (FileNotFoundError, ImportError):
+            pass  # No classifier model yet, that's fine
+
+        # Audio recorder
+        from voice.audio_recorder import AudioRecorder
+        self._recorder = AudioRecorder(
+            session_id=session_id,
+            session_orchestrator=session,
+            lang=lang,
+            mic_device=mic_device,
+        )
+
+        # Load Silero VAD
+        if silero_hub_dir:
+            torch.hub.set_dir(silero_hub_dir)
+        self._vad_model, _ = torch.hub.load(
+            "snakers4/silero-vad", model="silero_vad", trust_repo=True
+        )
+        self._vad_speaking = False
+        self._vad_buffer = np.array([], dtype=np.int16)
+        self._vad_chunk_size = 512  # Silero needs 512 samples at 16kHz
+        self._speech_streak = 0     # consecutive speech chunks (debounce)
+        self._silence_streak = 0    # consecutive silence chunks (debounce)
+        self._speech_trigger = 3    # need 3 consecutive speech chunks (~96ms) to trigger
+        self._silence_trigger = 8   # need 8 consecutive silence chunks (~256ms) to stop
+
+        # Use pre-loaded whisper model or load new one
+        if isinstance(whisper_model, WhisperModel):
+            self._whisper = whisper_model
+        else:
+            model_path = whisper_model or _resolve_whisper_model()
+            print(f"[VOICE] Loading Whisper model: {model_path}")
+            self._whisper = WhisperModel(model_path, device="cpu", compute_type="int8")
+
+        # Audio buffer for STT (accumulates while user is speaking)
+        self._speech_buffer = np.array([], dtype=np.int16)
+
+        # Silence timer: if no speech detected for 3s, rephrase the question
+        self._silence_timer = None
+        self._silence_timeout_sec = 3.0
+        self._has_rephrased = False  # only rephrase once per question
+
+        # Track previous state to use short follow-ups for repeated same-phase questions
+        self._prev_state = None
+
+        # Exit confirmation state
+        self._awaiting_exit_confirm = False
+
+        self._running = True
+
+    async def process_audio(self, audio_int16: bytes):
+        """Process an audio chunk from the browser mic."""
+        if not self._running:
+            return
+
+        try:
+            samples = np.frombuffer(audio_int16, dtype=np.int16)
+        except Exception as e:
+            print(f"[VOICE] Audio parse error: {e}")
+            return
+
+        if not hasattr(self, '_audio_frame_count'):
+            self._audio_frame_count = 0
+        self._audio_frame_count += 1
+        if self._audio_frame_count <= 3:
+            print(f"[VOICE] Audio frame #{self._audio_frame_count}: {len(samples)} samples, max={np.max(np.abs(samples)) if len(samples) > 0 else 0}")
+
+        # Feed to VAD in 512-sample chunks
+        self._vad_buffer = np.concatenate([self._vad_buffer, samples])
+
+        while len(self._vad_buffer) >= self._vad_chunk_size:
+            chunk = self._vad_buffer[:self._vad_chunk_size]
+            self._vad_buffer = self._vad_buffer[self._vad_chunk_size:]
+
+            # Run Silero VAD with amplitude gate
+            try:
+                audio_float = chunk.astype(np.float32) / 32768.0
+                # Skip VAD if audio is near-silence (RMS below threshold)
+                rms = np.sqrt(np.mean(audio_float ** 2))
+                if rms < 0.01:
+                    # Too quiet — treat as silence without running VAD
+                    is_speech = False
+                else:
+                    tensor = torch.from_numpy(audio_float)
+                    confidence = self._vad_model(tensor, SAMPLE_RATE).item()
+                    is_speech = confidence > 0.6  # raised threshold to reduce false positives
+            except Exception as e:
+                print(f"[VAD] Error: {e}")
+                continue
+
+            if is_speech:
+                self._speech_streak += 1
+                self._silence_streak = 0
+            else:
+                self._silence_streak += 1
+                self._speech_streak = 0
+
+            # Debounced start: need several consecutive speech chunks
+            if not self._vad_speaking and self._speech_streak >= self._speech_trigger:
+                self._vad_speaking = True
+                self._speech_buffer = np.array([], dtype=np.int16)
+                self._cancel_silence_timer()  # patient is speaking, cancel rephrase
+                await self.ws_send_json({"type": "vad", "speaking": True})
+
+            # Debounced stop: need several consecutive silence chunks
+            elif self._vad_speaking and self._silence_streak >= self._silence_trigger:
+                self._vad_speaking = False
+                await self.ws_send_json({"type": "vad", "speaking": False})
+                if len(self._speech_buffer) > SAMPLE_RATE * 0.3:  # min 0.3s
+                    await self._transcribe_and_process()
+
+            # Accumulate speech audio
+            if self._vad_speaking:
+                self._speech_buffer = np.concatenate([self._speech_buffer, chunk])
+
+    def start_silence_timer(self):
+        """Start the silence timer. Called after TTS finishes a question."""
+        self._cancel_silence_timer()
+        self._silence_timer = asyncio.create_task(self._silence_timer_task())
+
+    def _cancel_silence_timer(self):
+        if self._silence_timer is not None:
+            self._silence_timer.cancel()
+            self._silence_timer = None
+
+    async def _silence_timer_task(self):
+        """Wait for silence timeout, then trigger rephrase."""
+        try:
+            await asyncio.sleep(self._silence_timeout_sec)
+            await self._on_silence_timeout()
+        except asyncio.CancelledError:
+            pass
+
+    async def _on_silence_timeout(self):
+        """Called when patient hasn't spoken for 3 seconds after a question."""
+        if not self._running or self._vad_speaking or self._has_rephrased:
+            return
+
+        row = self.session.current_row
+        if row is None:
+            return
+
+        response_type = row.response_type
+        if self._lang == "en":
+            rephrased = REPHRASED_QUESTIONS.get(response_type)
+        elif self._lang == "hi":
+            rephrased = HINDI_REPHRASED.get(response_type)
+        else:
+            rephrased = _regional_rephrased(self._lang, response_type) or REPHRASED_QUESTIONS.get(response_type)
+        if not rephrased:
+            return
+
+        self._has_rephrased = True
+        print(f"[VOICE] Silence timeout — rephrasing ({response_type})")
+        await self.tts.speak(rephrased)
+        # After rephrasing, start another timer (but won't rephrase again due to _has_rephrased)
+
+    async def _transcribe_and_process(self):
+        """Run STT on the speech buffer and process the result."""
+        audio = self._speech_buffer.copy()
+        self._speech_buffer = np.array([], dtype=np.int16)
+
+        if len(audio) < SAMPLE_RATE * 0.3:
+            return
+
+        # Convert to float32 for whisper
+        audio_float = audio.astype(np.float32) / 32768.0
+
+        # Run transcription in a thread
+        segments = await asyncio.to_thread(self._run_whisper, audio_float)
+        transcript = " ".join(segments).strip()
+
+        if not transcript:
+            return
+
+        print(f"[VOICE] Transcript: '{transcript}'")
+        await self.ws_send_json({"type": "transcript", "text": transcript})
+
+        # ── Handle exit confirmation response ──
+        if self._awaiting_exit_confirm:
+            self._awaiting_exit_confirm = False
+            text_lower = transcript.lower().strip()
+            is_yes = any(w in text_lower for w in ["yes", "haan", "ha", "confirm", "stop", "sure", "okay", "ok"])
+            if is_yes:
+                print(f"[VOICE] Exit confirmed")
+                await self.ws_send_json({"type": "exit_confirmed"})
+                if self._lang == "hi":
+                    end_msg = "ठीक है, परीक्षा रोक रहे हैं।"
+                elif self._lang != "en":
+                    end_msg = _regional_message(self._lang, "exit_yes") or "Okay, stopping the test."
+                else:
+                    end_msg = "Okay, stopping the test. Please wait."
+                await self.tts.speak(end_msg)
+                self._cancel_silence_timer()
+                return
+            else:
+                print(f"[VOICE] Exit cancelled, resuming")
+                if self._lang == "hi":
+                    resume_msg = "ठीक है, परीक्षा जारी है।"
+                elif self._lang != "en":
+                    resume_msg = _regional_message(self._lang, "exit_no") or "Okay, let's continue."
+                else:
+                    resume_msg = "Okay, let's continue."
+                await self.tts.speak(resume_msg)
+                self.start_silence_timer()
+                return
+
+        # ── Check for exit keywords ──
+        if _is_exit_request(transcript):
+            print(f"[VOICE] Exit keyword detected: '{transcript}'")
+            self._awaiting_exit_confirm = True
+            self._cancel_silence_timer()
+            if self._lang == "hi":
+                confirm_msg = "क्या आप परीक्षा रोकना चाहते हैं? हाँ या ना बोलिए।"
+            elif self._lang != "en":
+                confirm_msg = _regional_message(self._lang, "exit_confirm") or "Do you want to stop? Say yes or no."
+            else:
+                confirm_msg = "Do you want to stop the test? Say yes or no."
+            await self.tts.speak(confirm_msg)
+            return
+
+        # Get current FSM state
+        row = self.session.current_row
+        if row is None:
+            return
+
+        response_type = row.response_type
+        print(f"[VOICE] response_type: {response_type}")
+
+        # Fuzzy match
+        matched_option, confidence = match_transcript(
+            transcript, response_type, self._confidence_threshold
+        )
+
+        # Compute ambient RMS for the utterance
+        ambient_rms = float(np.sqrt(np.mean(audio_float ** 2)))
+
+        # Record utterance audio for HITL
+        try:
+            self._recorder.record_utterance(
+                audio_int16=audio,
+                transcript=transcript,
+                response_type=response_type,
+                matched_option=matched_option,
+                confidence=confidence,
+                fsm_state=row.state,
+                phase_name=row.phase_name or "",
+                ambient_rms=ambient_rms,
+            )
+        except Exception as e:
+            print(f"[RECORDER] Error: {e}")
+
+        if matched_option:
+            print(f"[VOICE] Matched: {matched_option} (confidence: {confidence:.1f})")
+            await self.ws_send_json({
+                "type": "match",
+                "option": matched_option,
+                "confidence": confidence,
+                "transcript": transcript,
+            })
+
+            next_state = self.session.process_response(matched_option)
+            await self.ws_send_json({
+                "type": "state_update",
+                "data": {"status": "active", **next_state},
+            })
+
+            if next_state.get("is_terminal"):
+                self._cancel_silence_timer()
+                if self._lang == "en":
+                    end_msg = "The eye test is now complete. Thank you for your patience."
+                elif self._lang == "hi":
+                    end_msg = "परीक्षा पूरी हो गई है। धन्यवाद।"
+                else:
+                    end_msg = _regional_message(self._lang, "test_complete") or "The eye test is now complete. Thank you."
+                # Speak FIRST, then notify frontend to show completion UI
+                await self.tts.speak(end_msg)
+                await self.ws_send_json({"type": "test_complete"})
+                return
+
+            if next_state.get("auto_flip") and next_state.get("jcc_flip") == "flip1":
+                flip_wait = next_state.get("flip_wait_seconds", 2)
+                # Paired flip messages — flip1 and flip2 use matching terminology
+                _flip_pairs_en = [
+                    ("This is one.", "This is two. Which is better, one or two?"),
+                    ("This is the first.", "And this is the second. First or second?"),
+                    ("Option one.", "Option two. Which option was better?"),
+                    ("Number one.", "Number two. Which number was better?"),
+                    ("Here is view one.", "Here is view two. Which view was better?"),
+                ]
+                _flip_pairs_hi = [
+                    ("यह है एक।", "यह है दो। कौन सा बेहतर है, एक या दो?"),
+                    ("यह पहला है।", "यह दूसरा है। पहला या दूसरा?"),
+                    ("विकल्प एक।", "विकल्प दो। कौन सा विकल्प बेहतर था?"),
+                    ("नंबर एक।", "नंबर दो। कौन सा नंबर बेहतर था?"),
+                    ("पहला दृश्य।", "दूसरा दृश्य। कौन सा दृश्य बेहतर था?"),
+                ]
+                pair = random.choice(_flip_pairs_hi) if self._lang == "hi" else random.choice(_flip_pairs_en)
+                flip1_msg = pair[0]
+                # Store flip2 msg for the handler to use
+                self._pending_flip2_msg = pair[1]
+                asyncio.create_task(self._handle_jcc_flip1_then_flip2(flip1_msg, flip_wait))
+                return
+
+            question = next_state.get("question", "")
+            if question:
+                self._has_rephrased = False
+                self._cancel_silence_timer()
+                current_state = next_state.get("state")
+                response_type = next_state.get("response_type", "")
+                # Use short follow-up if staying in the same FSM state
+                if current_state and current_state == self._prev_state:
+                    if self._lang == "en":
+                        followup = _pick_followup(response_type, state=current_state)
+                    elif self._lang == "hi":
+                        followup = _pick_hindi_followup(response_type, state=current_state)
+                    else:
+                        followup = _regional_followup(self._lang, response_type, state=current_state) or _pick_followup(response_type, state=current_state)
+                    if followup:
+                        question = followup
+                elif self._lang == "en":
+                    question = _strip_intents(question)
+                elif self._lang == "hi":
+                    question = _translate_to_hindi(question)
+                else:
+                    question = _regional_translate(self._lang, question) or _strip_intents(question)
+                self._prev_state = current_state
+                await self.tts.speak(question)
+                self.start_silence_timer()
+        else:
+            # Try intent classifier as fallback (if available and audio was recorded)
+            if self._intent_classifier and hasattr(self._recorder, '_session_dir'):
+                try:
+                    # Find the latest recorded audio file
+                    last_utt = self._recorder._utt_counter
+                    audio_file = self._recorder._session_dir / f"utt_{last_utt:04d}.flac"
+                    if not audio_file.exists():
+                        audio_file = self._recorder._session_dir / f"utt_{last_utt:04d}.wav"
+                    if audio_file.exists():
+                        clf_intent, clf_conf = self._intent_classifier.predict(str(audio_file))
+                        if clf_intent and clf_conf > 70:
+                            print(f"[VOICE] Classifier fallback: {clf_intent} ({clf_conf:.0f}%)")
+                            matched_option = clf_intent
+                            confidence = clf_conf
+                            await self.ws_send_json({
+                                "type": "match",
+                                "option": matched_option,
+                                "confidence": confidence,
+                                "transcript": transcript,
+                                "source": "classifier",
+                            })
+                            # Process as if matched
+                            next_state = self.session.process_response(matched_option)
+                            await self.ws_send_json({
+                                "type": "state_update",
+                                "data": {"status": "active", **next_state},
+                            })
+                            question = next_state.get("question", "")
+                            if question:
+                                self._has_rephrased = False
+                                self._cancel_silence_timer()
+                                if self._lang == "hi":
+                                    question = _translate_to_hindi(question)
+                                else:
+                                    question = _strip_intents(question)
+                                self._prev_state = next_state.get("state")
+                                await self.tts.speak(question)
+                                self.start_silence_timer()
+                            return
+                except Exception as e:
+                    print(f"[VOICE] Classifier fallback error: {e}")
+
+            print(f"[VOICE] No match for: '{transcript}'")
+            await self.ws_send_json({"type": "no_match", "transcript": transcript})
+            if self._lang == "en":
+                no_match_msg = "I didn't catch that clearly. Could you please repeat?"
+            elif self._lang == "hi":
+                no_match_msg = "समझ नहीं आया। कृपया फिर से बोलिए।"
+            else:
+                no_match_msg = _regional_message(self._lang, "no_match") or "I didn't catch that. Please repeat."
+            await self.tts.speak(no_match_msg)
+            self.start_silence_timer()
+
+    def _run_whisper(self, audio_float: np.ndarray) -> list:
+        """Run faster-whisper transcription (called in thread)."""
+        # Map language to Whisper language code
+        lang = WHISPER_LANG_CODES.get(self._lang, "en")
+        segments, _ = self._whisper.transcribe(
+            audio_float,
+            language=lang,
+            beam_size=3,
+            vad_filter=False,  # We already did VAD
+        )
+        return [seg.text for seg in segments]
+
+    async def _handle_jcc_flip1_then_flip2(self, flip1_msg: str, wait_seconds: float):
+        """Speak Flip 1 instruction, wait, then auto-flip to Flip 2 and ask."""
+        await self.tts.speak(flip1_msg)
+        await asyncio.sleep(wait_seconds)
+
+        next_state = self.session.process_response("AUTO_FLIP")
+        await self.ws_send_json({
+            "type": "state_update",
+            "data": {"status": "active", **next_state},
+        })
+        # Use a clean flip2 question — NOT the verbose orchestrator message
+        flip2_msg = getattr(self, '_pending_flip2_msg', None)
+        if not flip2_msg:
+            if self._lang == "hi":
+                flip2_msg = "यह दूसरा है। पहला या दूसरा?"
+            elif self._lang != "en":
+                flip2_msg = _regional_message(self._lang, "flip2") or "This is two. Which is better?"
+            else:
+                flip2_msg = "This is two. Which is better, one or two?"
+        self._has_rephrased = False
+        self._cancel_silence_timer()
+        await self.tts.speak(flip2_msg)
+        self.start_silence_timer()
+
+    def stop(self):
+        self._running = False
+        self._cancel_silence_timer()
+        try:
+            self._recorder.write_session_summary()
+        except Exception as e:
+            print(f"[RECORDER] Summary error: {e}")
+
+
+def build_pipeline(session, ws_send_json, ws_send_bytes,
+                   whisper_model=None, piper_voice=None, lang="en"):
+    """Build the voice pipeline.
+
+    Returns (voice_pipeline, tts_processor).
+    """
+    whisper_model = whisper_model or _resolve_whisper_model()
+    piper_voice = piper_voice or _resolve_piper_voice(lang=lang)
+    silero_hub = _resolve_silero_hub_dir()
+
+    piper_onnx = str(PIPER_MODEL_DIR / f"{piper_voice}.onnx")
+    print(f"[VOICE] Whisper: {whisper_model}")
+    print(f"[VOICE] Piper:   {piper_onnx}")
+    print(f"[VOICE] Silero:  {silero_hub or 'default'}")
+
+    tts = DirectTTSProcessor(
+        voice_path=piper_onnx,
+        ws_send_bytes=ws_send_bytes,
+        ws_send_json=ws_send_json,
+    )
+
+    pipeline = VoicePipeline(
+        session=session,
+        ws_send_json=ws_send_json,
+        tts=tts,
+        silero_hub_dir=silero_hub,
+        whisper_model=whisper_model,
+    )
+
+    return pipeline, tts

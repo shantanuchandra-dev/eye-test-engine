@@ -1358,6 +1358,7 @@ async function jumpToPhase(targetState) {
 
 // ── Escalation ──────────────────────────────────────────────────────────
 function handleEscalation(data) {
+    stopVoiceMode();
     const questionText = document.getElementById('questionText');
     const intentButtons = document.getElementById('intentButtons');
 
@@ -1409,9 +1410,12 @@ async function completeTest(data) {
 
     updatePhaseProgress('END');
     addToHistory('Test complete', 'success');
+    // stopVoiceMode is called when 'test_complete' message arrives (after TTS finishes)
+    if (!voiceState.enabled) stopVoiceMode();  // only if voice wasn't active
 }
 
 async function endTestWithStatus(status) {
+    stopVoiceMode();
     try {
         showLoading(true);
         const resp = await fetch(`${CONFIG.backendUrl}/api/session/${sessionState.sessionId}/end`, {
@@ -1447,6 +1451,7 @@ async function endTestWithStatus(status) {
 
 async function discardTest() {
     if (!confirm('Discard this test? Data will not be saved.')) return;
+    stopVoiceMode();
     try {
         await fetch(`${CONFIG.backendUrl}/api/session/${sessionState.sessionId}/discard`, { method: 'POST' });
         _clearSessionStorage();
@@ -1547,6 +1552,64 @@ function toggleHistory() {
     }
 }
 
+function toggleSidebarSection(sectionId) {
+    const header = document.getElementById(sectionId + 'Arrow');
+    if (!header) return;
+    // The section is the parent .sidebar-section of the header's parent
+    const section = header.closest('.sidebar-section');
+    if (!section) return;
+    section.classList.toggle('section-collapsed');
+    const collapsed = section.classList.contains('section-collapsed');
+    header.textContent = collapsed ? '\u25B6' : '\u25BC';
+    if (!collapsed) {
+        const content = document.getElementById(sectionId + 'Content');
+        if (content) requestAnimationFrame(() => { content.scrollTop = content.scrollHeight; });
+    }
+}
+
+function addVoiceLog(type, text, intent) {
+    const container = document.getElementById('voiceLogContent');
+    if (!container) return;
+    const bubble = document.createElement('div');
+    const time = new Date().toLocaleTimeString(undefined, { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const timeHtml = `<span class="bubble-time">${time}</span>`;
+
+    if (type === 'spoken') {
+        // User spoke — right-aligned green bubble (will be updated to match/nomatch)
+        bubble.className = 'voice-bubble user';
+        bubble.id = 'voice-last-spoken';
+        bubble.innerHTML = `"${text}" ${timeHtml}`;
+    } else if (type === 'match') {
+        // Update the last spoken bubble with the intent, or create new
+        const last = document.getElementById('voice-last-spoken');
+        if (last) {
+            last.removeAttribute('id');
+            last.innerHTML = `"${text}" ${timeHtml}<span class="bubble-intent">&check; ${intent}</span>`;
+            container.scrollTop = container.scrollHeight;
+            return;
+        }
+        bubble.className = 'voice-bubble user';
+        bubble.innerHTML = `"${text}" ${timeHtml}<span class="bubble-intent">&check; ${intent}</span>`;
+    } else if (type === 'nomatch') {
+        const last = document.getElementById('voice-last-spoken');
+        if (last) {
+            last.removeAttribute('id');
+            last.classList.add('nomatch');
+            last.innerHTML = `"${text}" ${timeHtml}<span class="bubble-intent">? not recognized</span>`;
+            container.scrollTop = container.scrollHeight;
+            return;
+        }
+        bubble.className = 'voice-bubble user nomatch';
+        bubble.innerHTML = `"${text}" ${timeHtml}<span class="bubble-intent">? not recognized</span>`;
+    } else if (type === 'system') {
+        bubble.className = 'voice-bubble ai';
+        bubble.innerHTML = `${text} ${timeHtml}`;
+    }
+
+    container.appendChild(bubble);
+    container.scrollTop = container.scrollHeight;
+}
+
 // ── Keyboard Shortcuts ──────────────────────────────────────────────────
 document.addEventListener('keydown', (e) => {
     // Number keys 1-6 for response buttons
@@ -1611,4 +1674,447 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Start heartbeat
     startHeartbeat();
+
+    // Auto-start voice mode if session is active
+    if (sessionState.sessionId) {
+        setTimeout(() => startVoiceMode(), 1000);
+    }
+
+    // Reconnect voice when dropdown changes
+    const voiceSelect = document.getElementById('voiceSelect');
+    if (voiceSelect) {
+        voiceSelect.addEventListener('change', () => {
+            if (voiceState.enabled) {
+                // Reconnect with the new voice
+                stopVoiceMode();
+                setTimeout(() => startVoiceMode(), 500);
+            }
+        });
+    }
 });
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// ── VOICE MODE ──────────────────────────────────────────────────────────
+// Streams mic audio to Pipecat voice pipeline via WebSocket on port 8766.
+// Receives TTS audio and state updates. Coexists with click-based UI.
+// ══════════════════════════════════════════════════════════════════════════
+
+const voiceState = {
+    enabled: false,
+    ws: null,
+    audioCtx: null,       // mic capture context (16kHz)
+    playbackCtx: null,    // TTS playback context (22050Hz from Piper)
+    ttsSampleRate: 22050, // updated from server voice_ready message
+    micStream: null,
+    scriptNode: null,
+    playQueue: [],
+    playing: false,
+};
+
+const VOICE_WS_PORT = 8766;
+
+function getVoiceWsUrl() {
+    const host = window.location.hostname || 'localhost';
+    const voiceSelect = document.getElementById('voiceSelect');
+    const selectedOption = voiceSelect ? voiceSelect.selectedOptions[0] : null;
+    const voice = selectedOption ? selectedOption.value : 'en_US-kusal-medium';
+    const lang = selectedOption && selectedOption.dataset.lang ? selectedOption.dataset.lang : 'en';
+    return `ws://${host}:${VOICE_WS_PORT}/ws/voice/${sessionState.sessionId}?lang=${lang}&voice=${voice}`;
+}
+
+async function toggleVoiceMode() {
+    if (voiceState.enabled) {
+        stopVoiceMode();
+    } else {
+        await startVoiceMode();
+    }
+}
+
+async function startVoiceMode() {
+    if (!sessionState.sessionId) {
+        alert('Start a session before enabling voice mode.');
+        return;
+    }
+
+    try {
+        // Request mic access
+        voiceState.micStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+            }
+        });
+
+        const tracks = voiceState.micStream.getAudioTracks();
+        console.log(`[VOICE] Mic: "${tracks[0]?.label}" enabled=${tracks[0]?.enabled} muted=${tracks[0]?.muted}`);
+
+        // Use AudioContext + AudioWorklet (or fallback to AnalyserNode polling)
+        // for reliable mic capture. ScriptProcessorNode is deprecated and
+        // often delivers zero-filled buffers in modern Chrome.
+        voiceState.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (voiceState.audioCtx.state === 'suspended') {
+            await voiceState.audioCtx.resume();
+        }
+        const micRate = voiceState.audioCtx.sampleRate;
+        console.log(`[VOICE] AudioContext: rate=${micRate}Hz state=${voiceState.audioCtx.state}`);
+
+        const micSource = voiceState.audioCtx.createMediaStreamSource(voiceState.micStream);
+
+        // Use AnalyserNode to poll raw PCM data on a timer.
+        // This is more reliable than ScriptProcessorNode in modern Chrome.
+        const analyser = voiceState.audioCtx.createAnalyser();
+        analyser.fftSize = 2048;  // gives us 1024 time-domain samples per read
+        micSource.connect(analyser);
+        // Must connect to destination (even silently) for the graph to be active
+        const silentGain = voiceState.audioCtx.createGain();
+        silentGain.gain.value = 0;  // mute the mic playback
+        analyser.connect(silentGain);
+        silentGain.connect(voiceState.audioCtx.destination);
+
+        const timeDomainBuf = new Float32Array(analyser.fftSize);
+        let _pollCount = 0;
+
+        // Poll analyser at ~30Hz (every ~33ms) to capture audio
+        voiceState._micPollInterval = setInterval(() => {
+            if (!voiceState.ws || voiceState.ws.readyState !== WebSocket.OPEN) return;
+
+            analyser.getFloatTimeDomainData(timeDomainBuf);
+
+            _pollCount++;
+            if (_pollCount <= 5 || _pollCount % 200 === 0) {
+                const maxVal = Math.max(...Array.from(timeDomainBuf.slice(0, 500)).map(Math.abs));
+                console.log(`[VOICE] Mic poll #${_pollCount}: max=${maxVal.toFixed(4)}`);
+            }
+
+            // Downsample to 16kHz
+            let float32 = timeDomainBuf;
+            if (micRate !== 16000) {
+                const ratio = micRate / 16000;
+                const outLen = Math.floor(analyser.fftSize / ratio);
+                const resampled = new Float32Array(outLen);
+                for (let i = 0; i < outLen; i++) {
+                    resampled[i] = float32[Math.round(i * ratio)];
+                }
+                float32 = resampled;
+            }
+
+            // Convert float32 [-1, 1] to int16
+            const int16 = new Int16Array(float32.length);
+            for (let i = 0; i < float32.length; i++) {
+                const s = Math.max(-1, Math.min(1, float32[i]));
+                int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+            }
+            voiceState.ws.send(int16.buffer);
+        }, 33);  // ~30 polls per second
+
+        // Pre-create TTS playback context (user gesture satisfies autoplay policy)
+        voiceState.playbackCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 22050 });
+        // Play a tiny silent buffer to "unlock" audio output on Chrome
+        const silentBuf = voiceState.playbackCtx.createBuffer(1, 1, 22050);
+        const silentSrc = voiceState.playbackCtx.createBufferSource();
+        silentSrc.buffer = silentBuf;
+        silentSrc.connect(voiceState.playbackCtx.destination);
+        silentSrc.start();
+
+        // Open WebSocket to voice server
+        voiceState.ws = new WebSocket(getVoiceWsUrl());
+        voiceState.ws.binaryType = 'arraybuffer';
+
+        voiceState.ws.onopen = () => {
+            console.log('[VOICE] WebSocket connected');
+            voiceState.enabled = true;
+            updateVoiceUI(true);
+        };
+
+        voiceState.ws.onmessage = (event) => {
+            if (event.data instanceof ArrayBuffer) {
+                handleVoiceAudio(event.data);
+            } else {
+                handleVoiceMessage(JSON.parse(event.data));
+            }
+        };
+
+        voiceState.ws.onclose = () => {
+            console.log('[VOICE] WebSocket closed');
+            stopVoiceMode();
+        };
+
+        voiceState.ws.onerror = (err) => {
+            console.error('[VOICE] WebSocket error:', err);
+            addToHistory('Voice connection error. Is the voice server running? (VOICE_ENABLED=true)', 'error');
+            stopVoiceMode();
+        };
+
+    } catch (err) {
+        console.error('[VOICE] Failed to start:', err);
+        alert('Failed to access microphone: ' + err.message);
+        stopVoiceMode();
+    }
+}
+
+function stopVoiceMode() {
+    voiceState.enabled = false;
+
+    if (voiceState._micPollInterval) {
+        clearInterval(voiceState._micPollInterval);
+        voiceState._micPollInterval = null;
+    }
+    if (voiceState.ws) {
+        try { voiceState.ws.send(JSON.stringify({ type: 'stop' })); } catch (_) {}
+        try { voiceState.ws.close(); } catch (_) {}
+        voiceState.ws = null;
+    }
+    if (voiceState.scriptNode) {
+        try { voiceState.scriptNode.disconnect(); } catch (_) {}
+        voiceState.scriptNode = null;
+    }
+    if (voiceState.micStream) {
+        voiceState.micStream.getTracks().forEach(t => t.stop());
+        voiceState.micStream = null;
+    }
+    if (voiceState.audioCtx) {
+        try { voiceState.audioCtx.close(); } catch (_) {}
+        voiceState.audioCtx = null;
+    }
+    if (voiceState.playbackCtx) {
+        try { voiceState.playbackCtx.close(); } catch (_) {}
+        voiceState.playbackCtx = null;
+    }
+    voiceState.playQueue = [];
+    voiceState.playing = false;
+
+    updateVoiceUI(false);
+}
+
+let _voiceChipTimer = null;
+
+function handleVoiceMessage(msg) {
+    switch (msg.type) {
+        case 'voice_ready':
+            if (msg.tts_sample_rate) voiceState.ttsSampleRate = msg.tts_sample_rate;
+            addToHistory('Voice mode active — speak your responses', 'info');
+            setVoiceChip('idle');
+            break;
+
+        case 'transcript':
+            showVoiceTranscript(msg.text);
+            setVoiceChip('heard', `"${msg.text}"`);
+            addVoiceLog('spoken', msg.text);
+            break;
+
+        case 'match':
+            addToHistory(`Voice: "${msg.transcript}" → ${msg.option} (${msg.confidence.toFixed(0)}%)`, 'info');
+            setVoiceChip('heard', `"${msg.transcript}" → ${msg.option.replace(/_/g, ' ')}`);
+            addVoiceLog('match', msg.transcript, msg.option.replace(/_/g, ' '));
+            clearTimeout(_voiceChipTimer);
+            _voiceChipTimer = setTimeout(() => setVoiceChip('idle'), 2000);
+            break;
+
+        case 'no_match':
+            addToHistory(`Voice: "${msg.transcript}" — not recognized, repeating`, 'warning');
+            setVoiceChip('no-match', `"${msg.transcript}" — try again`);
+            addVoiceLog('nomatch', msg.transcript);
+            clearTimeout(_voiceChipTimer);
+            _voiceChipTimer = setTimeout(() => setVoiceChip('idle'), 2000);
+            break;
+
+        case 'state_update':
+            if (msg.data) {
+                if (msg.data.is_terminal) {
+                    // Don't stop voice yet — let TTS speak the completion message first.
+                    // Voice will be stopped when 'test_complete' or 'exit_confirmed' arrives.
+                    if (msg.data.terminal_state === 'ESCALATE') {
+                        handleEscalation(msg.data);
+                    } else {
+                        // Show completion UI but DON'T call stopVoiceMode here
+                        const questionText = document.getElementById('questionText');
+                        const intentButtons = document.getElementById('intentButtons');
+                        if (questionText) {
+                            const power = msg.data?.power || {};
+                            const r = power.right || { sph: 0, cyl: 0, axis: 180 };
+                            const l = power.left || { sph: 0, cyl: 0, axis: 180 };
+                            questionText.innerHTML = `
+                                <div style="color:#2e7d32;font-weight:600;font-size:1.2em;">TEST COMPLETE</div>
+                                <div style="margin-top:12px;">
+                                    <table style="width:100%;border-collapse:collapse;text-align:center;">
+                                        <tr style="font-weight:600;"><td></td><td>SPH</td><td>CYL</td><td>AXIS</td><td>ADD</td></tr>
+                                        <tr><td style="font-weight:600;">RE</td><td>${r.sph?.toFixed(2)}</td><td>${r.cyl?.toFixed(2)}</td><td>${Math.round(r.axis||180)}\u00b0</td><td>${(r.add||0).toFixed(2)}</td></tr>
+                                        <tr><td style="font-weight:600;">LE</td><td>${l.sph?.toFixed(2)}</td><td>${l.cyl?.toFixed(2)}</td><td>${Math.round(l.axis||180)}\u00b0</td><td>${(l.add||0).toFixed(2)}</td></tr>
+                                    </table>
+                                </div>`;
+                        }
+                        if (intentButtons) {
+                            intentButtons.innerHTML = `
+                                <button class="intent-button" style="background:#2e7d32;color:#fff;" onclick="endTestWithStatus('completed')">Save & End</button>
+                                <button class="intent-button" style="background:#f44336;color:#fff;" onclick="discardTest()">Discard</button>`;
+                        }
+                        updatePhaseProgress('END');
+                        addToHistory('Test complete', 'success');
+                    }
+                    return;
+                }
+                updateSessionInfo(msg.data);
+                displayQuestion(msg.data);
+                updatePhaseProgress(msg.data.state);
+                _saveSessionToStorage();
+                refreshDerivedVariables();
+                refreshScreenshotIfModalOpen();
+            }
+            break;
+
+        case 'test_complete':
+            addVoiceLog('system', 'Test complete');
+            stopVoiceMode();
+            break;
+
+        case 'exit_confirmed':
+            addVoiceLog('system', 'Test stopped by patient');
+            stopVoiceMode();
+            handleEscalation({ state: 'ESCALATE' });
+            break;
+
+        case 'speaking':
+            // Legacy — no longer used
+            break;
+
+        case 'tts_start':
+            setQuestionSpeaking(true);
+            addVoiceLog('system', 'AI: ' + (msg.text || '').substring(0, 60) + (msg.text && msg.text.length > 60 ? '...' : ''));
+            break;
+
+        case 'tts_end':
+            // TTS finished speaking
+            setQuestionSpeaking(false);
+            if (voiceState.enabled) setVoiceChip('idle');
+            break;
+
+        case 'vad':
+            // VAD detected speech activity from the mic
+            if (msg.speaking) {
+                setVoiceChip('listening');
+            } else {
+                setVoiceChip('idle');
+            }
+            break;
+    }
+}
+
+/**
+ * Set the voice chip state in the top bar.
+ * @param {'idle'|'listening'|'heard'|'no-match'|'hidden'} state
+ * @param {string} [text] — text to display (for heard/no-match)
+ */
+function setVoiceChip(state, text) {
+    const chip = document.getElementById('voiceChip');
+    const chipText = document.getElementById('voiceChipText');
+    if (!chip) return;
+
+    chip.style.display = 'inline-flex';
+    chip.classList.remove('listening', 'heard', 'no-match');
+
+    switch (state) {
+        case 'idle':
+            // Mic on but silence — bars static, no animation
+            chipText.textContent = 'Ready';
+            break;
+        case 'listening':
+            // VAD detected speech — bars animate
+            chip.classList.add('listening');
+            chipText.textContent = 'Listening...';
+            break;
+        case 'heard':
+            chip.classList.add('heard');
+            chipText.textContent = text || '';
+            break;
+        case 'no-match':
+            chip.classList.add('no-match');
+            chipText.textContent = text || 'Not recognized';
+            break;
+        case 'hidden':
+            chip.style.display = 'none';
+            chipText.textContent = '';
+            break;
+    }
+}
+
+function handleVoiceAudio(arrayBuffer) {
+    // First byte is 0x01 header, rest is PCM int16 audio.
+    // Cannot use Int16Array with byte offset 1 (alignment requirement).
+    // Copy audio payload into a fresh aligned ArrayBuffer.
+    const totalBytes = arrayBuffer.byteLength - 1;
+    if (totalBytes < 2) return;
+    const alignedBytes = totalBytes & ~1;  // ensure even byte count for int16
+    const aligned = new ArrayBuffer(alignedBytes);
+    new Uint8Array(aligned).set(new Uint8Array(arrayBuffer, 1, alignedBytes));
+    const pcm = new Int16Array(aligned);
+    voiceState.playQueue.push(pcm);
+    if (!voiceState.playing) playNextAudioChunk();
+}
+
+async function playNextAudioChunk() {
+    if (voiceState.playQueue.length === 0) {
+        voiceState.playing = false;
+        return;
+    }
+    voiceState.playing = true;
+    const pcm = voiceState.playQueue.shift();
+    const rate = voiceState.ttsSampleRate;
+
+    // Create or resume playback context
+    if (!voiceState.playbackCtx || voiceState.playbackCtx.state === 'closed') {
+        voiceState.playbackCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: rate });
+    }
+    const ctx = voiceState.playbackCtx;
+
+    // Chrome requires resume after user gesture
+    if (ctx.state === 'suspended') {
+        try { await ctx.resume(); } catch (_) {}
+    }
+
+    const buffer = ctx.createBuffer(1, pcm.length, rate);
+    const channel = buffer.getChannelData(0);
+    for (let i = 0; i < pcm.length; i++) {
+        channel[i] = pcm[i] / 32768.0;
+    }
+
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+    source.onended = () => playNextAudioChunk();
+    source.start();
+    console.log(`[VOICE] Playing ${pcm.length} samples at ${rate}Hz (${(pcm.length/rate).toFixed(1)}s)`);
+}
+
+function showVoiceTranscript(text) {
+    const el = document.getElementById('voiceTranscript');
+    if (el) {
+        el.textContent = `"${text}"`;
+        el.style.opacity = '1';
+        setTimeout(() => { el.style.opacity = '0.5'; }, 2000);
+    }
+}
+
+function setQuestionSpeaking(active) {
+    const el = document.getElementById('questionText');
+    if (el) {
+        el.classList.toggle('speaking', active);
+    }
+}
+
+function updateVoiceUI(active) {
+    const btn = document.getElementById('voiceModeBtn');
+    if (btn) {
+        btn.textContent = active ? '🎙 Voice ON' : '🎤 Voice';
+        btn.classList.toggle('voice-active', active);
+    }
+    const indicator = document.getElementById('voiceIndicator');
+    if (indicator) {
+        indicator.style.display = active ? 'inline-block' : 'none';
+    }
+    if (!active) {
+        setVoiceChip('hidden');
+        clearTimeout(_voiceChipTimer);
+    }
+}

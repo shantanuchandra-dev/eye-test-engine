@@ -18,19 +18,19 @@
         /* ── Full-viewport shell ────────────────────── */
         .app-shell {
             display: grid;
-            grid-template-columns: 180px 1fr;
+            grid-template-columns: 216px 1fr;
             grid-template-rows: auto 1fr;
             height: 100vh;
             transition: grid-template-columns 0.25s ease;
         }
         .app-shell.logs-expanded {
-            grid-template-columns: 180px 1fr 320px;
+            grid-template-columns: 216px 1fr 320px;
         }
         .app-shell.debug-expanded {
-            grid-template-columns: 180px 1fr 340px;
+            grid-template-columns: 216px 1fr 340px;
         }
         .app-shell.logs-expanded.debug-expanded {
-            grid-template-columns: 180px 1fr 320px 340px;
+            grid-template-columns: 216px 1fr 320px 340px;
         }
 
         /* ── Top Bar (spans full width) ─────────────── */
@@ -264,6 +264,42 @@
             color: #222;
             line-height: 1.5;
             font-weight: 500;
+            position: relative;
+            transition: color 0.3s;
+        }
+        #questionText.speaking {
+            color: #1565c0;
+        }
+        #questionText.speaking::before {
+            content: '';
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            margin-right: 8px;
+            vertical-align: middle;
+            background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%231565c0'%3E%3Cpath d='M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z'/%3E%3C/svg%3E") no-repeat center/contain;
+            animation: speakerPulse 1s ease-in-out infinite;
+        }
+        @keyframes speakerPulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.15); }
+        }
+        /* Animated underline sweep while speaking */
+        #questionText.speaking::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            height: 2px;
+            background: linear-gradient(90deg, #1565c0, #42a5f5, #1565c0);
+            background-size: 200% 100%;
+            animation: speakingSweep 1.5s linear infinite;
+            width: 100%;
+            border-radius: 1px;
+        }
+        @keyframes speakingSweep {
+            0% { background-position: 100% 0; }
+            100% { background-position: -100% 0; }
         }
 
         /* ── Response Buttons ───────────────────────── */
@@ -429,24 +465,109 @@
             color: #333;
         }
 
-        /* ── History (collapsed in sidebar) ─────────── */
-        .history-toggle {
+        /* ── Sidebar sections ─────────────────────────── */
+        .sidebar-section {
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+        .sidebar-section-header {
             font-size: 0.7rem;
+            font-weight: 700;
             color: #888;
             cursor: pointer;
-            padding: 0.3rem 0;
+            padding: 0.3rem 0.2rem;
             display: flex;
             align-items: center;
             gap: 0.3rem;
+            border-bottom: 1px solid #f0f0f0;
+            flex-shrink: 0;
         }
-        .history-toggle:hover { color: #0d47a1; }
-        .history-toggle .arrow { font-size: 0.6rem; }
+        .sidebar-section-header:hover { color: #0d47a1; }
+        .sidebar-section-header .arrow { font-size: 0.6rem; transition: transform 0.2s; }
+        /* Expanded section takes available space */
+        .sidebar-section:not(.section-collapsed) {
+            flex: 1;
+        }
+        .sidebar-section.section-collapsed > *:not(.sidebar-section-header) {
+            display: none;
+        }
+
+        /* ── Voice Log (chat-style) ─────────────────────── */
+        .voice-log-container {
+            flex: 1;
+            overflow-y: auto;
+            font-size: 0.7rem;
+            padding: 4px 4px;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            background: #f0f0f0;
+            border-radius: 4px;
+        }
+        .voice-bubble {
+            max-width: 85%;
+            padding: 4px 8px;
+            border-radius: 8px;
+            line-height: 1.35;
+            position: relative;
+            word-wrap: break-word;
+        }
+        .voice-bubble .bubble-time {
+            font-size: 0.55rem;
+            color: rgba(0,0,0,0.35);
+            margin-left: 6px;
+            float: right;
+            margin-top: 2px;
+        }
+        /* AI bubble — left aligned, light green (WhatsApp incoming) */
+        .voice-bubble.ai {
+            align-self: flex-start;
+            background: #fff;
+            color: #333;
+            border-top-left-radius: 2px;
+            border-left: 3px solid #4caf50;
+        }
+        /* User bubble — right aligned, light blue (WhatsApp outgoing) */
+        .voice-bubble.user {
+            align-self: flex-end;
+            background: #dcf8c6;
+            color: #222;
+            border-top-right-radius: 2px;
+        }
+        .voice-bubble.user .bubble-intent {
+            display: block;
+            font-size: 0.6rem;
+            font-weight: 600;
+            color: #2e7d32;
+            margin-top: 1px;
+        }
+        .voice-bubble.user.nomatch {
+            background: #ffcdd2;
+        }
+        .voice-bubble.user.nomatch .bubble-intent {
+            color: #c62828;
+        }
+        /* System message — centered, gray */
+        .voice-bubble.system {
+            align-self: center;
+            background: rgba(0,0,0,0.06);
+            color: #888;
+            font-size: 0.6rem;
+            border-radius: 10px;
+            padding: 2px 10px;
+        }
+
+        /* ── History ────────────────────────────────────── */
         #historyContent {
-            max-height: 180px;
+            flex: 1;
             overflow-y: auto;
             font-size: 0.72rem;
         }
-        #historyContent.collapsed { display: none; }
+        #progressContent {
+            flex: 1;
+            overflow-y: auto;
+        }
         .history-entry {
             padding: 2px 0;
             border-bottom: 1px solid #f5f5f5;
@@ -613,11 +734,11 @@
             background: #fff;
             border-radius: 8px;
             box-shadow: 0 4px 24px rgba(0,0,0,0.25);
-            width: 380px;
+            width: 570px;
             overflow: hidden;
             resize: both;
-            min-width: 250px;
-            min-height: 200px;
+            min-width: 375px;
+            min-height: 300px;
         }
         .screenshot-header {
             display: flex;
@@ -644,7 +765,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            min-height: 180px;
+            min-height: 270px;
             overflow: hidden;
             background: #f5f5f5;
         }
@@ -725,6 +846,63 @@
             .app-shell { grid-template-columns: 1fr; }
             .sidebar { display: none; }
         }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        #voiceModeBtn.voice-active {
+            background: rgba(76,175,80,1) !important;
+            box-shadow: 0 0 8px rgba(76,175,80,0.6);
+        }
+        /* Voice status chip — shows listening + heard text */
+        .voice-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(255,255,255,0.15);
+            border-radius: 12px;
+            padding: 3px 10px;
+            font-size: 0.75rem;
+            color: #fff;
+            max-width: 280px;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            transition: background 0.3s, opacity 0.4s;
+        }
+        .voice-chip.heard {
+            background: rgba(76,175,80,0.5);
+        }
+        .voice-chip.no-match {
+            background: rgba(244,67,54,0.45);
+        }
+        /* Animated sound bars (listening indicator) */
+        .voice-bars {
+            display: inline-flex;
+            align-items: flex-end;
+            gap: 2px;
+            height: 14px;
+        }
+        .voice-bars span {
+            display: inline-block;
+            width: 3px;
+            background: #4caf50;
+            border-radius: 1px;
+            animation: vbar 0.8s ease-in-out infinite;
+        }
+        .voice-bars span:nth-child(1) { height: 4px; animation-delay: 0s; }
+        .voice-bars span:nth-child(2) { height: 8px; animation-delay: 0.15s; }
+        .voice-bars span:nth-child(3) { height: 12px; animation-delay: 0.3s; }
+        .voice-bars span:nth-child(4) { height: 6px; animation-delay: 0.45s; }
+        .voice-chip:not(.listening) .voice-bars span {
+            animation: none;
+            height: 4px;
+            background: rgba(255,255,255,0.4);
+        }
+        @keyframes vbar {
+            0%, 100% { height: 4px; }
+            50% { height: 14px; }
+        }
     </style>
 </head>
 <body>
@@ -741,20 +919,62 @@
             <button id="acquireDeviceBtn" style="display:none;" onclick="acquireSelectedDevice()">Acquire</button>
             <button class="btn-live" onclick="toggleScreenshotModal()" title="Live View">Live</button>
             <button class="btn-reset" onclick="resetPhoropter()" title="Reset to 0/0/180">Reset</button>
+            <button id="voiceModeBtn" onclick="toggleVoiceMode()" title="Toggle voice mode" style="background:rgba(76,175,80,0.7);">🎤 Voice</button>
+            <select id="voiceSelect" title="AI Optometrist voice" style="font-size:0.72rem;padding:2px 4px;border-radius:4px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);cursor:pointer;">
+                <option value="en_US-kusal-medium">English (Indian)</option>
+                <option value="en_US-lessac-medium">English (US)</option>
+                <option value="hi_IN-pratham-medium" data-lang="hi">Hindi (Piper)</option>
+                <option value="meta-mms-hindi" data-lang="hi">Hindi (Meta)</option>
+                <option value="te_IN-venkatesh-medium" data-lang="te">Telugu</option>
+                <option value="meta-mms-tamil" data-lang="ta">Tamil</option>
+                <option value="meta-mms-kannada" data-lang="kn">Kannada</option>
+                <option value="meta-mms-marathi" data-lang="mr">Marathi</option>
+                <option value="ml_IN-arjun-medium" data-lang="ml">Malayalam</option>
+                <option value="meta-mms-gujarati" data-lang="gu">Gujarati</option>
+                <option value="meta-mms-bengali" data-lang="bn">Bengali</option>
+                <option value="meta-mms-punjabi" data-lang="pa">Punjabi</option>
+            </select>
+            <span id="voiceIndicator" style="display:none;width:8px;height:8px;border-radius:50%;background:#4caf50;animation:pulse 1s infinite;margin-left:4px;"></span>
+            <span id="voiceChip" class="voice-chip" style="display:none;">
+                <span id="voiceChipBars" class="voice-bars"><span></span><span></span><span></span><span></span></span>
+                <span id="voiceChipText"></span>
+            </span>
             <span class="spacer"></span>
             <span id="sessionId" class="session-label">-</span>
         </div>
 
         <!-- ── Sidebar ──────────────────────────────── -->
         <div class="sidebar">
-            <div class="sidebar-title">Progress</div>
-            <div id="phaseProgress"></div>
-            <div class="sidebar-footer">
-                <div class="history-toggle" onclick="toggleHistory()">
-                    <span id="historyArrow" class="arrow">&#x25B6;</span>
-                    History
+            <!-- Progress -->
+            <div class="sidebar-section section-collapsed">
+                <div class="sidebar-section-header" onclick="toggleSidebarSection('progress')">
+                    <span id="progressArrow" class="arrow">&#x25B6;</span>
+                    <span class="sidebar-title" style="margin-bottom:0;">Progress</span>
                 </div>
-                <div id="historyContent" class="collapsed"></div>
+                <div id="progressContent">
+                    <div id="phaseProgress"></div>
+                </div>
+            </div>
+
+            <!-- Voice Log -->
+            <div class="sidebar-section">
+                <div class="sidebar-section-header" onclick="toggleSidebarSection('voiceLog')">
+                    <span id="voiceLogArrow" class="arrow">&#x25BC;</span>
+                    <span class="sidebar-title" style="margin-bottom:0;">Voice Log</span>
+                </div>
+                <div id="voiceLogContent" class="voice-log-container"></div>
+            </div>
+
+            <!-- History -->
+            <div class="sidebar-section">
+                <div class="sidebar-section-header" onclick="toggleSidebarSection('history')">
+                    <span id="historyArrow" class="arrow">&#x25BC;</span>
+                    <span class="sidebar-title" style="margin-bottom:0;">History</span>
+                </div>
+                <div id="historyContent"></div>
+            </div>
+
+            <div class="sidebar-footer">
                 <div style="margin-top:0.4rem;">
                     <a href="intake.html">New Test</a>
                     <span class="divider">|</span>
@@ -786,6 +1006,7 @@
                     </div>
                     <div id="questionText">Waiting for session...</div>
                     <div id="intentButtons"></div>
+                    <div id="voiceTranscript" style="margin-top:8px;font-size:0.85rem;color:#78909c;font-style:italic;opacity:0.5;min-height:1.2em;transition:opacity 0.3s;"></div>
                 </div>
 
                 <!-- Inline status bar -->

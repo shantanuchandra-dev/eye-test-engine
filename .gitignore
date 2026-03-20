@@ -28,5 +28,12 @@ eye_test_output/
 *.csv
 !tests/*.csv
 
+# Voice models (large binary files, download locally via: python -m voice.download_models)
+Eye_test_engine_v2/voice/models/whisper-small/
+Eye_test_engine_v2/voice/models/piper/
+Eye_test_engine_v2/voice/models/silero/
+!Eye_test_engine_v2/voice/models/.gitkeep
+
 # Claude local
 .claude/plans/
+*metadata.json
