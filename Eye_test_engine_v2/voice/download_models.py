@@ -21,7 +21,6 @@ from pathlib import Path
 MODELS_DIR = Path(__file__).resolve().parent / "models"
 WHISPER_DIR = MODELS_DIR / "whisper-v3-turbo"
 PIPER_DIR = MODELS_DIR / "piper"
-SILERO_DIR = MODELS_DIR / "silero"
 
 # Piper voices to download (name → HuggingFace sub-path)
 PIPER_VOICES = {
@@ -82,22 +81,22 @@ def download_piper():
     return all_ok
 
 
+SILERO_ONNX_URL = "https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx"
+
+
 def download_silero():
-    """Download Silero VAD model (~34MB) to voice/models/silero/."""
-    print(f"[3/3] Downloading Silero VAD model → {SILERO_DIR}")
-    SILERO_DIR.mkdir(parents=True, exist_ok=True)
+    """Download Silero VAD ONNX model (~2MB) to voice/models/."""
+    # Store directly in MODELS_DIR (not a silero/ subdir) so pipeline finds it
+    dest = MODELS_DIR / "silero_vad.onnx"
+    print(f"[3/3] Downloading Silero VAD ONNX → {dest}")
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    if dest.exists():
+        print(f"  Already exists: {dest}")
+        return True
     try:
-        import torch
-        original_hub_dir = torch.hub.get_dir()
-        torch.hub.set_dir(str(SILERO_DIR))
-        model, _ = torch.hub.load(
-            repo_or_dir="snakers4/silero-vad",
-            model="silero_vad",
-            trust_repo=True,
-        )
-        torch.hub.set_dir(original_hub_dir)
-        print(f"  OK  Silero VAD saved to {SILERO_DIR}")
-        del model
+        urllib.request.urlretrieve(SILERO_ONNX_URL, str(dest))
+        size_mb = dest.stat().st_size / (1024 * 1024)
+        print(f"  OK  silero_vad.onnx ({size_mb:.1f}MB)")
     except Exception as e:
         print(f"  FAIL  {e}")
         return False
@@ -109,9 +108,7 @@ def check_models():
     return {
         "whisper": WHISPER_DIR.exists() and any(WHISPER_DIR.rglob("model.bin")),
         "piper": PIPER_DIR.exists() and any(PIPER_DIR.glob("*.onnx")),
-        "silero": SILERO_DIR.exists() and (
-            any(SILERO_DIR.rglob("*.jit")) or any(SILERO_DIR.rglob("*.pt")) or any(SILERO_DIR.rglob("hubconf.py"))
-        ),
+        "silero": (MODELS_DIR / "silero_vad.onnx").exists(),
     }
 
 

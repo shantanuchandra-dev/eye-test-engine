@@ -33,30 +33,14 @@ SAMPLE_RATE = 16000
 
 # ── Silero VAD via ONNX Runtime (no torch) ────────────────────────────────
 
-def _load_silero_vad_onnx(hub_dir: str = None):
+def _load_silero_vad_onnx():
     """Load Silero VAD ONNX model. Returns (session, initial_state, sr_tensor)."""
-    # Locate the ONNX model — shipped by silero-vad or downloaded manually.
-    search_dirs = []
-    if hub_dir:
-        search_dirs.append(Path(hub_dir))
-    search_dirs += [
-        Path(__file__).resolve().parent / "models",
-        Path.home() / ".cache" / "silero-vad",
-    ]
+    onnx_path = SILERO_ONNX_PATH
 
-    onnx_path = None
-    for d in search_dirs:
-        candidate = d / "silero_vad.onnx"
-        if candidate.exists():
-            onnx_path = candidate
-            break
-
-    if onnx_path is None:
-        # Download from silero-vad GitHub release
+    if not onnx_path.exists():
+        # Auto-download from silero-vad GitHub
         import urllib.request
-        dl_dir = Path(__file__).resolve().parent / "models"
-        dl_dir.mkdir(parents=True, exist_ok=True)
-        onnx_path = dl_dir / "silero_vad.onnx"
+        onnx_path.parent.mkdir(parents=True, exist_ok=True)
         url = "https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx"
         print(f"[VAD] Downloading Silero VAD ONNX → {onnx_path}")
         urllib.request.urlretrieve(url, str(onnx_path))
@@ -391,7 +375,7 @@ MODELS_DIR = _VOICE_DIR / "models"
 WHISPER_MODEL_DIR = MODELS_DIR / "whisper-v3-turbo"
 WHISPER_MODEL_DIR_FALLBACK = MODELS_DIR / "whisper-small"
 PIPER_MODEL_DIR = MODELS_DIR / "piper"
-SILERO_MODEL_DIR = MODELS_DIR / "silero"
+SILERO_ONNX_PATH = MODELS_DIR / "silero_vad.onnx"
 
 DEFAULT_PIPER_VOICES = {
     "en": "en_US-kusal-medium",
@@ -425,9 +409,10 @@ def _resolve_piper_voice(voice_name: Optional[str] = None, lang: str = "en") -> 
     return voice_name
 
 
-def _resolve_silero_hub_dir() -> Optional[str]:
-    if SILERO_MODEL_DIR.exists() and any(SILERO_MODEL_DIR.iterdir()):
-        return str(SILERO_MODEL_DIR)
+def _resolve_silero_onnx_path() -> Optional[str]:
+    """Return path to silero_vad.onnx if it exists in models/."""
+    if SILERO_ONNX_PATH.exists():
+        return str(SILERO_ONNX_PATH)
     return None
 
 
@@ -473,62 +458,6 @@ class DirectTTSProcessor:
         self._speaking = False
 
 
-class MetaTTSProcessor:
-    """Synthesizes Hindi speech via Meta MMS-TTS (facebook/mms-tts-hin).
-
-    Same interface as DirectTTSProcessor so they're interchangeable.
-    """
-
-    def __init__(self, ws_send_bytes, ws_send_json, model=None, tokenizer=None, model_id=None):
-        self._ws_send_bytes = ws_send_bytes
-        self._ws_send_json = ws_send_json
-        self._speaking = False
-
-        if model and tokenizer:
-            self._model = model
-            self._tokenizer = tokenizer
-        else:
-            from transformers import VitsModel, AutoTokenizer
-            mid = model_id or "facebook/mms-tts-hin"
-            print(f"[TTS] Loading Meta MMS-TTS: {mid}...")
-            self._model = VitsModel.from_pretrained(mid)
-            self._tokenizer = AutoTokenizer.from_pretrained(mid)
-            print(f"[TTS] Meta MMS-TTS loaded: {mid}")
-
-        self._sample_rate = self._model.config.sampling_rate  # 16000
-
-    @property
-    def sample_rate(self) -> int:
-        return self._sample_rate
-
-    async def speak(self, text: str):
-        if not text:
-            return
-        self._speaking = True
-        await self._ws_send_json({"type": "tts_start", "text": text})
-        try:
-            audio_bytes = await asyncio.to_thread(self._synthesize, text)
-            if self._speaking and audio_bytes:
-                await self._ws_send_bytes(b'\x01' + audio_bytes)
-        except Exception as e:
-            print(f"[TTS Meta] Error: {e}")
-        finally:
-            self._speaking = False
-            await self._ws_send_json({"type": "tts_end"})
-
-    def _synthesize(self, text: str) -> bytes:
-        import torch
-        inputs = self._tokenizer(text, return_tensors="pt")
-        with torch.no_grad():
-            output = self._model(**inputs)
-        waveform = output.waveform[0].numpy()
-        wav_int16 = (waveform * 32767).astype(np.int16)
-        return wav_int16.tobytes()
-
-    def stop(self):
-        self._speaking = False
-
-
 class VoicePipeline:
     """Direct voice pipeline: VAD → STT → fuzzy match → FSM → TTS.
 
@@ -536,7 +465,7 @@ class VoicePipeline:
     into process_audio() from the WebSocket handler.
     """
 
-    def __init__(self, session, ws_send_json, tts, silero_hub_dir=None,
+    def __init__(self, session, ws_send_json, tts,
                  whisper_model=None, confidence_threshold=60.0, lang="en",
                  session_id="", mic_device="", stt_engine="local"):
         """
@@ -574,7 +503,7 @@ class VoicePipeline:
         )
 
         # Load Silero VAD (ONNX — no torch dependency)
-        self._vad_session, self._vad_state, self._vad_sr = _load_silero_vad_onnx(silero_hub_dir)
+        self._vad_session, self._vad_state, self._vad_sr = _load_silero_vad_onnx()
         self._vad_speaking = False
         self._vad_buffer = np.array([], dtype=np.int16)
         self._vad_chunk_size = 512  # Silero needs 512 samples at 16kHz

@@ -9,8 +9,8 @@ import numpy as np
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from voice.pipeline import (
-    VoicePipeline, DirectTTSProcessor, MetaTTSProcessor,
-    _resolve_whisper_model, _resolve_piper_voice, _resolve_silero_hub_dir,
+    VoicePipeline, DirectTTSProcessor,
+    _resolve_whisper_model, _resolve_piper_voice,
     PIPER_MODEL_DIR, SAMPLE_RATE,
 )
 
@@ -20,9 +20,6 @@ _sessions_ref = None
 
 # Pre-loaded models (shared across sessions, loaded once at startup)
 _whisper_model = None
-_silero_hub = None
-_mms_model = None
-_mms_tokenizer = None
 
 
 def set_sessions_ref(sessions_dict):
@@ -32,26 +29,13 @@ def set_sessions_ref(sessions_dict):
 
 def preload_models():
     """Call once at startup to pre-load heavy models."""
-    global _whisper_model, _silero_hub, _mms_model, _mms_tokenizer
+    global _whisper_model
     from faster_whisper import WhisperModel
 
     whisper_path = _resolve_whisper_model()
-    _silero_hub = _resolve_silero_hub_dir()
-
     print(f"[VOICE] Pre-loading Whisper model: {whisper_path}")
     _whisper_model = WhisperModel(whisper_path, device="cpu", compute_type="int8")
     print(f"[VOICE] Whisper model loaded")
-    print(f"[VOICE] Silero hub: {_silero_hub or 'default'}")
-
-    # Pre-load Meta MMS-TTS Hindi model
-    try:
-        from transformers import VitsModel, AutoTokenizer
-        print(f"[VOICE] Pre-loading Meta MMS-TTS Hindi model...")
-        _mms_model = VitsModel.from_pretrained("facebook/mms-tts-hin")
-        _mms_tokenizer = AutoTokenizer.from_pretrained("facebook/mms-tts-hin")
-        print(f"[VOICE] Meta MMS-TTS loaded (sample_rate={_mms_model.config.sampling_rate})")
-    except Exception as e:
-        print(f"[VOICE] Meta MMS-TTS failed to load: {e} (Hindi Meta voice will be unavailable)")
 
 
 @fastapi_app.websocket("/ws/voice/{session_id}")
@@ -82,45 +66,18 @@ async def voice_websocket(websocket: WebSocket, session_id: str, lang: str = "en
         except Exception:
             pass
 
-    # Build TTS based on selected voice
-    # Meta MMS voices: meta-mms-hindi, meta-mms-tamil, meta-mms-kannada, etc.
-    MMS_VOICE_MAP = {
-        "meta-mms-hindi": "facebook/mms-tts-hin",
-        "meta-mms-tamil": "facebook/mms-tts-tam",
-        "meta-mms-kannada": "facebook/mms-tts-kan",
-        "meta-mms-marathi": "facebook/mms-tts-mar",
-        "meta-mms-gujarati": "facebook/mms-tts-guj",
-        "meta-mms-bengali": "facebook/mms-tts-ben",
-        "meta-mms-punjabi": "facebook/mms-tts-pan",
-    }
-
-    if voice in MMS_VOICE_MAP:
-        mms_model_id = MMS_VOICE_MAP[voice]
-        print(f"[VOICE WS] Using voice: Meta MMS {mms_model_id}", flush=True)
-        if voice == "meta-mms-hindi" and _mms_model:
-            # Use pre-loaded Hindi model
-            tts = MetaTTSProcessor(
-                ws_send_bytes=ws_send_bytes,
-                ws_send_json=ws_send_json,
-                model=_mms_model,
-                tokenizer=_mms_tokenizer,
-            )
-        else:
-            # Load MMS model on-demand for other languages
-            tts = MetaTTSProcessor(
-                ws_send_bytes=ws_send_bytes,
-                ws_send_json=ws_send_json,
-                model_id=mms_model_id,
-            )
-    else:
-        piper_voice = _resolve_piper_voice(voice_name=voice if voice else None, lang=lang)
-        piper_onnx = str(PIPER_MODEL_DIR / f"{piper_voice}.onnx")
-        print(f"[VOICE WS] Using voice: Piper {piper_voice}", flush=True)
-        tts = DirectTTSProcessor(
-            voice_path=piper_onnx,
-            ws_send_bytes=ws_send_bytes,
-            ws_send_json=ws_send_json,
-        )
+    # Build TTS — Piper ONNX only (no torch dependency)
+    if voice and voice.startswith("meta-mms-"):
+        print(f"[VOICE WS] Meta MMS voices removed (torch dependency). Falling back to Piper.", flush=True)
+        voice = ""  # fall through to Piper
+    piper_voice = _resolve_piper_voice(voice_name=voice if voice else None, lang=lang)
+    piper_onnx = str(PIPER_MODEL_DIR / f"{piper_voice}.onnx")
+    print(f"[VOICE WS] Using voice: Piper {piper_voice}", flush=True)
+    tts = DirectTTSProcessor(
+        voice_path=piper_onnx,
+        ws_send_bytes=ws_send_bytes,
+        ws_send_json=ws_send_json,
+    )
 
     # Build pipeline using pre-loaded whisper model
     try:
@@ -128,7 +85,6 @@ async def voice_websocket(websocket: WebSocket, session_id: str, lang: str = "en
             session=session,
             ws_send_json=ws_send_json,
             tts=tts,
-            silero_hub_dir=_silero_hub,
             whisper_model=_whisper_model,
             lang=lang,
             session_id=session_id,
