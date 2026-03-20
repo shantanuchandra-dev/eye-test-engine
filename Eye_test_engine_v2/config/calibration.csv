@@ -1,0 +1,113 @@
+Section,Parameter_Key,Value
+Sphere,conservative_sph_step,0.25
+Sphere,standard_sph_step,0.25
+Sphere,aggressive_sph_step,0.25
+Sphere,conservative_cyl_step,0.25
+Sphere,standard_cyl_step,0.25
+Sphere,aggressive_cyl_step,0.25
+Sphere,hybrid_rounding_step,0.25
+JCC,axis_start_step,5
+JCC,axis_fixed_step,5
+JCC,axis_reversal_step_1,3
+JCC,axis_reversal_step_2,1
+JCC,jcc_power_same_low,1
+JCC,jcc_power_same_medium,2
+JCC,jcc_power_same_high,2
+JCC,jcc_power_max_flips,3
+JCC,jcc_axis_same_required,2
+JCC,jcc_axis_max_flips,3
+Duochrome,duochrome_red_step,-0.25
+Duochrome,duochrome_green_step,0.25
+Duochrome,undercorrect_step,0.25
+Duochrome,overcorrect_step,0.25
+Duochrome,duochrome_equal_confirmations,1
+Duochrome,duochrome_max_flips_strict,2
+Duochrome,duochrome_max_flips_normal,3
+Duochrome,duochrome_max_flips_relaxed,5
+Binocular Balance,bino_balance_step,0.25
+Binocular Balance,bino_balance_same_required,1
+Near Vision,near_add_step,0.25
+Near Vision,near_binoc_target_response,TARGET_OK
+Near Vision,near_binoc_step_D,0.25
+Near Vision,near_binoc_max_plus_steps,4
+Near Vision,near_binoc_max_minus_steps,4
+Timeouts,timeout_coarse_fast,30
+Timeouts,timeout_jcc_fast,10
+Timeouts,timeout_duochrome_fast,12
+Timeouts,timeout_bino_fast,10
+Timeouts,timeout_near_fast,16
+Timeouts,timeout_coarse_normal,48
+Timeouts,timeout_jcc_normal,14
+Timeouts,timeout_duochrome_normal,14
+Timeouts,timeout_bino_normal,14
+Timeouts,timeout_near_normal,22
+Timeouts,timeout_coarse_slow,60
+Timeouts,timeout_jcc_slow,18
+Timeouts,timeout_duochrome_slow,16
+Timeouts,timeout_bino_slow,18
+Timeouts,timeout_near_slow,28
+Chart,dist_chart_1,400
+Chart,coarse_start_chart,200_150
+Chart,dist_chart_2,200_150
+Chart,distance_target_6_6_chart,20_20_20
+Chart,distance_target_6_9_chart,40_30_25
+Chart,default_distance_target,6/6_target
+Chart,high_risk_distance_target,6/9_acceptable
+Mismatch,mismatch_re_sph_medium,1
+Mismatch,mismatch_re_sph_large,2
+Mismatch,mismatch_re_cyl_medium,0.5
+Mismatch,mismatch_re_cyl_large,1
+Mismatch,mismatch_re_axis_medium,15
+Mismatch,mismatch_re_axis_large,30
+Mismatch,mismatch_le_sph_medium,1
+Mismatch,mismatch_le_sph_large,2
+Mismatch,mismatch_le_cyl_medium,0.5
+Mismatch,mismatch_le_cyl_large,1
+Mismatch,mismatch_le_axis_medium,15
+Mismatch,mismatch_le_axis_large,30
+Age,age_child_max,17
+Age,age_presbyope_min,40
+Age,driving_hours_high,2
+Age,screen_time_high,6
+Age,last_eye_test_uncertain_months,24
+Start Policy,start_policy_if_only_ar,Start_AR
+Start Policy,start_policy_if_only_lenso,Start_Lenso
+Start Policy,start_policy_if_satisfied_small_mismatch,Start_Lenso
+Start Policy,start_policy_if_unsatisfied_or_blur,Start_AR
+Start Policy,start_policy_if_large_mismatch_or_unstable,Hybrid
+Fogging,strong_fog_amount,1
+Fogging,standard_fog_amount,0.75
+Fogging,no_fog_amount,0
+Fogging,fog_confirm_low,1
+Fogging,fog_confirm_medium,2
+Fogging,fog_confirm_high,3
+Fogging,stepdown_mode_strong_6_9,Early_Stop_if_Risk
+Fogging,stepdown_mode_strong_6_6,StepDown_0.25
+Fogging,stepdown_mode_standard,StepDown_0.50_then_0.25
+Fogging,fogging_apply_at_coarse_entry_only,True
+Fogging,fogging_clear_until_target_va,True
+Fogging,fogging_use_accommodation_logic,True
+Safety,max_delta_start_conservative,2
+Safety,max_delta_start_standard,3
+Safety,max_delta_start_aggressive,4
+Safety,max_delta_ar_high_medical,3
+Safety,max_delta_ar_standard,4
+Safety,axis_tol_strict,1
+Safety,axis_tol_normal,3
+Safety,axis_tol_relaxed,5
+Safety,cyl_tol_aggressive,0.5
+Safety,cyl_tol_conservative,0.25
+Safety,cyl_tol_standard,0.25
+Safety,anomaly_watch_if_hybrid,True
+Safety,anomaly_watch_if_unstable,True
+Safety,anomaly_watch_if_large_mismatch,True
+Review,immediate_review_if_high_symptom,False
+Review,immediate_review_if_high_medical,True
+Review,comfort_presbyope_high_near_bias,Undercorrect
+Review,driver_night_issue_bias,Overcorrect
+Review,high_symptom_bias,Neutral
+Convergence,add_likely_min_age,42
+Convergence,add_possible_min_age,38
+Convergence,allow_high_near_priority_to_force_near,True
+Convergence,trigger_near_if_dv_add_expected_possible,True
+Convergence,trigger_near_if_dv_add_expected_likely,True

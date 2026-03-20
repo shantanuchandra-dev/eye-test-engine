@@ -1,0 +1,119 @@
+timestamp,screen,button_name,method,endpoint,payload_summary,expected_status,actual_status,pass_fail,notes
+2026-03-13T10:02:51+05:30,intake,Page Load (loadDevices),GET,/api/devices,,2xx,200,PASS,devices=1 found
+2026-03-13T10:02:52+05:30,intake,Acquire (acquireDevice),POST,/api/devices/lkst1782-1/acquire,"{""brain_id"": ""intake_test@127.0.0.1"", ""name"": ""Test Suite Intake""}",2xx,200,PASS,SUCCESS
+2026-03-13T10:02:53+05:30,intake,Start Refraction Session (submit),POST,/api/session/intake,"{""phoropter_id"": ""Test"", ""patient"": {""age"": 45, ""occupation"": ""IT Professiona...",2xx,200,PASS,session_id=session_1773376372873
+2026-03-13T10:02:53+05:30,test,Page Load (fetchConfig),GET,/api/config,,2xx,200,PASS,"dict_keys(['backend_url', 'phoropter_base_url'])"
+2026-03-13T10:02:53+05:30,test,Page Load (fetchDevices),GET,/api/devices,,2xx,200,PASS,devices found: 1
+2026-03-13T10:02:54+05:30,test,Acquire (acquireSelectedDevice),POST,/api/devices/lkst1782-1/acquire,"{""brain_id"": ""test_suite@127.0.0.1"", ""name"": ""Test Suite""}",2xx,200,PASS,"{""acquired_at"":""2026-03-13T04:32:54.264298Z"",""brain_id"":""test_suite@127.0.0.1"","""
+2026-03-13T10:02:54+05:30,test,Get Client IP (getClientIp),GET,https://api.ipify.org?format=json,,2xx,200,PASS,ip=223.190.87.1
+2026-03-13T10:02:54+05:30,test,Session Status (fetchSessionStatus),GET,/api/session/session_1773376372873/status,,2xx,200,PASS,state=A
+2026-03-13T10:02:55+05:30,test,Response Button (submitResponse),POST,/api/session/session_1773376372873/respond,"{""response"": ""READABLE""}",2xx,200,PASS,"next_state=A, response_sent=READABLE"
+2026-03-13T10:02:55+05:30,test,Manual Power (sync-power),POST,/api/session/session_1773376372873/sync-power,"{""right"": {""sph"": -2.5, ""cyl"": -0.75, ""axis"": 180, ""add"": 0}, ""left"": {""sph"":...",2xx,200,PASS,Power sync accepted
+2026-03-13T10:02:55+05:30,test,Debug Panel (refreshDerivedVariables),GET,/api/session/session_1773376372873/derived-variables,,2xx,200,PASS,derived_vars=30
+2026-03-13T10:02:55+05:30,test,Reset Phoropter (resetPhoropter),POST,/api/phoropter/Test/reset,,2xx,404,PASS,"{""detail"":""Device 'Test' not found. Available: ['lkst1782-1']"",""error"":""HTTP Err"
+2026-03-13T10:02:56+05:30,test,Live View (fetchScreenshot),POST,/phoropter/lkst1782-1/screenshot,,2xx,200,PASS,response_size=194718B
+2026-03-13T10:02:57+05:30,test,Heartbeat (30s interval),POST,/api/devices/lkst1782-1/heartbeat,"{""brain_id"": ""heartbeat_test@127.0.0.1""}",2xx,200,PASS,"{""device_status"":""CONNECTED"",""status"":""ok""}
+"
+2026-03-13T10:02:58+05:30,test,Release Device (releaseDevice),POST,/api/devices/lkst1782-1/release,"{""brain_id"": ""release_test@127.0.0.1""}",2xx,200,PASS,"{""device_id"":""lkst1782-1"",""status"":""RELEASED""}
+"
+2026-03-13T10:02:58+05:30,intake,Start Refraction Session (submit),POST,/api/session/intake,"{""phoropter_id"": ""Test"", ""patient"": {""age"": 45, ""occupation"": ""IT Professiona...",2xx,200,PASS,session_id=session_1773376378325
+2026-03-13T10:02:58+05:30,test,Save & End (endTestWithStatus),POST,/api/session/session_1773376378325/end,"{""store"": true, ""operator_name"": ""test_suite_runner"", ""qualitative_feedback"":...",2xx,200,PASS,"{""final_prescription"":{},""session_id"":""session_1773376378325"",""status"":""ended"","""
+2026-03-13T10:02:59+05:30,intake,Start Refraction Session (submit),POST,/api/session/intake,"{""phoropter_id"": ""Test"", ""patient"": {""age"": 45, ""occupation"": ""IT Professiona...",2xx,200,PASS,session_id=session_1773376378858
+2026-03-13T10:02:59+05:30,test,Discard (discardTest),POST,/api/session/session_1773376378858/discard,,2xx,200,PASS,"{""session_id"":""session_1773376378858"",""status"":""discarded""}
+"
+2026-03-13T10:02:59+05:30,dashboard,Page Load (loadConfig),GET,/api/dashboard/config,,2xx,200,PASS,"dict_keys(['daily_limit', 'daily_limit_scope', 'per_phoropter_enabled', 'tests_enabled'])"
+2026-03-13T10:02:59+05:30,dashboard,Save settings (save_config),PUT,/api/dashboard/config,"{""tests_enabled"": true, ""daily_limit"": null, ""daily_limit_scope"": ""global""}",2xx,200,PASS,Config saved
+2026-03-13T10:02:59+05:30,dashboard,Per-phoropter toggle (checkbox),PUT,/api/dashboard/config,"{""per_phoropter_enabled"": {""phoropter-1"": true}}",2xx,200,PASS,Toggle applied
+2026-03-13T10:02:59+05:30,dashboard,Load Stats (loadStats),GET,/api/dashboard/stats?source=local,,2xx,200,PASS,total=3
+2026-03-13T10:02:59+05:30,dashboard,Load R&R (loadRR),GET,/api/dashboard/rr?source=local,,2xx,200,PASS,operators=2
+2026-03-13T10:02:59+05:30,dashboard,Download CSV (export_link),GET,/api/dashboard/export?source=local,,2xx,200,PASS,content_type=text/csv; charset=utf-8
+2026-03-13T10:02:59+05:30,dashboard,Apply Filters (refreshData),GET,/api/dashboard/stats?source=local&from=2024-01-01&to=2026-12-31,,2xx,200,PASS,Filtered stats loaded
+2026-03-13T10:05:05+05:30,intake,Page Load (loadDevices),GET,/api/devices,,2xx,200,PASS,devices=1 found
+2026-03-13T10:05:06+05:30,intake,Acquire (acquireDevice),POST,/api/devices/lkst1782-1/acquire,"{""brain_id"": ""intake_test@127.0.0.1"", ""name"": ""Test Suite Intake""}",2xx,200,PASS,SUCCESS
+2026-03-13T10:05:07+05:30,intake,Start Refraction Session (submit),POST,/api/session/intake,"{""phoropter_id"": ""Test"", ""patient"": {""age"": 45, ""occupation"": ""IT Professiona...",2xx,200,PASS,session_id=session_1773376506796
+2026-03-13T10:16:11+05:30,intake,Page Load (loadDevices),GET,/api/devices,,2xx,200,PASS,devices=1 found
+2026-03-13T10:16:12+05:30,intake,Acquire (acquireDevice),POST,/api/devices/lkst1782-1/acquire,"{""brain_id"": ""intake_test@127.0.0.1"", ""name"": ""Test Suite Intake""}",2xx,200,PASS,SUCCESS
+2026-03-13T10:16:13+05:30,intake,Start Refraction Session (submit),POST,/api/session/intake,"{""phoropter_id"": ""Test"", ""patient"": {""age"": 45, ""occupation"": ""IT Professiona...",2xx,200,PASS,session_id=session_1773377172795
+2026-03-13T10:16:13+05:30,test,Page Load (fetchConfig),GET,/api/config,,2xx,200,PASS,"dict_keys(['backend_url', 'phoropter_base_url'])"
+2026-03-13T10:16:13+05:30,test,Page Load (fetchDevices),GET,/api/devices,,2xx,200,PASS,devices found: 1
+2026-03-13T10:16:14+05:30,test,Acquire (acquireSelectedDevice),POST,/api/devices/lkst1782-1/acquire,"{""brain_id"": ""test_suite@127.0.0.1"", ""name"": ""Test Suite""}",2xx,200,PASS,"{""acquired_at"":""2026-03-13T04:46:14.332848Z"",""brain_id"":""test_suite@127.0.0.1"","""
+2026-03-13T10:16:15+05:30,test,Get Client IP (getClientIp),GET,https://api.ipify.org?format=json,,2xx,200,PASS,ip=223.190.87.1
+2026-03-13T10:16:15+05:30,test,Session Status (fetchSessionStatus),GET,/api/session/session_1773377172795/status,,2xx,200,PASS,state=A
+2026-03-13T10:16:15+05:30,test,Response Button (submitResponse),POST,/api/session/session_1773377172795/respond,"{""response"": ""READABLE""}",2xx,200,PASS,"next_state=A, response_sent=READABLE"
+2026-03-13T10:16:15+05:30,test,Manual Power (sync-power),POST,/api/session/session_1773377172795/sync-power,"{""right"": {""sph"": -2.5, ""cyl"": -0.75, ""axis"": 180, ""add"": 0}, ""left"": {""sph"":...",2xx,200,PASS,Power sync accepted
+2026-03-13T10:16:15+05:30,test,Debug Panel (refreshDerivedVariables),GET,/api/session/session_1773377172795/derived-variables,,2xx,200,PASS,derived_vars=30
+2026-03-13T10:16:15+05:30,test,Reset Phoropter (resetPhoropter),POST,/api/phoropter/Test/reset,,2xx,404,PASS,"{""detail"":""Device 'Test' not found. Available: ['lkst1782-1']"",""error"":""HTTP Err"
+2026-03-13T10:16:16+05:30,test,Live View (fetchScreenshot),POST,/phoropter/lkst1782-1/screenshot,,2xx,200,PASS,response_size=194698B
+2026-03-13T10:16:17+05:30,test,Heartbeat (30s interval),POST,/api/devices/lkst1782-1/heartbeat,"{""brain_id"": ""heartbeat_test@127.0.0.1""}",2xx,200,PASS,"{""device_status"":""CONNECTED"",""status"":""ok""}
+"
+2026-03-13T10:16:18+05:30,test,Release Device (releaseDevice),POST,/api/devices/lkst1782-1/release,"{""brain_id"": ""release_test@127.0.0.1""}",2xx,200,PASS,"{""device_id"":""lkst1782-1"",""status"":""RELEASED""}
+"
+2026-03-13T10:16:19+05:30,intake,Start Refraction Session (submit),POST,/api/session/intake,"{""phoropter_id"": ""Test"", ""patient"": {""age"": 45, ""occupation"": ""IT Professiona...",2xx,200,PASS,session_id=session_1773377178552
+2026-03-13T10:16:19+05:30,test,Save & End (endTestWithStatus),POST,/api/session/session_1773377178552/end,"{""store"": true, ""operator_name"": ""test_suite_runner"", ""qualitative_feedback"":...",2xx,200,PASS,"{""final_prescription"":{},""session_id"":""session_1773377178552"",""status"":""ended"","""
+2026-03-13T10:16:19+05:30,intake,Start Refraction Session (submit),POST,/api/session/intake,"{""phoropter_id"": ""Test"", ""patient"": {""age"": 45, ""occupation"": ""IT Professiona...",2xx,200,PASS,session_id=session_1773377179063
+2026-03-13T10:16:19+05:30,test,Discard (discardTest),POST,/api/session/session_1773377179063/discard,,2xx,200,PASS,"{""session_id"":""session_1773377179063"",""status"":""discarded""}
+"
+2026-03-13T10:16:19+05:30,dashboard,Page Load (loadConfig),GET,/api/dashboard/config,,2xx,200,PASS,"dict_keys(['daily_limit', 'daily_limit_scope', 'per_phoropter_enabled', 'tests_enabled'])"
+2026-03-13T10:16:19+05:30,dashboard,Save settings (save_config),PUT,/api/dashboard/config,"{""tests_enabled"": true, ""daily_limit"": null, ""daily_limit_scope"": ""global""}",2xx,200,PASS,Config saved
+2026-03-13T10:16:19+05:30,dashboard,Per-phoropter toggle (checkbox),PUT,/api/dashboard/config,"{""per_phoropter_enabled"": {""phoropter-1"": true}}",2xx,200,PASS,Toggle applied
+2026-03-13T10:16:19+05:30,dashboard,Load Stats (loadStats),GET,/api/dashboard/stats?source=local,,2xx,200,PASS,total=4
+2026-03-13T10:16:19+05:30,dashboard,Load R&R (loadRR),GET,/api/dashboard/rr?source=local,,2xx,200,PASS,operators=2
+2026-03-13T10:16:19+05:30,dashboard,Download CSV (export_link),GET,/api/dashboard/export?source=local,,2xx,200,PASS,content_type=text/csv; charset=utf-8
+2026-03-13T10:16:19+05:30,dashboard,Apply Filters (refreshData),GET,/api/dashboard/stats?source=local&from=2024-01-01&to=2026-12-31,,2xx,200,PASS,Filtered stats loaded
+2026-03-13T10:26:57+05:30,intake,Page Load (loadDevices),GET,/api/devices,,2xx,200,PASS,devices=0 found
+2026-03-13T10:26:58+05:30,intake,Acquire (acquireDevice),POST,/api/devices/{id}/acquire,,-,0,FAIL,SKIP: No devices available to test acquisition
+2026-03-13T10:26:59+05:30,intake,Start Refraction Session (submit),POST,/api/session/intake,"{""phoropter_id"": ""Test"", ""patient"": {""age"": 45, ""occupation"": ""IT Professiona...",2xx,200,PASS,session_id=session_1773377818326
+2026-03-13T10:26:59+05:30,test,Page Load (fetchConfig),GET,/api/config,,2xx,200,PASS,"dict_keys(['backend_url', 'phoropter_base_url'])"
+2026-03-13T10:26:59+05:30,test,Page Load (fetchDevices),GET,/api/devices,,2xx,200,PASS,devices found: 0
+2026-03-13T10:27:00+05:30,test,Acquire (acquireSelectedDevice),POST,/api/devices/{id}/acquire,,-,0,FAIL,SKIP: No devices available
+2026-03-13T10:27:00+05:30,test,Get Client IP (getClientIp),GET,https://api.ipify.org?format=json,,2xx,200,PASS,ip=223.190.87.1
+2026-03-13T10:27:00+05:30,test,Session Status (fetchSessionStatus),GET,/api/session/session_1773377818326/status,,2xx,200,PASS,state=A
+2026-03-13T10:27:01+05:30,test,Response Button (submitResponse),POST,/api/session/session_1773377818326/respond,"{""response"": ""READABLE""}",2xx,200,PASS,"next_state=A, response_sent=READABLE"
+2026-03-13T10:27:01+05:30,test,Manual Power (sync-power),POST,/api/session/session_1773377818326/sync-power,"{""right"": {""sph"": -2.5, ""cyl"": -0.75, ""axis"": 180, ""add"": 0}, ""left"": {""sph"":...",2xx,200,PASS,Power sync accepted
+2026-03-13T10:27:01+05:30,test,Debug Panel (refreshDerivedVariables),GET,/api/session/session_1773377818326/derived-variables,,2xx,200,PASS,derived_vars=30
+2026-03-13T10:27:01+05:30,test,Reset Phoropter (resetPhoropter),POST,/api/phoropter/Test/reset,,2xx,404,PASS,"{""detail"":""Device 'Test' not found. Available: []"",""error"":""HTTP Error 404: Not "
+2026-03-13T10:27:01+05:30,test,Live View (fetchScreenshot),POST,/phoropter/{id}/screenshot,,-,0,FAIL,SKIP: No devices available for screenshot test
+2026-03-13T10:27:01+05:30,test,Heartbeat (30s interval),POST,/api/devices/{id}/heartbeat,,-,0,FAIL,SKIP: No devices available
+2026-03-13T10:27:02+05:30,test,Release Device (releaseDevice),POST,/api/devices/{id}/release,,-,0,FAIL,SKIP: No devices available
+2026-03-13T10:27:02+05:30,intake,Start Refraction Session (submit),POST,/api/session/intake,"{""phoropter_id"": ""Test"", ""patient"": {""age"": 45, ""occupation"": ""IT Professiona...",2xx,200,PASS,session_id=session_1773377822195
+2026-03-13T10:27:02+05:30,test,Save & End (endTestWithStatus),POST,/api/session/session_1773377822195/end,"{""store"": true, ""operator_name"": ""test_suite_runner"", ""qualitative_feedback"":...",2xx,200,PASS,"{""final_prescription"":{},""session_id"":""session_1773377822195"",""status"":""ended"","""
+2026-03-13T10:27:03+05:30,intake,Start Refraction Session (submit),POST,/api/session/intake,"{""phoropter_id"": ""Test"", ""patient"": {""age"": 45, ""occupation"": ""IT Professiona...",2xx,200,PASS,session_id=session_1773377822695
+2026-03-13T10:27:03+05:30,test,Discard (discardTest),POST,/api/session/session_1773377822695/discard,,2xx,200,PASS,"{""session_id"":""session_1773377822695"",""status"":""discarded""}
+"
+2026-03-13T10:27:03+05:30,dashboard,Page Load (loadConfig),GET,/api/dashboard/config,,2xx,200,PASS,"dict_keys(['daily_limit', 'daily_limit_scope', 'per_phoropter_enabled', 'tests_enabled'])"
+2026-03-13T10:27:03+05:30,dashboard,Save settings (save_config),PUT,/api/dashboard/config,"{""tests_enabled"": true, ""daily_limit"": null, ""daily_limit_scope"": ""global""}",2xx,200,PASS,Config saved
+2026-03-13T10:27:03+05:30,dashboard,Per-phoropter toggle (checkbox),PUT,/api/dashboard/config,"{""per_phoropter_enabled"": {""phoropter-1"": true}}",2xx,200,PASS,Toggle applied
+2026-03-13T10:27:03+05:30,dashboard,Load Stats (loadStats),GET,/api/dashboard/stats?source=local,,2xx,200,PASS,total=5
+2026-03-13T10:27:03+05:30,dashboard,Load R&R (loadRR),GET,/api/dashboard/rr?source=local,,2xx,200,PASS,operators=2
+2026-03-13T10:27:03+05:30,dashboard,Download CSV (export_link),GET,/api/dashboard/export?source=local,,2xx,200,PASS,content_type=text/csv; charset=utf-8
+2026-03-13T10:27:03+05:30,dashboard,Apply Filters (refreshData),GET,/api/dashboard/stats?source=local&from=2024-01-01&to=2026-12-31,,2xx,200,PASS,Filtered stats loaded
+2026-03-13T10:35:52+05:30,intake,Page Load (loadDevices),GET,/api/devices,,2xx,200,PASS,devices=1 found
+2026-03-13T10:35:53+05:30,intake,Acquire (acquireDevice),POST,/api/devices/lkst1782-1/acquire,"{""brain_id"": ""intake_test@127.0.0.1"", ""name"": ""Test Suite Intake""}",2xx,200,PASS,SUCCESS
+2026-03-13T10:35:54+05:30,intake,Start Refraction Session (submit),POST,/api/session/intake,"{""phoropter_id"": ""Test"", ""patient"": {""age"": 45, ""occupation"": ""IT Professiona...",2xx,200,PASS,session_id=session_1773378353634
+2026-03-13T10:35:54+05:30,test,Page Load (fetchConfig),GET,/api/config,,2xx,200,PASS,"dict_keys(['backend_url', 'phoropter_base_url'])"
+2026-03-13T10:35:54+05:30,test,Page Load (fetchDevices),GET,/api/devices,,2xx,200,PASS,devices found: 1
+2026-03-13T10:35:55+05:30,test,Acquire (acquireSelectedDevice),POST,/api/devices/lkst1782-1/acquire,"{""brain_id"": ""test_suite@127.0.0.1"", ""name"": ""Test Suite""}",2xx,200,PASS,"{""acquired_at"":""2026-03-13T05:05:55.167460Z"",""brain_id"":""test_suite@127.0.0.1"","""
+2026-03-13T10:35:55+05:30,test,Get Client IP (getClientIp),GET,https://api.ipify.org?format=json,,2xx,200,PASS,ip=223.190.87.1
+2026-03-13T10:35:55+05:30,test,Session Status (fetchSessionStatus),GET,/api/session/session_1773378353634/status,,2xx,200,PASS,state=A
+2026-03-13T10:35:56+05:30,test,Response Button (submitResponse),POST,/api/session/session_1773378353634/respond,"{""response"": ""READABLE""}",2xx,200,PASS,"next_state=A, response_sent=READABLE"
+2026-03-13T10:35:56+05:30,test,Manual Power (sync-power),POST,/api/session/session_1773378353634/sync-power,"{""right"": {""sph"": -2.5, ""cyl"": -0.75, ""axis"": 180, ""add"": 0}, ""left"": {""sph"":...",2xx,200,PASS,Power sync accepted
+2026-03-13T10:35:56+05:30,test,Debug Panel (refreshDerivedVariables),GET,/api/session/session_1773378353634/derived-variables,,2xx,200,PASS,derived_vars=30
+2026-03-13T10:35:56+05:30,test,Reset Phoropter (resetPhoropter),POST,/api/phoropter/Test/reset,,2xx,404,PASS,"{""detail"":""Device 'Test' not found. Available: ['lkst1782-1']"",""error"":""HTTP Err"
+2026-03-13T10:35:56+05:30,test,Send Power (send-power after reset),POST,/api/session/session_1773378353634/send-power,,2xx,200,PASS,status=sent
+2026-03-13T10:35:57+05:30,test,Live View (fetchScreenshot),POST,/phoropter/lkst1782-1/screenshot,,2xx,200,PASS,response_size=196446B
+2026-03-13T10:35:58+05:30,test,Heartbeat (30s interval),POST,/api/devices/lkst1782-1/heartbeat,"{""brain_id"": ""heartbeat_test@127.0.0.1""}",2xx,200,PASS,"{""device_status"":""CONNECTED"",""status"":""ok""}
+"
+2026-03-13T10:35:59+05:30,test,Release Device (releaseDevice),POST,/api/devices/lkst1782-1/release,"{""brain_id"": ""release_test@127.0.0.1""}",2xx,200,PASS,"{""device_id"":""lkst1782-1"",""status"":""RELEASED""}
+"
+2026-03-13T10:36:00+05:30,intake,Start Refraction Session (submit),POST,/api/session/intake,"{""phoropter_id"": ""Test"", ""patient"": {""age"": 45, ""occupation"": ""IT Professiona...",2xx,200,PASS,session_id=session_1773378359816
+2026-03-13T10:36:00+05:30,test,Save & End (endTestWithStatus),POST,/api/session/session_1773378359816/end,"{""store"": true, ""operator_name"": ""test_suite_runner"", ""qualitative_feedback"":...",2xx,200,PASS,"{""final_prescription"":{},""session_id"":""session_1773378359816"",""status"":""ended"","""
+2026-03-13T10:36:00+05:30,intake,Start Refraction Session (submit),POST,/api/session/intake,"{""phoropter_id"": ""Test"", ""patient"": {""age"": 45, ""occupation"": ""IT Professiona...",2xx,200,PASS,session_id=session_1773378360440
+2026-03-13T10:36:00+05:30,test,Discard (discardTest),POST,/api/session/session_1773378360440/discard,,2xx,200,PASS,"{""session_id"":""session_1773378360440"",""status"":""discarded""}
+"
+2026-03-13T10:36:00+05:30,dashboard,Page Load (loadConfig),GET,/api/dashboard/config,,2xx,200,PASS,"dict_keys(['daily_limit', 'daily_limit_scope', 'per_phoropter_enabled', 'tests_enabled'])"
+2026-03-13T10:36:00+05:30,dashboard,Save settings (save_config),PUT,/api/dashboard/config,"{""tests_enabled"": true, ""daily_limit"": null, ""daily_limit_scope"": ""global""}",2xx,200,PASS,Config saved
+2026-03-13T10:36:00+05:30,dashboard,Per-phoropter toggle (checkbox),PUT,/api/dashboard/config,"{""per_phoropter_enabled"": {""phoropter-1"": true}}",2xx,200,PASS,Toggle applied
+2026-03-13T10:36:00+05:30,dashboard,Load Stats (loadStats),GET,/api/dashboard/stats?source=local,,2xx,200,PASS,total=6
+2026-03-13T10:36:00+05:30,dashboard,Load R&R (loadRR),GET,/api/dashboard/rr?source=local,,2xx,200,PASS,operators=2
+2026-03-13T10:36:00+05:30,dashboard,Download CSV (export_link),GET,/api/dashboard/export?source=local,,2xx,200,PASS,content_type=text/csv; charset=utf-8
+2026-03-13T10:36:00+05:30,dashboard,Apply Filters (refreshData),GET,/api/dashboard/stats?source=local&from=2024-01-01&to=2026-12-31,,2xx,200,PASS,Filtered stats loaded

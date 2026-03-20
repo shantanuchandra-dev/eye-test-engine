@@ -79,7 +79,8 @@
       "Bash(ffmpeg -version)",
       "Bash(git commit:*)",
       "Bash(chmod:*)",
-      "Bash(pip show:*)"
+      "Bash(pip show:*)",
+      "Bash(git push:*)"
     ]
   }
 }
