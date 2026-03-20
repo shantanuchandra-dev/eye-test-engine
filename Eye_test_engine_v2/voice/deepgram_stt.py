@@ -77,11 +77,14 @@ class DeepgramSTTClient:
             f"&encoding=linear16"
             f"&sample_rate={self._sample_rate}"
             f"&channels=1"
-            f"&punctuate=true"
+            f"&punctuate=false"
             f"&interim_results=true"
-            f"&endpointing=300"
+            f"&endpointing=400"
             f"&vad_events=true"
-            f"&smart_format=true"
+            f"&smart_format=false"
+            f"&keywords=one:2,two:2,first:2,second:2,same:2,better:2"
+            f",clearer:2,blurry:2,option:2,number:2,worse:2,neither:2"
+            f",yes:2,no:2,can:2,cannot:2,read:2,repeat:2"
         )
         url = f"wss://api.deepgram.com/v1/listen?{params}"
 
@@ -111,6 +114,19 @@ class DeepgramSTTClient:
         except Exception as e:
             print(f"[DEEPGRAM] Send error: {e}")
             self._connected = False
+
+    async def finalize(self):
+        """Send Finalize to flush Deepgram's internal buffer.
+
+        Forces Deepgram to emit any pending transcript and reset.
+        Use on phase transitions to drop stale audio from the previous phase.
+        """
+        if not self._connected or not self._ws:
+            return
+        try:
+            await self._ws.send(json.dumps({"type": "Finalize"}))
+        except Exception as e:
+            print(f"[DEEPGRAM] Finalize error: {e}")
 
     async def close(self):
         """Close the Deepgram connection."""

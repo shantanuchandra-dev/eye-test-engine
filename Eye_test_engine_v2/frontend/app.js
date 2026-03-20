@@ -1777,6 +1777,8 @@ async function startVoiceMode() {
                 echoCancellation: true,
                 noiseSuppression: true,
                 autoGainControl: true,
+                sampleRate: { ideal: 48000 },
+                channelCount: 1,
             }
         });
 
@@ -1809,16 +1811,25 @@ async function startVoiceMode() {
         const timeDomainBuf = new Float32Array(analyser.fftSize);
         let _pollCount = 0;
 
-        // Poll analyser at ~30Hz (every ~33ms) to capture audio
-        voiceState._micPollInterval = setInterval(() => {
+        // Mic capture callback — called by Worker tick or setInterval fallback.
+        // Reads AnalyserNode, resamples to 16kHz Int16, sends over WebSocket.
+        const _pollMic = () => {
             if (!voiceState.ws || voiceState.ws.readyState !== WebSocket.OPEN) return;
 
             analyser.getFloatTimeDomainData(timeDomainBuf);
 
+            // Skip near-empty frames — no point sending silence to STT.
+            // Compute peak amplitude over first 500 samples as a fast check.
+            let peakAmp = 0;
+            for (let k = 0; k < 500 && k < timeDomainBuf.length; k++) {
+                const a = Math.abs(timeDomainBuf[k]);
+                if (a > peakAmp) peakAmp = a;
+            }
+            if (peakAmp < 0.002) return;  // frame is effectively empty
+
             _pollCount++;
             if (_pollCount <= 5 || _pollCount % 200 === 0) {
-                const maxVal = Math.max(...Array.from(timeDomainBuf.slice(0, 500)).map(Math.abs));
-                console.log(`[VOICE] Mic poll #${_pollCount}: max=${maxVal.toFixed(4)}`);
+                console.log(`[VOICE] Mic poll #${_pollCount}: max=${peakAmp.toFixed(4)}`);
             }
 
             // Downsample to 16kHz
@@ -1840,7 +1851,20 @@ async function startVoiceMode() {
                 int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
             }
             voiceState.ws.send(int16.buffer);
-        }, 33);  // ~30 polls per second
+        };
+
+        // Use a Web Worker timer so Chrome on Windows doesn't throttle
+        // the polling interval during power-saving or background-tab mode.
+        try {
+            voiceState._micWorker = new Worker('mic-worker.js');
+            voiceState._micWorker.onmessage = () => _pollMic();
+            voiceState._micWorker.postMessage({ command: 'start', intervalMs: 33 });
+            console.log('[VOICE] Mic polling via Web Worker (throttle-resistant)');
+        } catch (_workerErr) {
+            // Fallback: plain setInterval (works on Mac, may throttle on Windows)
+            console.warn('[VOICE] Web Worker unavailable, falling back to setInterval');
+            voiceState._micPollInterval = setInterval(_pollMic, 33);
+        }
 
         // Pre-create TTS playback context (user gesture satisfies autoplay policy)
         voiceState.playbackCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 22050 });
@@ -1859,6 +1883,13 @@ async function startVoiceMode() {
             console.log('[VOICE] WebSocket connected');
             voiceState.enabled = true;
             updateVoiceUI(true);
+            // Keepalive ping every 15s — prevents Windows firewall / Chrome
+            // power management from killing the idle TCP connection.
+            voiceState._pingInterval = setInterval(() => {
+                if (voiceState.ws && voiceState.ws.readyState === WebSocket.OPEN) {
+                    voiceState.ws.send(JSON.stringify({ type: 'ping' }));
+                }
+            }, 15000);
         };
 
         voiceState.ws.onmessage = (event) => {
@@ -1890,9 +1921,18 @@ async function startVoiceMode() {
 function stopVoiceMode() {
     voiceState.enabled = false;
 
+    if (voiceState._pingInterval) {
+        clearInterval(voiceState._pingInterval);
+        voiceState._pingInterval = null;
+    }
     if (voiceState._micPollInterval) {
         clearInterval(voiceState._micPollInterval);
         voiceState._micPollInterval = null;
+    }
+    if (voiceState._micWorker) {
+        voiceState._micWorker.postMessage({ command: 'stop' });
+        voiceState._micWorker.terminate();
+        voiceState._micWorker = null;
     }
     if (voiceState.ws) {
         try { voiceState.ws.send(JSON.stringify({ type: 'stop' })); } catch (_) {}

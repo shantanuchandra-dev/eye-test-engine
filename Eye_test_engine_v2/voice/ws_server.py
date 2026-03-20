@@ -182,6 +182,8 @@ async def voice_websocket(websocket: WebSocket, session_id: str, lang: str = "en
                     msg = json.loads(data["text"])
                     if msg.get("type") == "stop":
                         break
+                    elif msg.get("type") == "ping":
+                        await websocket.send_json({"type": "pong"})
                 except json.JSONDecodeError:
                     pass
 

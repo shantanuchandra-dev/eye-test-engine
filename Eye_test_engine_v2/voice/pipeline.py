@@ -582,6 +582,24 @@ class VoicePipeline:
                 self._stt_engine = "local"
                 self._deepgram_client = None
 
+    async def flush_audio_buffers(self):
+        """Drop all buffered/in-progress audio.
+
+        Called on phase transitions so stale audio from the previous
+        phase doesn't bleed into STT for the new phase.
+        """
+        self._vad_buffer = np.array([], dtype=np.int16)
+        self._speech_buffer = np.array([], dtype=np.int16)
+        self._speech_streak = 0
+        self._silence_streak = 0
+        if self._vad_speaking:
+            self._vad_speaking = False
+            await self.ws_send_json({"type": "vad", "speaking": False})
+        # Flush Deepgram's server-side buffer
+        if self._deepgram_client and self._deepgram_client.is_connected:
+            await self._deepgram_client.finalize()
+        print("[VOICE] Audio buffers flushed (phase transition)")
+
     async def process_audio(self, audio_int16: bytes):
         """Process an audio chunk from the browser mic."""
         if not self._running:
@@ -593,11 +611,15 @@ class VoicePipeline:
             print(f"[VOICE] Audio parse error: {e}")
             return
 
+        # Skip near-empty frames — don't waste VAD/STT on silence
+        if len(samples) == 0 or np.max(np.abs(samples)) < 50:
+            return
+
         if not hasattr(self, '_audio_frame_count'):
             self._audio_frame_count = 0
         self._audio_frame_count += 1
         if self._audio_frame_count <= 3:
-            print(f"[VOICE] Audio frame #{self._audio_frame_count}: {len(samples)} samples, max={np.max(np.abs(samples)) if len(samples) > 0 else 0}")
+            print(f"[VOICE] Audio frame #{self._audio_frame_count}: {len(samples)} samples, max={np.max(np.abs(samples))}")
 
         # Stream to Deepgram if using cloud STT
         if self._deepgram_client and self._deepgram_client.is_connected:
@@ -830,6 +852,7 @@ class VoicePipeline:
             })
 
             next_state = self.session.process_response(matched_option)
+            await self.flush_audio_buffers()
             await self.ws_send_json({
                 "type": "state_update",
                 "data": {"status": "active", **next_state},
@@ -918,6 +941,7 @@ class VoicePipeline:
                                 "confidence": clf_conf, "transcript": transcript, "source": "classifier",
                             })
                             next_state = self.session.process_response(clf_intent)
+                            await self.flush_audio_buffers()
                             await self.ws_send_json({"type": "state_update", "data": {"status": "active", **next_state}})
                             question = next_state.get("question", "")
                             if question:
@@ -982,6 +1006,7 @@ class VoicePipeline:
         await asyncio.sleep(wait_seconds)
 
         next_state = self.session.process_response("AUTO_FLIP")
+        await self.flush_audio_buffers()
         await self.ws_send_json({
             "type": "state_update",
             "data": {"status": "active", **next_state},
