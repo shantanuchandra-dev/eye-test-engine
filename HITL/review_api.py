@@ -16,6 +16,14 @@ from pathlib import Path
 
 from flask import Blueprint, request, jsonify, send_file
 
+import sys
+from pathlib import Path
+
+# Add Eye_test_engine_v2 to path so we can import audio_recorder
+_engine_dir = Path(__file__).resolve().parent.parent / "Eye_test_engine_v2"
+if str(_engine_dir) not in sys.path:
+    sys.path.insert(0, str(_engine_dir))
+
 from voice.audio_recorder import (
     AUDIO_BASE_DIR,
     load_all_utterances,

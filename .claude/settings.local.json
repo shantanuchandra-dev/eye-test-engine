@@ -80,7 +80,13 @@
       "Bash(git commit:*)",
       "Bash(chmod:*)",
       "Bash(pip show:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(grep -r \"hitl\\\\|HITL\\\\|review\\\\|annotation\" /Users/shantanuchandra/Downloads/eye_test_engine_Claude/Eye_test_engine_v2 --include=*.py ! -path */venv/* ! -path */__pycache__/*)",
+      "Bash(find /Users/shantanuchandra/Downloads/eye_test_engine_Claude/Eye_test_engine_v2 -type f \\\\\\(-name *.json -o -name *.env* -o -name *.yml -o -name *.yaml -o -name *.toml \\\\\\) ! -path */venv/* ! -path */__pycache__/* ! -path */node_modules/*)",
+      "Bash(grep -r \"export_training_dataset\\\\|AUDIO_BASE_DIR\" /Users/shantanuchandra/Downloads/eye_test_engine_Claude/Eye_test_engine_v2 --include=*.py ! -path */venv/* ! -path */__pycache__/*)",
+      "Bash(grep:*)",
+      "Bash(done)",
+      "Bash(find /Users/shantanuchandra/Downloads/eye_test_engine_Claude/Eye_test_engine_v2 -type f \\\\\\(-name README* -o -name ROADMAP* -o -name *.md \\\\\\) ! -path */venv/*)"
     ]
   }
 }

@@ -13,7 +13,7 @@ import numpy as np
 from pathlib import Path
 from typing import Optional
 
-import torch
+import onnxruntime
 from faster_whisper import WhisperModel
 
 from voice.chart_reading import ChartReadingDetector, looks_like_chart_letter_utterance, resolve_chart_letters
@@ -27,6 +27,64 @@ from voice.regional_languages import (
     get_message as _regional_message,
     get_keywords as _regional_keywords,
 )
+
+SAMPLE_RATE = 16000
+
+
+# ── Silero VAD via ONNX Runtime (no torch) ────────────────────────────────
+
+def _load_silero_vad_onnx(hub_dir: str = None):
+    """Load Silero VAD ONNX model. Returns (session, initial_state, sr_tensor)."""
+    # Locate the ONNX model — shipped by silero-vad or downloaded manually.
+    search_dirs = []
+    if hub_dir:
+        search_dirs.append(Path(hub_dir))
+    search_dirs += [
+        Path(__file__).resolve().parent / "models",
+        Path.home() / ".cache" / "silero-vad",
+    ]
+
+    onnx_path = None
+    for d in search_dirs:
+        candidate = d / "silero_vad.onnx"
+        if candidate.exists():
+            onnx_path = candidate
+            break
+
+    if onnx_path is None:
+        # Download from silero-vad GitHub release
+        import urllib.request
+        dl_dir = Path(__file__).resolve().parent / "models"
+        dl_dir.mkdir(parents=True, exist_ok=True)
+        onnx_path = dl_dir / "silero_vad.onnx"
+        url = "https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx"
+        print(f"[VAD] Downloading Silero VAD ONNX → {onnx_path}")
+        urllib.request.urlretrieve(url, str(onnx_path))
+
+    opts = onnxruntime.SessionOptions()
+    opts.inter_op_num_threads = 1
+    opts.intra_op_num_threads = 1
+    session = onnxruntime.InferenceSession(str(onnx_path), sess_options=opts)
+
+    # Initial hidden state: 2 × 1 × 64 zeros (LSTM h and c)
+    state = np.zeros((2, 1, 64), dtype=np.float32)
+    sr = np.array([SAMPLE_RATE], dtype=np.int64)
+    print(f"[VAD] Silero VAD ONNX loaded: {onnx_path}")
+    return session, state, sr
+
+
+def _run_silero_vad_onnx(session, state, audio_float: np.ndarray, sr):
+    """Run a single VAD inference. Returns (confidence, new_state)."""
+    # Silero expects (1, chunk_size) float32
+    inp = audio_float.reshape(1, -1).astype(np.float32)
+    ort_inputs = {
+        "input": inp,
+        "state": state,
+        "sr": sr,
+    }
+    out, new_state = session.run(None, ort_inputs)
+    return float(out[0][0]), new_state
+
 
 # Exit keywords — if the user says any of these, confirm before stopping.
 EXIT_KEYWORDS = [
@@ -340,7 +398,6 @@ DEFAULT_PIPER_VOICES = {
     "hi": "hi_IN-pratham-medium",
 }
 
-SAMPLE_RATE = 16000
 CHANNELS = 1
 
 
@@ -460,6 +517,7 @@ class MetaTTSProcessor:
             await self._ws_send_json({"type": "tts_end"})
 
     def _synthesize(self, text: str) -> bytes:
+        import torch
         inputs = self._tokenizer(text, return_tensors="pt")
         with torch.no_grad():
             output = self._model(**inputs)
@@ -515,12 +573,8 @@ class VoicePipeline:
             stt_engine=stt_engine,
         )
 
-        # Load Silero VAD
-        if silero_hub_dir:
-            torch.hub.set_dir(silero_hub_dir)
-        self._vad_model, _ = torch.hub.load(
-            "snakers4/silero-vad", model="silero_vad", trust_repo=True
-        )
+        # Load Silero VAD (ONNX — no torch dependency)
+        self._vad_session, self._vad_state, self._vad_sr = _load_silero_vad_onnx(silero_hub_dir)
         self._vad_speaking = False
         self._vad_buffer = np.array([], dtype=np.int16)
         self._vad_chunk_size = 512  # Silero needs 512 samples at 16kHz
@@ -641,9 +695,11 @@ class VoicePipeline:
                     # Too quiet — treat as silence without running VAD
                     is_speech = False
                 else:
-                    tensor = torch.from_numpy(audio_float)
-                    confidence = self._vad_model(tensor, SAMPLE_RATE).item()
-                    is_speech = confidence > 0.6  # raised threshold to reduce false positives
+                    confidence, self._vad_state = _run_silero_vad_onnx(
+                        self._vad_session, self._vad_state,
+                        audio_float, self._vad_sr,
+                    )
+                    is_speech = confidence > 0.6
             except Exception as e:
                 print(f"[VAD] Error: {e}")
                 continue
