@@ -328,7 +328,8 @@ def _pick_hindi_followup(response_type: str, state: str = "") -> str:
 # ── Local model paths ────────────────────────────────────────────────────
 _VOICE_DIR = Path(__file__).resolve().parent
 MODELS_DIR = _VOICE_DIR / "models"
-WHISPER_MODEL_DIR = MODELS_DIR / "whisper-small"
+WHISPER_MODEL_DIR = MODELS_DIR / "whisper-v3-turbo"
+WHISPER_MODEL_DIR_FALLBACK = MODELS_DIR / "whisper-small"
 PIPER_MODEL_DIR = MODELS_DIR / "piper"
 SILERO_MODEL_DIR = MODELS_DIR / "silero"
 
@@ -342,11 +343,14 @@ CHANNELS = 1
 
 
 def _resolve_whisper_model() -> str:
-    if WHISPER_MODEL_DIR.exists():
-        model_bins = list(WHISPER_MODEL_DIR.rglob("model.bin"))
-        if model_bins:
-            return str(model_bins[0].parent)
-    return "small"
+    """Resolve local Whisper model path. Prefers v3-turbo, falls back to small."""
+    for model_dir in [WHISPER_MODEL_DIR, WHISPER_MODEL_DIR_FALLBACK]:
+        if model_dir.exists():
+            model_bins = list(model_dir.rglob("model.bin"))
+            if model_bins:
+                print(f"[VOICE] Whisper model: {model_dir.name}")
+                return str(model_bins[0].parent)
+    return "large-v3-turbo"
 
 
 def _resolve_piper_voice(voice_name: Optional[str] = None, lang: str = "en") -> str:

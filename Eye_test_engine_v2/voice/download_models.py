@@ -17,7 +17,7 @@ from pathlib import Path
 
 # Resolve the models directory relative to this file
 MODELS_DIR = Path(__file__).resolve().parent / "models"
-WHISPER_DIR = MODELS_DIR / "whisper-small"
+WHISPER_DIR = MODELS_DIR / "whisper-v3-turbo"
 PIPER_DIR = MODELS_DIR / "piper"
 SILERO_DIR = MODELS_DIR / "silero"
 
@@ -34,17 +34,17 @@ PIPER_HF_BASE = "https://huggingface.co/rhasspy/piper-voices/resolve/main"
 
 def download_whisper():
     """Download the faster-whisper model to voice/models/whisper-small/."""
-    print(f"[1/3] Downloading faster-whisper 'small' model → {WHISPER_DIR}")
+    print(f"[1/3] Downloading faster-whisper 'large-v3-turbo' model → {WHISPER_DIR}")
     WHISPER_DIR.mkdir(parents=True, exist_ok=True)
     try:
         from faster_whisper import WhisperModel
         model = WhisperModel(
-            "small",
+            "large-v3-turbo",
             device="cpu",
             compute_type="int8",
             download_root=str(WHISPER_DIR),
         )
-        print(f"  OK  faster-whisper 'small' model saved to {WHISPER_DIR}")
+        print(f"  OK  faster-whisper 'large-v3-turbo' model saved to {WHISPER_DIR}")
         del model
     except Exception as e:
         print(f"  FAIL  {e}")
