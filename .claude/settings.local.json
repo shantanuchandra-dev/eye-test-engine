@@ -74,7 +74,11 @@
       "Bash(source /Users/shantanuchandra/Downloads/eye_test_engine_Claude/Eye_test_engine_v2/venv/bin/activate)",
       "Bash(pip list:*)",
       "Bash(python -c \"import platform; print\\(platform.machine\\(\\), platform.system\\(\\)\\)\")",
-      "Bash(huggingface-cli whoami:*)"
+      "Bash(huggingface-cli whoami:*)",
+      "Bash(git add:*)",
+      "Bash(ffmpeg -version)",
+      "Bash(git commit:*)",
+      "Bash(chmod:*)"
     ]
   }
 }

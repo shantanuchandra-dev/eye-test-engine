@@ -89,6 +89,9 @@ async def voice_websocket(websocket: WebSocket, session_id: str, lang: str = "en
         "meta-mms-tamil": "facebook/mms-tts-tam",
         "meta-mms-kannada": "facebook/mms-tts-kan",
         "meta-mms-marathi": "facebook/mms-tts-mar",
+        "meta-mms-gujarati": "facebook/mms-tts-guj",
+        "meta-mms-bengali": "facebook/mms-tts-ben",
+        "meta-mms-punjabi": "facebook/mms-tts-pan",
     }
 
     if voice in MMS_VOICE_MAP:

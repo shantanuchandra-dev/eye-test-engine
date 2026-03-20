@@ -83,7 +83,7 @@
 - [x] Supports rsync (SYNC_RSYNC_TARGET) and HTTP API (SYNC_SERVER_URL)
 - [x] Tracks sync state, only pushes new files
 - [x] Show status: `python -m voice.training.server_sync --status`
-- [ ] Central server API implementation (receiver side)
+- [x] Central server API: `python -m voice.training.central_server --port 9000`
 - [x] Cron setup: included in `setup_cron.sh` (uncomment sync lines after configuring server)
 
 ### Regional Language Expansion
@@ -98,8 +98,8 @@
 - [x] Add 5 regional languages to frontend voice dropdown (te, ta, kn, mr, ml)
 - [x] MMS models load on-demand for ta, kn, mr (no pre-download needed)
 - [x] Download Piper voices for te, ml (te_IN-venkatesh-medium, ml_IN-arjun-medium)
-- [ ] Add gu, bn, pa to frontend dropdown (MMS models available but no translations yet)
-- [ ] Add question translations for ml, gu, bn, pa
+- [x] Add gu, bn, pa to frontend voice dropdown
+- [x] Add question translations for ml (4), gu (3), bn (3), pa (2)
 
 ## Storage Budget
 

@@ -283,6 +283,41 @@ REGIONAL_MESSAGES = {
 }
 
 
+# ── Additional translations for ml, gu, bn, pa ──────────────────────────
+QUESTION_TRANSLATIONS["ml"] = {
+    "Looking at the letters, are they clear, slightly blurry, or not readable?":
+        "അക്ഷരങ്ങൾ നോക്കൂ, അവ വ്യക്തമായി കാണുന്നുണ്ടോ, അല്പം മങ്ങിയതാണോ, അതോ വായിക്കാൻ കഴിയുന്നില്ലേ?",
+    "Looking at the letters now, are they clear, a bit blurry, or not readable?":
+        "ഇപ്പോൾ അക്ഷരങ്ങൾ നോക്കൂ, വ്യക്തമാണോ, മങ്ങിയതാണോ, അതോ വായിക്കാൻ കഴിയുന്നില്ലേ?",
+    "Looking at the letters on the red and green backgrounds, which side looks clearer — red, green, or do they look about the same?":
+        "ചുവപ്പും പച്ചയും പശ്ചാത്തലത്തിൽ അക്ഷരങ്ങൾ നോക്കൂ. ഏത് ഭാഗം വ്യക്തമാണ്?",
+    "Look at the two rows of letters. Which row looks clearer — the top row, the bottom row, or do they look about the same?":
+        "രണ്ട് വരികൾ നോക്കൂ. ഏത് വരി വ്യക്തമാണ് — മുകളിലെ, താഴെയുള്ള, അതോ രണ്ടും ഒരുപോലെ?",
+}
+QUESTION_TRANSLATIONS["gu"] = {
+    "Looking at the letters, are they clear, slightly blurry, or not readable?":
+        "અક્ષરો જુઓ, શું તે સ્પષ્ટ દેખાય છે, થોડા ઝાંખા છે, કે વાંચી શકાતા નથી?",
+    "Looking at the letters now, are they clear, a bit blurry, or not readable?":
+        "હવે અક્ષરો જુઓ, સ્પષ્ટ છે, ઝાંખા છે, કે વાંચી શકાતા નથી?",
+    "Looking at the letters on the red and green backgrounds, which side looks clearer — red, green, or do they look about the same?":
+        "લાલ અને લીલા બેકગ્રાઉન્ડ પર અક્ષરો જુઓ. કઈ બાજુ વધુ સ્પષ્ટ છે?",
+}
+QUESTION_TRANSLATIONS["bn"] = {
+    "Looking at the letters, are they clear, slightly blurry, or not readable?":
+        "অক্ষরগুলো দেখুন, সেগুলো কি পরিষ্কার দেখাচ্ছে, একটু ঝাপসা, নাকি পড়া যাচ্ছে না?",
+    "Looking at the letters now, are they clear, a bit blurry, or not readable?":
+        "এখন অক্ষরগুলো দেখুন, পরিষ্কার, ঝাপসা, নাকি পড়া যাচ্ছে না?",
+    "Looking at the letters on the red and green backgrounds, which side looks clearer — red, green, or do they look about the same?":
+        "লাল ও সবুজ পটভূমিতে অক্ষরগুলো দেখুন। কোন দিকটা বেশি পরিষ্কার?",
+}
+QUESTION_TRANSLATIONS["pa"] = {
+    "Looking at the letters, are they clear, slightly blurry, or not readable?":
+        "ਅੱਖਰ ਦੇਖੋ, ਕੀ ਇਹ ਸਾਫ਼ ਦਿਖਾਈ ਦੇ ਰਹੇ ਹਨ, ਥੋੜੇ ਧੁੰਦਲੇ ਹਨ, ਜਾਂ ਪੜ੍ਹੇ ਨਹੀਂ ਜਾ ਰਹੇ?",
+    "Looking at the letters now, are they clear, a bit blurry, or not readable?":
+        "ਹੁਣ ਅੱਖਰ ਦੇਖੋ, ਸਾਫ਼ ਹਨ, ਧੁੰਦਲੇ ਹਨ, ਜਾਂ ਪੜ੍ਹੇ ਨਹੀਂ ਜਾ ਰਹੇ?",
+}
+
+
 def get_translation(lang: str, english_question: str) -> str:
     """Get translated question for a language. Falls back to English."""
     translations = QUESTION_TRANSLATIONS.get(lang, {})
