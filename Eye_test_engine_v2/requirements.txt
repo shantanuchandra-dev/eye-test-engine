@@ -4,3 +4,15 @@ python-dotenv>=1.0
 pyyaml>=6.0
 rapidfuzz>=3.0
 pathvalidate>=3.0
+
+# Voice dependencies
+numpy>=1.24
+fastapi>=0.100
+uvicorn>=0.23
+websockets>=11.0
+torch>=2.0 --index-url https://download.pytorch.org/whl/cpu
+faster-whisper>=0.10
+transformers>=4.30
+soundfile>=0.12
+deepgram-sdk>=3.0
+gunicorn>=21.0
