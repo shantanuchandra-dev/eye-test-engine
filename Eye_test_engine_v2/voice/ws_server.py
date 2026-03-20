@@ -55,7 +55,7 @@ def preload_models():
 
 
 @fastapi_app.websocket("/ws/voice/{session_id}")
-async def voice_websocket(websocket: WebSocket, session_id: str, lang: str = "en", voice: str = ""):
+async def voice_websocket(websocket: WebSocket, session_id: str, lang: str = "en", voice: str = "", stt: str = "deepgram"):
     await websocket.accept()
 
     if _sessions_ref is None:
@@ -132,7 +132,10 @@ async def voice_websocket(websocket: WebSocket, session_id: str, lang: str = "en
             whisper_model=_whisper_model,
             lang=lang,
             session_id=session_id,
+            stt_engine=stt,
         )
+        # Connect Deepgram if using cloud STT
+        await pipeline.start()
         print(f"[VOICE WS] Ready: session={session_id}", flush=True)
     except Exception as e:
         print(f"[VOICE WS] Pipeline init FAILED: {e}", flush=True)

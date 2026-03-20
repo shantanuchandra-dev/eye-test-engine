@@ -34,11 +34,12 @@ class AudioRecorder:
     """Records utterances for a single voice session."""
 
     def __init__(self, session_id: str, session_orchestrator, lang: str = "en",
-                 mic_device: str = "", sample_rate: int = 16000):
+                 mic_device: str = "", sample_rate: int = 16000, stt_engine: str = "local"):
         self._session_id = session_id
         self._lang = lang
         self._mic_device = mic_device
         self._sample_rate = sample_rate
+        self._stt_engine = stt_engine
         self._utt_counter = 0
 
         # Create session directory: ~/.eye_test_audio/YYYY-MM-DD/session_xxx/
@@ -167,6 +168,7 @@ class AudioRecorder:
             "phase_name": phase_name,
             "lang": self._lang,
             "mic_device": self._mic_device,
+            "stt_engine": self._stt_engine,
             "ambient_rms": round(ambient_rms, 4),
             # Review fields (filled by HITL reviewer)
             "reviewed": False,

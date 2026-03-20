@@ -8,6 +8,7 @@ Run `python -m voice.download_models` to download them first.
 """
 
 import asyncio
+import os
 import numpy as np
 from pathlib import Path
 from typing import Optional
@@ -473,19 +474,21 @@ class VoicePipeline:
 
     def __init__(self, session, ws_send_json, tts, silero_hub_dir=None,
                  whisper_model=None, confidence_threshold=60.0, lang="en",
-                 session_id="", mic_device=""):
+                 session_id="", mic_device="", stt_engine="local"):
         """
         Args:
             whisper_model: Pre-loaded WhisperModel instance, or a path string.
-            lang: Language code ('en' or 'hi'). 'hi' enables Hinglish translation.
+            lang: Language code ('en' or 'hi'). 'hi' enables Hindi translation.
             session_id: Session ID for audio recording.
             mic_device: Mic device label from browser.
+            stt_engine: "local" (faster-whisper) or "deepgram" (cloud).
         """
         self.session = session
         self.ws_send_json = ws_send_json
         self.tts = tts
         self._confidence_threshold = confidence_threshold
         self._lang = lang
+        self._stt_engine = stt_engine
 
         # Intent classifier fallback (loaded lazily if model exists)
         self._intent_classifier = None
@@ -503,6 +506,7 @@ class VoicePipeline:
             session_orchestrator=session,
             lang=lang,
             mic_device=mic_device,
+            stt_engine=stt_engine,
         )
 
         # Load Silero VAD
@@ -519,15 +523,34 @@ class VoicePipeline:
         self._speech_trigger = 3    # need 3 consecutive speech chunks (~96ms) to trigger
         self._silence_trigger = 8   # need 8 consecutive silence chunks (~256ms) to stop
 
-        # Use pre-loaded whisper model or load new one
-        if isinstance(whisper_model, WhisperModel):
-            self._whisper = whisper_model
-        else:
-            model_path = whisper_model or _resolve_whisper_model()
-            print(f"[VOICE] Loading Whisper model: {model_path}")
-            self._whisper = WhisperModel(model_path, device="cpu", compute_type="int8")
+        # STT engine
+        self._deepgram_client = None
+        if stt_engine == "deepgram":
+            api_key = os.environ.get("DEEPGRAM_API_KEY", "")
+            if api_key:
+                from voice.deepgram_stt import DeepgramSTTClient
+                self._deepgram_client = DeepgramSTTClient(
+                    api_key=api_key,
+                    lang=lang,
+                    on_transcript=self._on_deepgram_transcript,
+                    on_vad=self._on_deepgram_vad,
+                )
+                print(f"[VOICE] STT engine: Deepgram (cloud)")
+            else:
+                print(f"[VOICE] WARNING: DEEPGRAM_API_KEY not set, falling back to local Whisper")
+                self._stt_engine = "local"
 
-        # Audio buffer for STT (accumulates while user is speaking)
+        if self._stt_engine == "local":
+            if isinstance(whisper_model, WhisperModel):
+                self._whisper = whisper_model
+            else:
+                model_path = whisper_model or _resolve_whisper_model()
+                print(f"[VOICE] Loading Whisper model: {model_path}")
+                self._whisper = WhisperModel(model_path, device="cpu", compute_type="int8")
+        else:
+            self._whisper = None  # Not needed when using Deepgram
+
+        # Audio buffer for STT (accumulates while user is speaking — local mode only)
         self._speech_buffer = np.array([], dtype=np.int16)
 
         # Silence timer: if no speech detected for 3s, rephrase the question
@@ -542,6 +565,16 @@ class VoicePipeline:
         self._awaiting_exit_confirm = False
 
         self._running = True
+
+    async def start(self):
+        """Start async components (Deepgram connection)."""
+        if self._deepgram_client:
+            try:
+                await self._deepgram_client.connect()
+            except Exception as e:
+                print(f"[VOICE] Deepgram connect failed: {e}, falling back to local")
+                self._stt_engine = "local"
+                self._deepgram_client = None
 
     async def process_audio(self, audio_int16: bytes):
         """Process an audio chunk from the browser mic."""
@@ -559,6 +592,10 @@ class VoicePipeline:
         self._audio_frame_count += 1
         if self._audio_frame_count <= 3:
             print(f"[VOICE] Audio frame #{self._audio_frame_count}: {len(samples)} samples, max={np.max(np.abs(samples)) if len(samples) > 0 else 0}")
+
+        # Stream to Deepgram if using cloud STT
+        if self._deepgram_client and self._deepgram_client.is_connected:
+            await self._deepgram_client.send_audio(audio_int16)
 
         # Feed to VAD in 512-sample chunks
         self._vad_buffer = np.concatenate([self._vad_buffer, samples])
@@ -601,10 +638,11 @@ class VoicePipeline:
             elif self._vad_speaking and self._silence_streak >= self._silence_trigger:
                 self._vad_speaking = False
                 await self.ws_send_json({"type": "vad", "speaking": False})
-                if len(self._speech_buffer) > SAMPLE_RATE * 0.3:  # min 0.3s
+                # Only run local Whisper STT — Deepgram handles its own endpointing
+                if self._stt_engine == "local" and len(self._speech_buffer) > SAMPLE_RATE * 0.3:
                     await self._transcribe_and_process()
 
-            # Accumulate speech audio
+            # Accumulate speech audio (for local STT + audio recording)
             if self._vad_speaking:
                 self._speech_buffer = np.concatenate([self._speech_buffer, chunk])
 
@@ -650,25 +688,27 @@ class VoicePipeline:
         await self.tts.speak(rephrased)
         # After rephrasing, start another timer (but won't rephrase again due to _has_rephrased)
 
-    async def _transcribe_and_process(self):
-        """Run STT on the speech buffer and process the result."""
-        audio = self._speech_buffer.copy()
+    async def _on_deepgram_transcript(self, transcript: str, is_final: bool):
+        """Callback from DeepgramSTTClient when a transcript is received."""
+        if not is_final or not transcript.strip():
+            return
+        # Use the same processing path as local Whisper
+        # But skip the Whisper transcription step — we already have the transcript
+        await self._process_transcript(transcript, self._speech_buffer.copy())
         self._speech_buffer = np.array([], dtype=np.int16)
 
-        if len(audio) < SAMPLE_RATE * 0.3:
-            return
+    async def _on_deepgram_vad(self, is_speaking: bool):
+        """Callback from Deepgram's VAD events."""
+        # Deepgram VAD supplements our Silero VAD for UI feedback
+        # We already handle this via Silero, so this is just a backup
+        pass
 
-        # Convert to float32 for whisper
-        audio_float = audio.astype(np.float32) / 32768.0
-
-        # Run transcription in a thread
-        segments = await asyncio.to_thread(self._run_whisper, audio_float)
-        transcript = " ".join(segments).strip()
-
+    async def _process_transcript(self, transcript: str, audio: np.ndarray):
+        """Process a transcript (from either Whisper or Deepgram) through fuzzy matching."""
         if not transcript:
             return
 
-        print(f"[VOICE] Transcript: '{transcript}'")
+        print(f"[VOICE] Transcript ({self._stt_engine}): '{transcript}'")
         await self.ws_send_json({"type": "transcript", "text": transcript})
 
         # ── Handle exit confirmation response ──
@@ -720,15 +760,18 @@ class VoicePipeline:
             return
 
         response_type = row.response_type
-        print(f"[VOICE] response_type: {response_type}")
 
         # Fuzzy match
         matched_option, confidence = match_transcript(
             transcript, response_type, self._confidence_threshold
         )
 
-        # Compute ambient RMS for the utterance
-        ambient_rms = float(np.sqrt(np.mean(audio_float ** 2)))
+        # Compute ambient RMS
+        if len(audio) > 0:
+            audio_float = audio.astype(np.float32) / 32768.0
+            ambient_rms = float(np.sqrt(np.mean(audio_float ** 2)))
+        else:
+            ambient_rms = 0.0
 
         # Record utterance audio for HITL
         try:
@@ -768,14 +811,12 @@ class VoicePipeline:
                     end_msg = "परीक्षा पूरी हो गई है। धन्यवाद।"
                 else:
                     end_msg = _regional_message(self._lang, "test_complete") or "The eye test is now complete. Thank you."
-                # Speak FIRST, then notify frontend to show completion UI
                 await self.tts.speak(end_msg)
                 await self.ws_send_json({"type": "test_complete"})
                 return
 
             if next_state.get("auto_flip") and next_state.get("jcc_flip") == "flip1":
                 flip_wait = next_state.get("flip_wait_seconds", 2)
-                # Paired flip messages — flip1 and flip2 use matching terminology
                 _flip_pairs_en = [
                     ("This is one.", "This is two. Which is better, one or two?"),
                     ("This is the first.", "And this is the second. First or second?"),
@@ -792,7 +833,6 @@ class VoicePipeline:
                 ]
                 pair = random.choice(_flip_pairs_hi) if self._lang == "hi" else random.choice(_flip_pairs_en)
                 flip1_msg = pair[0]
-                # Store flip2 msg for the handler to use
                 self._pending_flip2_msg = pair[1]
                 asyncio.create_task(self._handle_jcc_flip1_then_flip2(flip1_msg, flip_wait))
                 return
@@ -803,7 +843,6 @@ class VoicePipeline:
                 self._cancel_silence_timer()
                 current_state = next_state.get("state")
                 response_type = next_state.get("response_type", "")
-                # Use short follow-up if staying in the same FSM state
                 if current_state and current_state == self._prev_state:
                     if self._lang == "en":
                         followup = _pick_followup(response_type, state=current_state)
@@ -823,10 +862,9 @@ class VoicePipeline:
                 await self.tts.speak(question)
                 self.start_silence_timer()
         else:
-            # Try intent classifier as fallback (if available and audio was recorded)
+            # Try intent classifier fallback
             if self._intent_classifier and hasattr(self._recorder, '_session_dir'):
                 try:
-                    # Find the latest recorded audio file
                     last_utt = self._recorder._utt_counter
                     audio_file = self._recorder._session_dir / f"utt_{last_utt:04d}.flac"
                     if not audio_file.exists():
@@ -835,27 +873,20 @@ class VoicePipeline:
                         clf_intent, clf_conf = self._intent_classifier.predict(str(audio_file))
                         if clf_intent and clf_conf > 70:
                             print(f"[VOICE] Classifier fallback: {clf_intent} ({clf_conf:.0f}%)")
-                            matched_option = clf_intent
-                            confidence = clf_conf
                             await self.ws_send_json({
-                                "type": "match",
-                                "option": matched_option,
-                                "confidence": confidence,
-                                "transcript": transcript,
-                                "source": "classifier",
+                                "type": "match", "option": clf_intent,
+                                "confidence": clf_conf, "transcript": transcript, "source": "classifier",
                             })
-                            # Process as if matched
-                            next_state = self.session.process_response(matched_option)
-                            await self.ws_send_json({
-                                "type": "state_update",
-                                "data": {"status": "active", **next_state},
-                            })
+                            next_state = self.session.process_response(clf_intent)
+                            await self.ws_send_json({"type": "state_update", "data": {"status": "active", **next_state}})
                             question = next_state.get("question", "")
                             if question:
                                 self._has_rephrased = False
                                 self._cancel_silence_timer()
                                 if self._lang == "hi":
                                     question = _translate_to_hindi(question)
+                                elif self._lang != "en":
+                                    question = _regional_translate(self._lang, question) or _strip_intents(question)
                                 else:
                                     question = _strip_intents(question)
                                 self._prev_state = next_state.get("state")
@@ -875,6 +906,23 @@ class VoicePipeline:
                 no_match_msg = _regional_message(self._lang, "no_match") or "I didn't catch that. Please repeat."
             await self.tts.speak(no_match_msg)
             self.start_silence_timer()
+
+    async def _transcribe_and_process(self):
+        """Run local Whisper STT on the speech buffer, then process."""
+        audio = self._speech_buffer.copy()
+        self._speech_buffer = np.array([], dtype=np.int16)
+
+        if len(audio) < SAMPLE_RATE * 0.3:
+            return
+
+        audio_float = audio.astype(np.float32) / 32768.0
+        segments = await asyncio.to_thread(self._run_whisper, audio_float)
+        transcript = " ".join(segments).strip()
+
+        if not transcript:
+            return
+
+        await self._process_transcript(transcript, audio)
 
     def _run_whisper(self, audio_float: np.ndarray) -> list:
         """Run faster-whisper transcription (called in thread)."""
@@ -915,6 +963,8 @@ class VoicePipeline:
     def stop(self):
         self._running = False
         self._cancel_silence_timer()
+        if self._deepgram_client:
+            asyncio.create_task(self._deepgram_client.close())
         try:
             self._recorder.write_session_summary()
         except Exception as e:

@@ -1685,7 +1685,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (voiceSelect) {
         voiceSelect.addEventListener('change', () => {
             if (voiceState.enabled) {
-                // Reconnect with the new voice
+                stopVoiceMode();
+                setTimeout(() => startVoiceMode(), 500);
+            }
+        });
+    }
+    // Reconnect on STT engine change
+    const sttSelect = document.getElementById('sttSelect');
+    if (sttSelect) {
+        sttSelect.addEventListener('change', () => {
+            if (voiceState.enabled) {
                 stopVoiceMode();
                 setTimeout(() => startVoiceMode(), 500);
             }
@@ -1720,7 +1729,9 @@ function getVoiceWsUrl() {
     const selectedOption = voiceSelect ? voiceSelect.selectedOptions[0] : null;
     const voice = selectedOption ? selectedOption.value : 'en_US-kusal-medium';
     const lang = selectedOption && selectedOption.dataset.lang ? selectedOption.dataset.lang : 'en';
-    return `ws://${host}:${VOICE_WS_PORT}/ws/voice/${sessionState.sessionId}?lang=${lang}&voice=${voice}`;
+    const sttSelect = document.getElementById('sttSelect');
+    const stt = sttSelect ? sttSelect.value : 'deepgram';
+    return `ws://${host}:${VOICE_WS_PORT}/ws/voice/${sessionState.sessionId}?lang=${lang}&voice=${voice}&stt=${stt}`;
 }
 
 async function toggleVoiceMode() {
