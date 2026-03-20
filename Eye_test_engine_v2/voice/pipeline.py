@@ -13,6 +13,13 @@ import numpy as np
 from pathlib import Path
 from typing import Optional
 
+# Suppress HuggingFace Hub warnings (faster-whisper pulls in huggingface_hub).
+# We only use local models so HF network access is never needed at runtime.
+os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+os.environ.setdefault("HF_HUB_DISABLE_IMPLICIT_TOKEN", "1")
+os.environ.setdefault("TRANSFORMERS_NO_ADVISORY_WARNINGS", "1")
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+
 import onnxruntime
 from faster_whisper import WhisperModel
 
@@ -386,14 +393,21 @@ CHANNELS = 1
 
 
 def _resolve_whisper_model() -> str:
-    """Resolve local Whisper model path. Prefers v3-turbo, falls back to small."""
+    """Resolve local Whisper model path. Prefers v3-turbo, falls back to small.
+
+    Never returns a HuggingFace model ID — only local paths.
+    Run `python -m voice.download_models` first to download.
+    """
     for model_dir in [WHISPER_MODEL_DIR, WHISPER_MODEL_DIR_FALLBACK]:
         if model_dir.exists():
             model_bins = list(model_dir.rglob("model.bin"))
             if model_bins:
                 print(f"[VOICE] Whisper model: {model_dir.name}")
                 return str(model_bins[0].parent)
-    return "large-v3-turbo"
+    raise FileNotFoundError(
+        f"No Whisper model found in {WHISPER_MODEL_DIR} or {WHISPER_MODEL_DIR_FALLBACK}. "
+        f"Run: python -m voice.download_models"
+    )
 
 
 def _resolve_piper_voice(voice_name: Optional[str] = None, lang: str = "en") -> str:

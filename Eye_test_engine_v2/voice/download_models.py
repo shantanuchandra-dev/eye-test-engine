@@ -7,7 +7,7 @@ Run once before starting the voice server:
 Downloads into voice/models/:
     - faster-whisper 'large-v3-turbo' (~1.5GB)  → voice/models/whisper-v3-turbo/
     - Piper TTS voices (5 × ~60MB each)         → voice/models/piper/
-    - Silero VAD model (~34MB)                   → voice/models/silero/
+    - Silero VAD ONNX (~2MB)                      → voice/models/silero_vad.onnx
 
 Also called automatically by run.py if voice/models/ is empty.
 """
@@ -17,12 +17,17 @@ import sys
 import urllib.request
 from pathlib import Path
 
+# Suppress HuggingFace Hub warnings during model download
+os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+os.environ.setdefault("HF_HUB_DISABLE_IMPLICIT_TOKEN", "1")
+os.environ.setdefault("TRANSFORMERS_NO_ADVISORY_WARNINGS", "1")
+
 # Resolve the models directory relative to this file
 MODELS_DIR = Path(__file__).resolve().parent / "models"
 WHISPER_DIR = MODELS_DIR / "whisper-v3-turbo"
 PIPER_DIR = MODELS_DIR / "piper"
 
-# Piper voices to download (name → HuggingFace sub-path)
+# Piper voices to download (name → download sub-path)
 PIPER_VOICES = {
     "en_US-kusal-medium": "en/en_US/kusal/medium",
     "en_US-lessac-medium": "en/en_US/lessac/medium",
@@ -30,7 +35,7 @@ PIPER_VOICES = {
     "te_IN-venkatesh-medium": "te/te_IN/venkatesh/medium",
     "ml_IN-arjun-medium": "ml/ml_IN/arjun/medium",
 }
-PIPER_HF_BASE = "https://huggingface.co/rhasspy/piper-voices/resolve/main"
+PIPER_DOWNLOAD_BASE = "https://huggingface.co/rhasspy/piper-voices/resolve/main"
 
 
 def download_whisper():
@@ -62,7 +67,7 @@ def download_piper():
     for voice_name, voice_path in PIPER_VOICES.items():
         for ext in [".onnx", ".onnx.json"]:
             filename = f"{voice_name}{ext}"
-            url = f"{PIPER_HF_BASE}/{voice_path}/{filename}"
+            url = f"{PIPER_DOWNLOAD_BASE}/{voice_path}/{filename}"
             dest = PIPER_DIR / filename
 
             if dest.exists():

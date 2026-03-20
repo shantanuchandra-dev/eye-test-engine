@@ -138,9 +138,11 @@ def _proxy_request(method: str, path: str, payload: Optional[dict] = None, query
 @app.route('/api/config', methods=['GET'])
 def get_config():
     backend_url = os.environ.get("BACKEND_URL", "")
+    voice_ws_url = os.environ.get("VOICE_WS_URL", "")
     return jsonify({
         "backend_url": backend_url,
-        "phoropter_base_url": PHOROPTER_BASE_URL
+        "phoropter_base_url": PHOROPTER_BASE_URL,
+        "voice_ws_url": voice_ws_url,
     })
 
 

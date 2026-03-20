@@ -1,11 +1,15 @@
 // Eye Test Engine v2 — Frontend Application
 // Integrates with Flask API backend and Phoropter broker
 
+// Railway backend URL — used when frontend is hosted separately (e.g. Vercel)
+const RAILWAY_BACKEND = 'https://loggingphoropterui-production.up.railway.app';
+
 const CONFIG = {
     backendUrl: (typeof window !== 'undefined' && window.BACKEND_URL)
         ? window.BACKEND_URL
         : ((typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'))
-            ? 'http://localhost:5050' : ''),
+            ? 'http://localhost:5050' : RAILWAY_BACKEND),
+    voiceWsUrl: '',  // populated by /api/config or derived from backendUrl
     phoropterUrl: 'https://rajasthan-royals.preprod.lenskart.com',
     get phoropterId() {
         const el = document.getElementById('phoropterIdInput');
@@ -294,15 +298,23 @@ function isTestDeviceId(deviceId) {
 
 async function fetchConfig() {
     try {
-        const resp = await fetch('/api/config');
+        const configUrl = CONFIG.backendUrl ? `${CONFIG.backendUrl}/api/config` : '/api/config';
+        const resp = await fetch(configUrl);
         if (resp.ok) {
             const data = await resp.json();
             if (data.backend_url) CONFIG.backendUrl = data.backend_url;
             if (data.phoropter_base_url) CONFIG.phoropterUrl = data.phoropter_base_url;
+            if (data.voice_ws_url) CONFIG.voiceWsUrl = data.voice_ws_url;
         }
     } catch (err) {
         console.warn('[CONFIG] Could not fetch:', err);
     } finally {
+        // Derive voiceWsUrl from backendUrl if not explicitly set
+        if (!CONFIG.voiceWsUrl && CONFIG.backendUrl) {
+            CONFIG.voiceWsUrl = CONFIG.backendUrl
+                .replace(/^https:/, 'wss:')
+                .replace(/^http:/, 'ws:');
+        }
         _configReady = true;
     }
 }
@@ -1746,14 +1758,29 @@ const voiceState = {
 const VOICE_WS_PORT = 8766;
 
 function getVoiceWsUrl() {
-    const host = window.location.hostname || 'localhost';
     const voiceSelect = document.getElementById('voiceSelect');
     const selectedOption = voiceSelect ? voiceSelect.selectedOptions[0] : null;
     const voice = selectedOption ? selectedOption.value : 'en_US-kusal-medium';
     const lang = selectedOption && selectedOption.dataset.lang ? selectedOption.dataset.lang : 'en';
     const sttSelect = document.getElementById('sttSelect');
     const stt = sttSelect ? sttSelect.value : 'deepgram';
-    return `ws://${host}:${VOICE_WS_PORT}/ws/voice/${sessionState.sessionId}?lang=${lang}&voice=${voice}&stt=${stt}`;
+    const params = `lang=${lang}&voice=${voice}&stt=${stt}`;
+
+    // Use configured voice WS URL (Railway/cloud deployment)
+    if (CONFIG.voiceWsUrl) {
+        const base = CONFIG.voiceWsUrl.replace(/\/+$/, '');
+        return `${base}/ws/voice/${sessionState.sessionId}?${params}`;
+    }
+
+    // Cloud fallback: if on HTTPS but no voiceWsUrl configured, use same origin with wss
+    // (works when Flask + Voice WS are on the same server in single-port mode)
+    if (window.location.protocol === 'https:') {
+        return `wss://${window.location.host}/ws/voice/${sessionState.sessionId}?${params}`;
+    }
+
+    // Local dev fallback: same host, different port
+    const host = window.location.hostname || 'localhost';
+    return `ws://${host}:${VOICE_WS_PORT}/ws/voice/${sessionState.sessionId}?${params}`;
 }
 
 async function toggleVoiceMode() {

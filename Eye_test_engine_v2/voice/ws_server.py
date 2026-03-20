@@ -7,6 +7,7 @@ import asyncio
 import json
 import numpy as np
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 
 from voice.pipeline import (
     VoicePipeline, DirectTTSProcessor,
@@ -15,6 +16,12 @@ from voice.pipeline import (
 )
 
 fastapi_app = FastAPI(title="Eye Test Voice Pipeline")
+fastapi_app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 _sessions_ref = None
 
@@ -68,7 +75,7 @@ async def voice_websocket(websocket: WebSocket, session_id: str, lang: str = "en
 
     # Build TTS — Piper ONNX only (no torch dependency)
     if voice and voice.startswith("meta-mms-"):
-        print(f"[VOICE WS] Meta MMS voices removed (torch dependency). Falling back to Piper.", flush=True)
+        print(f"[VOICE WS] Meta MMS voices not available. Falling back to Piper.", flush=True)
         voice = ""  # fall through to Piper
     piper_voice = _resolve_piper_voice(voice_name=voice if voice else None, lang=lang)
     piper_onnx = str(PIPER_MODEL_DIR / f"{piper_voice}.onnx")

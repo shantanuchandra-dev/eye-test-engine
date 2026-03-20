@@ -796,10 +796,11 @@
             'use strict';
 
             // ── Backend URL (same logic as app.js) ───────
+            const RAILWAY_BACKEND = 'https://loggingphoropterui-production.up.railway.app';
             const BACKEND_URL = (window.BACKEND_URL)
                 ? window.BACKEND_URL
                 : ((window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-                    ? 'http://localhost:5050' : '');
+                    ? 'http://localhost:5050' : RAILWAY_BACKEND);
 
             // ── Helpers ───────────────────────────────────
             const $ = id => document.getElementById(id);
