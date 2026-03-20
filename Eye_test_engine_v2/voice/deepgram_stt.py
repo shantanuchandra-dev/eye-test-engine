@@ -13,19 +13,28 @@ from typing import Callable, Optional
 
 import websockets
 
-# Deepgram language codes for supported languages
+# Deepgram language codes — only languages Deepgram nova-3 actually supports.
+# Unsupported languages should fall back to local Whisper.
 DEEPGRAM_LANG_MAP = {
-    "en": "en-IN",   # Default to Indian English for better accent handling
-    "hi": "hi",
-    "te": "te",
-    "ta": "ta",
-    "kn": "kn",
-    "mr": "mr",
-    "ml": "ml",
-    "gu": "gu",
-    "bn": "bn",
-    "pa": "pa",
+    "en": "en-IN",   # Indian English
+    "hi": "hi",      # Hindi
+    "ta": "ta",      # Tamil
+    "te": "te",      # Telugu
+    "mr": "mr",      # Marathi
+    "kn": "kn",      # Kannada
+    "ml": "ml",      # Malayalam
+    "gu": "gu",      # Gujarati
+    "bn": "bn",      # Bengali
+    "pa": "pa",      # Punjabi
 }
+
+# Languages Deepgram nova-3 has good support for
+DEEPGRAM_SUPPORTED = {"en", "hi", "ta", "te", "mr", "kn", "ml", "gu", "bn", "pa"}
+
+
+def is_deepgram_supported(lang: str) -> bool:
+    """Check if Deepgram has good support for this language."""
+    return lang in DEEPGRAM_SUPPORTED
 
 
 class DeepgramSTTClient:

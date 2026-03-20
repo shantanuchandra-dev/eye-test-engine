@@ -831,7 +831,15 @@ class VoicePipeline:
                     ("नंबर एक।", "नंबर दो। कौन सा नंबर बेहतर था?"),
                     ("पहला दृश्य।", "दूसरा दृश्य। कौन सा दृश्य बेहतर था?"),
                 ]
-                pair = random.choice(_flip_pairs_hi) if self._lang == "hi" else random.choice(_flip_pairs_en)
+                if self._lang == "hi":
+                    pair = random.choice(_flip_pairs_hi)
+                elif self._lang != "en":
+                    # Use regional flip messages
+                    f1 = _regional_message(self._lang, "flip1")
+                    f2 = _regional_message(self._lang, "flip2")
+                    pair = (f1 or "This is one.", f2 or "This is two. Which is better?")
+                else:
+                    pair = random.choice(_flip_pairs_en)
                 flip1_msg = pair[0]
                 self._pending_flip2_msg = pair[1]
                 asyncio.create_task(self._handle_jcc_flip1_then_flip2(flip1_msg, flip_wait))

@@ -39,49 +39,109 @@ WHISPER_LANG_CODES = {
 # Each dict maps the original English FSM question → translated version.
 
 QUESTION_TRANSLATIONS = {
-    "te": {  # Telugu
+    "te": {  # Telugu — all 12 FSM questions
         "Looking at the letters, are they clear, slightly blurry, or not readable?":
-            "అక్షరాలను చూడండి, అవి స్పష్టంగా కనిపిస్తున్నాయా, కొంచెం మసకగా ఉన్నాయా, లేదా చదవలేకపోతున్నారా?",
+            "అక్షరాలను చూడండి, స్పష్టంగా కనిపిస్తున్నాయా, మసకగా ఉన్నాయా, లేదా చదవలేకపోతున్నారా?",
         "Looking at the letters now, are they clear, a bit blurry, or not readable?":
             "ఇప్పుడు అక్షరాలను చూడండి, స్పష్టంగా ఉన్నాయా, మసకగా ఉన్నాయా, లేదా చదవలేకపోతున్నారా?",
+        "Look carefully at the dot pattern. Between view one and two, which one makes the dots look sharper or better aligned? Is it one, two, about the same, or hard to tell?":
+            "బిందువులను జాగ్రత్తగా చూడండి. ఏ దృశ్యం స్పష్టంగా ఉంది?",
+        "Again looking at the dot pattern, which view makes the dots look clearer or sharper — one, two, about the same, or hard to tell?":
+            "మళ్ళీ బిందువులను చూడండి. ఏది స్పష్టంగా ఉంది?",
         "Looking at the letters on the red and green backgrounds, which side looks clearer — red, green, or do they look about the same?":
             "ఎరుపు మరియు ఆకుపచ్చ నేపథ్యంలో అక్షరాలను చూడండి. ఏ వైపు స్పష్టంగా ఉంది?",
+        "Looking at the dot pattern, which one looks sharper — one, two, about the same, or hard to tell?":
+            "బిందువులను చూడండి, ఏది స్పష్టంగా ఉంది?",
+        "Comparing the two views of the dots, which looks clearer — one, two, about the same, or hard to tell?":
+            "రెండు దృశ్యాలను పోల్చండి. ఏది స్పష్టంగా ఉంది?",
+        "Looking again at the red and green backgrounds, which side makes the letters clearer — red, green, or about the same?":
+            "మళ్ళీ ఎరుపు మరియు ఆకుపచ్చ చూడండి. ఏ వైపు బాగుంది?",
         "Look at the two rows of letters. Which row looks clearer — the top row, the bottom row, or do they look about the same?":
             "రెండు వరుసలను చూడండి. ఏ వరుస స్పష్టంగా ఉంది — పైది, కిందది, లేదా రెండూ ఒకేలా?",
         "Looking at the near text, is it clear to read, a bit blurry, or not readable?":
             "దగ్గరి టెక్స్ట్ చూడండి. స్పష్టంగా ఉందా, మసకగా ఉందా, లేదా చదవలేకపోతున్నారా?",
+        "Looking at the near text again, is it clear, blurry, or not readable?":
+            "మళ్ళీ దగ్గరి టెక్స్ట్ చూడండి. స్పష్టం, మసకం, లేదా చదవలేదా?",
         "Looking at the near text with both eyes, is it clear and comfortable, or still not clear?":
             "రెండు కళ్ళతో దగ్గరి టెక్స్ట్ చూడండి. స్పష్టంగా మరియు సౌకర్యంగా ఉందా?",
     },
-    "ta": {  # Tamil
+    "ta": {  # Tamil — all 12 FSM questions
         "Looking at the letters, are they clear, slightly blurry, or not readable?":
-            "எழுத்துக்களைப் பாருங்கள், அவை தெளிவாக இருக்கிறதா, சற்று மங்கலாக இருக்கிறதா, அல்லது படிக்க முடியவில்லையா?",
+            "எழுத்துக்களைப் பாருங்கள், தெளிவாக இருக்கிறதா, மங்கலாக இருக்கிறதா, அல்லது படிக்க முடியவில்லையா?",
         "Looking at the letters now, are they clear, a bit blurry, or not readable?":
-            "இப்போது எழுத்துக்களைப் பாருங்கள், தெளிவாக இருக்கிறதா, மங்கலாக இருக்கிறதா, அல்லது படிக்க முடியவில்லையா?",
+            "இப்போது எழுத்துக்களைப் பாருங்கள், தெளிவாக இருக்கிறதா, மங்கலாக இருக்கிறதா?",
+        "Look carefully at the dot pattern. Between view one and two, which one makes the dots look sharper or better aligned? Is it one, two, about the same, or hard to tell?":
+            "புள்ளிகளை கவனமாக பாருங்கள். எந்த காட்சி தெளிவாக இருக்கிறது?",
+        "Again looking at the dot pattern, which view makes the dots look clearer or sharper — one, two, about the same, or hard to tell?":
+            "மீண்டும் புள்ளிகளைப் பாருங்கள். எது தெளிவாக இருக்கிறது?",
         "Looking at the letters on the red and green backgrounds, which side looks clearer — red, green, or do they look about the same?":
             "சிவப்பு மற்றும் பச்சை பின்னணியில் எழுத்துக்களைப் பாருங்கள். எந்த பக்கம் தெளிவாக இருக்கிறது?",
+        "Looking at the dot pattern, which one looks sharper — one, two, about the same, or hard to tell?":
+            "புள்ளிகளைப் பாருங்கள், எது தெளிவாக இருக்கிறது?",
+        "Comparing the two views of the dots, which looks clearer — one, two, about the same, or hard to tell?":
+            "இரண்டு காட்சிகளை ஒப்பிடுங்கள். எது தெளிவாக இருக்கிறது?",
+        "Looking again at the red and green backgrounds, which side makes the letters clearer — red, green, or about the same?":
+            "மீண்டும் சிவப்பு பச்சை பாருங்கள். எந்த பக்கம் நன்றாக இருக்கிறது?",
         "Look at the two rows of letters. Which row looks clearer — the top row, the bottom row, or do they look about the same?":
-            "இரண்டு வரிசைகளையும் பாருங்கள். எந்த வரிசை தெளிவாக இருக்கிறது — மேல், கீழ், அல்லது இரண்டும் ஒரே மாதிரி?",
+            "இரண்டு வரிசைகளையும் பாருங்கள். எந்த வரிசை தெளிவாக இருக்கிறது?",
         "Looking at the near text, is it clear to read, a bit blurry, or not readable?":
-            "அருகிலுள்ள எழுத்தைப் பாருங்கள். தெளிவாக இருக்கிறதா, மங்கலாக இருக்கிறதா, அல்லது படிக்க முடியவில்லையா?",
+            "அருகிலுள்ள எழுத்தைப் பாருங்கள். தெளிவாக இருக்கிறதா, மங்கலாக இருக்கிறதா?",
+        "Looking at the near text again, is it clear, blurry, or not readable?":
+            "மீண்டும் அருகிலுள்ள எழுத்தைப் பாருங்கள். தெளிவா, மங்கலா?",
         "Looking at the near text with both eyes, is it clear and comfortable, or still not clear?":
-            "இரண்டு கண்களாலும் அருகிலுள்ள எழுத்தைப் பாருங்கள். தெளிவாகவும் வசதியாகவும் இருக்கிறதா?",
+            "இரண்டு கண்களாலும் பாருங்கள். தெளிவாகவும் வசதியாகவும் இருக்கிறதா?",
     },
-    "kn": {  # Kannada
+    "kn": {  # Kannada — all 12 FSM questions
         "Looking at the letters, are they clear, slightly blurry, or not readable?":
-            "ಅಕ್ಷರಗಳನ್ನು ನೋಡಿ, ಅವು ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುತ್ತಿವೆಯೇ, ಸ್ವಲ್ಪ ಮಸುಕಾಗಿವೆಯೇ, ಅಥವಾ ಓದಲು ಸಾಧ್ಯವಾಗುತ್ತಿಲ್ಲವೇ?",
+            "ಅಕ್ಷರಗಳನ್ನು ನೋಡಿ, ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುತ್ತಿವೆಯೇ, ಮಸುಕಾಗಿವೆಯೇ, ಅಥವಾ ಓದಲು ಸಾಧ್ಯವಾಗುತ್ತಿಲ್ಲವೇ?",
         "Looking at the letters now, are they clear, a bit blurry, or not readable?":
-            "ಈಗ ಅಕ್ಷರಗಳನ್ನು ನೋಡಿ, ಸ್ಪಷ್ಟವಾಗಿದೆಯೇ, ಮಸುಕಾಗಿದೆಯೇ, ಅಥವಾ ಓದಲು ಸಾಧ್ಯವಾಗುತ್ತಿಲ್ಲವೇ?",
+            "ಈಗ ಅಕ್ಷರಗಳನ್ನು ನೋಡಿ, ಸ್ಪಷ್ಟವಾಗಿದೆಯೇ, ಮಸುಕಾಗಿದೆಯೇ?",
+        "Look carefully at the dot pattern. Between view one and two, which one makes the dots look sharper or better aligned? Is it one, two, about the same, or hard to tell?":
+            "ಚುಕ್ಕಿಗಳನ್ನು ಗಮನವಾಗಿ ನೋಡಿ. ಯಾವ ದೃಶ್ಯ ಸ್ಪಷ್ಟವಾಗಿದೆ?",
+        "Again looking at the dot pattern, which view makes the dots look clearer or sharper — one, two, about the same, or hard to tell?":
+            "ಮತ್ತೆ ಚುಕ್ಕಿಗಳನ್ನು ನೋಡಿ. ಯಾವುದು ಸ್ಪಷ್ಟವಾಗಿದೆ?",
         "Looking at the letters on the red and green backgrounds, which side looks clearer — red, green, or do they look about the same?":
-            "ಕೆಂಪು ಮತ್ತು ಹಸಿರು ಹಿನ್ನೆಲೆಯಲ್ಲಿ ಅಕ್ಷರಗಳನ್ನು ನೋಡಿ. ಯಾವ ಕಡೆ ಸ್ಪಷ್ಟವಾಗಿದೆ?",
+            "ಕೆಂಪು ಮತ್ತು ಹಸಿರು ಹಿನ್ನೆಲೆಯಲ್ಲಿ ನೋಡಿ. ಯಾವ ಕಡೆ ಸ್ಪಷ್ಟವಾಗಿದೆ?",
+        "Looking at the dot pattern, which one looks sharper — one, two, about the same, or hard to tell?":
+            "ಚುಕ್ಕಿಗಳನ್ನು ನೋಡಿ, ಯಾವುದು ಸ್ಪಷ್ಟ?",
+        "Comparing the two views of the dots, which looks clearer — one, two, about the same, or hard to tell?":
+            "ಎರಡೂ ದೃಶ್ಯಗಳನ್ನು ಹೋಲಿಸಿ. ಯಾವುದು ಸ್ಪಷ್ಟ?",
+        "Looking again at the red and green backgrounds, which side makes the letters clearer — red, green, or about the same?":
+            "ಮತ್ತೆ ಕೆಂಪು ಹಸಿರು ನೋಡಿ. ಯಾವ ಕಡೆ ಉತ್ತಮ?",
+        "Look at the two rows of letters. Which row looks clearer — the top row, the bottom row, or do they look about the same?":
+            "ಎರಡು ಸಾಲುಗಳನ್ನು ನೋಡಿ. ಯಾವ ಸಾಲು ಸ್ಪಷ್ಟ?",
+        "Looking at the near text, is it clear to read, a bit blurry, or not readable?":
+            "ಹತ್ತಿರದ ಅಕ್ಷರ ನೋಡಿ. ಸ್ಪಷ್ಟವಾಗಿದೆಯೇ, ಮಸುಕಾಗಿದೆಯೇ?",
+        "Looking at the near text again, is it clear, blurry, or not readable?":
+            "ಮತ್ತೆ ಹತ್ತಿರದ ಅಕ್ಷರ ನೋಡಿ. ಸ್ಪಷ್ಟ, ಮಸುಕು?",
+        "Looking at the near text with both eyes, is it clear and comfortable, or still not clear?":
+            "ಎರಡೂ ಕಣ್ಣಿನಿಂದ ನೋಡಿ. ಸ್ಪಷ್ಟವಾಗಿ ಮತ್ತು ಆರಾಮವಾಗಿ ಕಾಣುತ್ತಿದೆಯೇ?",
     },
-    "mr": {  # Marathi
+    "mr": {  # Marathi — all 12 FSM questions
         "Looking at the letters, are they clear, slightly blurry, or not readable?":
-            "अक्षरे बघा, ती स्पष्ट दिसत आहेत, थोडी धूसर आहेत, की वाचता येत नाहीत?",
+            "अक्षरे बघा, स्पष्ट दिसत आहेत, धूसर आहेत, की वाचता येत नाहीत?",
         "Looking at the letters now, are they clear, a bit blurry, or not readable?":
             "आता अक्षरे बघा, स्पष्ट आहेत, धूसर आहेत, की वाचता येत नाहीत?",
+        "Look carefully at the dot pattern. Between view one and two, which one makes the dots look sharper or better aligned? Is it one, two, about the same, or hard to tell?":
+            "ठिपक्यांकडे नीट बघा. कोणता दृश्य स्पष्ट आहे?",
+        "Again looking at the dot pattern, which view makes the dots look clearer or sharper — one, two, about the same, or hard to tell?":
+            "पुन्हा ठिपके बघा. कोणता स्पष्ट आहे?",
         "Looking at the letters on the red and green backgrounds, which side looks clearer — red, green, or do they look about the same?":
             "लाल आणि हिरव्या पार्श्वभूमीवर अक्षरे बघा. कोणती बाजू स्पष्ट आहे?",
+        "Looking at the dot pattern, which one looks sharper — one, two, about the same, or hard to tell?":
+            "ठिपके बघा, कोणता स्पष्ट?",
+        "Comparing the two views of the dots, which looks clearer — one, two, about the same, or hard to tell?":
+            "दोन्ही दृश्ये तुलना करा. कोणता स्पष्ट?",
+        "Looking again at the red and green backgrounds, which side makes the letters clearer — red, green, or about the same?":
+            "पुन्हा लाल हिरवा बघा. कोणती बाजू चांगली?",
+        "Look at the two rows of letters. Which row looks clearer — the top row, the bottom row, or do they look about the same?":
+            "दोन ओळी बघा. कोणती ओळ स्पष्ट आहे — वरची, खालची, की दोन्ही सारख्या?",
+        "Looking at the near text, is it clear to read, a bit blurry, or not readable?":
+            "जवळचा मजकूर बघा. स्पष्ट आहे, धूसर आहे, की वाचता येत नाही?",
+        "Looking at the near text again, is it clear, blurry, or not readable?":
+            "पुन्हा जवळचा मजकूर बघा. स्पष्ट, धूसर, की नाही?",
+        "Looking at the near text with both eyes, is it clear and comfortable, or still not clear?":
+            "दोन्ही डोळ्यांनी जवळचा मजकूर बघा. स्पष्ट आणि आरामदायक आहे का?",
     },
 }
 
