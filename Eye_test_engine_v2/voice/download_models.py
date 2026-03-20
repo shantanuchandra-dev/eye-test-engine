@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Download models required for the voice pipeline into voice/models/.
+"""Download all models required for the voice pipeline into voice/models/.
 
 Run once before starting the voice server:
     python -m voice.download_models
 
 Downloads into voice/models/:
-    - faster-whisper 'small' model (~460MB)  → voice/models/whisper-small/
-    - Piper TTS voices (~60MB each)          → voice/models/piper/
-    - Silero VAD model (~2MB)                → voice/models/silero/
+    - faster-whisper 'large-v3-turbo' (~1.5GB)  → voice/models/whisper-v3-turbo/
+    - Piper TTS voices (5 × ~60MB each)         → voice/models/piper/
+    - Silero VAD model (~34MB)                   → voice/models/silero/
+
+Also called automatically by run.py if voice/models/ is empty.
 """
 
 import os
@@ -33,8 +35,8 @@ PIPER_HF_BASE = "https://huggingface.co/rhasspy/piper-voices/resolve/main"
 
 
 def download_whisper():
-    """Download the faster-whisper model to voice/models/whisper-small/."""
-    print(f"[1/3] Downloading faster-whisper 'large-v3-turbo' model → {WHISPER_DIR}")
+    """Download faster-whisper large-v3-turbo to voice/models/whisper-v3-turbo/."""
+    print(f"[1/3] Downloading faster-whisper 'large-v3-turbo' (~1.5GB) → {WHISPER_DIR}")
     WHISPER_DIR.mkdir(parents=True, exist_ok=True)
     try:
         from faster_whisper import WhisperModel
@@ -44,7 +46,7 @@ def download_whisper():
             compute_type="int8",
             download_root=str(WHISPER_DIR),
         )
-        print(f"  OK  faster-whisper 'large-v3-turbo' model saved to {WHISPER_DIR}")
+        print(f"  OK  large-v3-turbo saved to {WHISPER_DIR}")
         del model
     except Exception as e:
         print(f"  FAIL  {e}")
@@ -53,8 +55,8 @@ def download_whisper():
 
 
 def download_piper():
-    """Download Piper TTS voices to voice/models/piper/."""
-    print(f"[2/3] Downloading Piper TTS voices → {PIPER_DIR}")
+    """Download Piper TTS voices (5 voices) to voice/models/piper/."""
+    print(f"[2/3] Downloading Piper TTS voices ({len(PIPER_VOICES)} voices) → {PIPER_DIR}")
     PIPER_DIR.mkdir(parents=True, exist_ok=True)
     all_ok = True
 
@@ -81,7 +83,7 @@ def download_piper():
 
 
 def download_silero():
-    """Download the Silero VAD model to voice/models/silero/."""
+    """Download Silero VAD model (~34MB) to voice/models/silero/."""
     print(f"[3/3] Downloading Silero VAD model → {SILERO_DIR}")
     SILERO_DIR.mkdir(parents=True, exist_ok=True)
     try:
@@ -94,7 +96,7 @@ def download_silero():
             trust_repo=True,
         )
         torch.hub.set_dir(original_hub_dir)
-        print(f"  OK  Silero VAD model saved to {SILERO_DIR}")
+        print(f"  OK  Silero VAD saved to {SILERO_DIR}")
         del model
     except Exception as e:
         print(f"  FAIL  {e}")
@@ -103,35 +105,82 @@ def download_silero():
 
 
 def check_models():
-    """Check which models are already downloaded."""
-    status = {}
-    status["whisper"] = WHISPER_DIR.exists() and any(WHISPER_DIR.iterdir())
-    status["piper"] = PIPER_DIR.exists() and any(PIPER_DIR.iterdir())
-    status["silero"] = SILERO_DIR.exists() and any(SILERO_DIR.iterdir())
-    return status
+    """Check which models are already downloaded. Returns dict of booleans."""
+    return {
+        "whisper": WHISPER_DIR.exists() and any(WHISPER_DIR.rglob("model.bin")),
+        "piper": PIPER_DIR.exists() and any(PIPER_DIR.glob("*.onnx")),
+        "silero": SILERO_DIR.exists() and (
+            any(SILERO_DIR.rglob("*.jit")) or any(SILERO_DIR.rglob("*.pt")) or any(SILERO_DIR.rglob("hubconf.py"))
+        ),
+    }
+
+
+def models_ready() -> bool:
+    """Return True if all required models are downloaded."""
+    status = check_models()
+    return all(status.values())
+
+
+def ensure_models():
+    """Download any missing models. Called by run.py on startup."""
+    status = check_models()
+    if all(status.values()):
+        return True
+
+    print("=" * 55)
+    print("Voice models missing — downloading automatically...")
+    print(f"Target: {MODELS_DIR}")
+    print("=" * 55)
+
+    results = []
+
+    if status["whisper"]:
+        print(f"[1/3] Whisper large-v3-turbo: already present")
+        results.append(True)
+    else:
+        results.append(download_whisper())
+
+    results.append(download_piper())  # always check — individual voices may be missing
+
+    if status["silero"]:
+        print(f"[3/3] Silero VAD: already present")
+        results.append(True)
+    else:
+        results.append(download_silero())
+
+    if all(results):
+        print("\nAll models ready!")
+        return True
+    else:
+        print("\nSome downloads failed. Voice may not work correctly.")
+        return False
 
 
 if __name__ == "__main__":
     print("=" * 55)
-    print("Voice Pipeline — Local Model Download")
+    print("Voice Pipeline — Model Download")
     print(f"Target: {MODELS_DIR}")
     print("=" * 55)
     print()
 
     existing = check_models()
+    print(f"Status: whisper={'OK' if existing['whisper'] else 'MISSING'} "
+          f"piper={'OK' if existing['piper'] else 'MISSING'} "
+          f"silero={'OK' if existing['silero'] else 'MISSING'}")
+    print()
+
     results = []
 
     if existing["whisper"]:
-        print(f"[1/3] faster-whisper already present in {WHISPER_DIR}, skipping")
+        print(f"[1/3] Whisper large-v3-turbo: already present, skipping")
         results.append(True)
     else:
         results.append(download_whisper())
 
-    # Always check Piper — individual voices may be missing
     results.append(download_piper())
 
     if existing["silero"]:
-        print(f"[3/3] Silero VAD already present in {SILERO_DIR}, skipping")
+        print(f"[3/3] Silero VAD: already present, skipping")
         results.append(True)
     else:
         results.append(download_silero())
@@ -141,9 +190,12 @@ if __name__ == "__main__":
         print("All models downloaded successfully!")
         print(f"Location: {MODELS_DIR}")
         print()
-        print("Voices available:")
+        print("Models:")
+        print(f"  Whisper: large-v3-turbo (STT)")
+        print(f"  Piper voices (TTS):")
         for v in PIPER_VOICES:
-            print(f"  - {v}")
+            print(f"    - {v}")
+        print(f"  Silero VAD")
     else:
         print("Some downloads failed. Check the errors above.")
         sys.exit(1)

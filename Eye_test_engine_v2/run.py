@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Launch the Eye Test Engine v2 API server.
 
-Set VOICE_ENABLED=true to also start the Pipecat voice WebSocket server on port 8766.
+Set VOICE_ENABLED=true to also start the voice WebSocket server on port 8766.
+Models are downloaded automatically if missing on first run.
 """
 import os
 import sys
@@ -25,11 +26,15 @@ if __name__ == "__main__":
         import threading
         from werkzeug.serving import make_server
 
+        # Auto-download voice models if missing
+        from voice.download_models import ensure_models
+        ensure_models()
+
         # Share the sessions dict with the voice WebSocket server
         from voice.ws_server import set_sessions_ref, preload_models, fastapi_app
         set_sessions_ref(sessions)
 
-        # Pre-load heavy models (Whisper ~2s, Silero ~0.5s) before starting servers
+        # Pre-load heavy models (Whisper, Silero, Meta MMS) before starting servers
         preload_models()
 
         voice_port = int(os.environ.get("VOICE_PORT", 8766))
@@ -43,7 +48,7 @@ if __name__ == "__main__":
         flask_thread.start()
         print(f"Flask API server running on http://{host}:{port}")
 
-        # Start FastAPI/Pipecat on main thread (asyncio event loop)
+        # Start FastAPI on main thread (asyncio event loop)
         import uvicorn
         print(f"Voice WebSocket server starting on ws://{host}:{voice_port}/ws/voice/{{session_id}}")
         uvicorn.run(
