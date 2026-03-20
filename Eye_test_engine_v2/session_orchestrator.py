@@ -17,6 +17,7 @@ from fsm.patient import PatientInput
 from fsm.prescription import EyePrescription
 from fsm.refraction_engine import RefractionFSMEngine
 from fsm.fsm_runtime import FSMRuntimeRow
+from voice.chart_reading import resolve_chart_letters
 
 # Load io/outputs.py directly to avoid clash with Python's built-in io module
 _spec = _ilu.spec_from_file_location(
@@ -600,6 +601,12 @@ class SessionOrchestrator:
             "is_terminal": terminal,
             "total_rows": len(self.session_history),
         }
+
+        # Snellen coarse-sphere lines (B/D): letters for the current chart line (voice + UI)
+        if STATE_CHART_MAP.get(state, "") == "snellen":
+            response["chart_letters"] = resolve_chart_letters(str(row.chart_param or "400"))
+        else:
+            response["chart_letters"] = ""
 
         if terminal:
             response["terminal_state"] = row.next_state

@@ -302,6 +302,72 @@
             100% { background-position: -100% 0; }
         }
 
+        /* Snellen line — high-contrast strip so patients/operators see it instantly */
+        #chartLettersRow {
+            margin-top: 1rem;
+            padding: 0;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 3px solid #0d47a1;
+            box-shadow: 0 4px 14px rgba(13, 71, 161, 0.2);
+            display: none;
+        }
+        #chartLettersRow.visible {
+            display: block;
+        }
+        #chartLettersRow .chart-letters-banner {
+            background: #0d47a1;
+            color: #fff;
+            padding: 10px 14px;
+            font-size: 0.8rem;
+            font-weight: 800;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+        }
+        #chartLettersRow .chart-letters-banner span {
+            display: block;
+            font-size: 0.68rem;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            text-transform: none;
+            opacity: 0.92;
+            margin-top: 4px;
+        }
+        #chartLettersRow .chart-letters-cells {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px 10px;
+            justify-content: center;
+            align-items: center;
+            padding: 16px 14px 18px;
+            background: #fafafa;
+            border-top: 1px solid #e0e0e0;
+        }
+        #chartLettersRow .chart-letter-cell {
+            flex: 0 0 auto;
+            min-width: 2.5rem;
+            height: 3.25rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', 'Courier New', monospace;
+            font-size: clamp(1.75rem, 5vw, 2.35rem);
+            font-weight: 800;
+            color: #111;
+            background: #fff;
+            border: 2px solid #263238;
+            border-radius: 8px;
+            box-shadow: 0 2px 0 #cfd8dc;
+            line-height: 1;
+        }
+        @media (max-width: 520px) {
+            #chartLettersRow .chart-letter-cell {
+                min-width: 2rem;
+                height: 2.75rem;
+                font-size: 1.5rem;
+            }
+        }
+
         /* ── Response Buttons ───────────────────────── */
         #intentButtons {
             display: flex;
@@ -1009,6 +1075,7 @@
                         <span id="stepInfo">-</span>
                     </div>
                     <div id="questionText">Waiting for session...</div>
+                    <div id="chartLettersRow" aria-live="polite"></div>
                     <div id="intentButtons"></div>
                     <div id="voiceTranscript" style="margin-top:8px;font-size:0.85rem;color:#78909c;font-style:italic;opacity:0.5;min-height:1.2em;transition:opacity 0.3s;"></div>
                 </div>

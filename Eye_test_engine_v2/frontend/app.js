@@ -1127,6 +1127,28 @@ function displayQuestion(data) {
     if (phaseBadge) phaseBadge.textContent = data.phase_name || data.state || 'Unknown';
     if (questionText) questionText.textContent = data.question || 'Waiting for response...';
 
+    // Snellen chart line — letters to read aloud (coarse sphere B/D)
+    const chartLettersRow = document.getElementById('chartLettersRow');
+    if (chartLettersRow) {
+        const raw = data.chart_letters;
+        if (raw && String(raw).trim().length > 0) {
+            const letters = String(raw).replace(/\s+/g, '').toUpperCase().split('');
+            const cells = letters.map((ch) =>
+                `<span class="chart-letter-cell">${ch}</span>`
+            ).join('');
+            chartLettersRow.classList.add('visible');
+            chartLettersRow.innerHTML =
+                '<div class="chart-letters-banner">Snellen line' +
+                '<span>Read each letter aloud — same order as on the chart</span></div>' +
+                `<div class="chart-letters-cells">${cells}</div>`;
+            chartLettersRow.setAttribute('aria-label', 'Snellen letters to read: ' + letters.join(' '));
+        } else {
+            chartLettersRow.classList.remove('visible');
+            chartLettersRow.innerHTML = '';
+            chartLettersRow.removeAttribute('aria-label');
+        }
+    }
+
     // Eye indicator
     if (eyeIndicator) {
         const eye = data.eye || '';

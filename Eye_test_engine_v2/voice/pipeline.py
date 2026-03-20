@@ -16,6 +16,8 @@ from typing import Optional
 import torch
 from faster_whisper import WhisperModel
 
+from voice.chart_reading import ChartReadingDetector, looks_like_chart_letter_utterance, resolve_chart_letters
+from voice.chart_reading import listen_seconds as coarse_sphere_listen_seconds
 from voice.fuzzy_matcher import match_transcript
 from voice.regional_languages import (
     SUPPORTED_LANGUAGES, WHISPER_LANG_CODES,
@@ -557,7 +559,7 @@ class VoicePipeline:
         # Audio buffer for STT (accumulates while user is speaking — local mode only)
         self._speech_buffer = np.array([], dtype=np.int16)
 
-        # Silence timer: if no speech detected for 3s, rephrase the question
+        # Silence timer: if no speech after a question, rephrase (3s default; longer on B/D chart read)
         self._silence_timer = None
         self._silence_timeout_sec = 3.0
         self._has_rephrased = False  # only rephrase once per question
@@ -650,9 +652,18 @@ class VoicePipeline:
             if self._vad_speaking:
                 self._speech_buffer = np.concatenate([self._speech_buffer, chunk])
 
+    def _apply_silence_timeout_for_current_state(self):
+        row = self.session.current_row
+        if row and row.state in ("B", "D") and row.response_type == "READABILITY":
+            letters = resolve_chart_letters(row.chart_param or "400")
+            self._silence_timeout_sec = coarse_sphere_listen_seconds(letters)
+        else:
+            self._silence_timeout_sec = 3.0
+
     def start_silence_timer(self):
         """Start the silence timer. Called after TTS finishes a question."""
         self._cancel_silence_timer()
+        self._apply_silence_timeout_for_current_state()
         self._silence_timer = asyncio.create_task(self._silence_timer_task())
 
     def _cancel_silence_timer(self):
@@ -669,7 +680,7 @@ class VoicePipeline:
             pass
 
     async def _on_silence_timeout(self):
-        """Called when patient hasn't spoken for 3 seconds after a question."""
+        """Called when patient hasn't spoken within the silence window after a question."""
         if not self._running or self._vad_speaking or self._has_rephrased:
             return
 
@@ -765,10 +776,27 @@ class VoicePipeline:
 
         response_type = row.response_type
 
-        # Fuzzy match
-        matched_option, confidence = match_transcript(
-            transcript, response_type, self._confidence_threshold
-        )
+        matched_option = None
+        confidence = 0.0
+        chart_param = row.chart_param or "400"
+        if (
+            row.state in ("B", "D")
+            and response_type == "READABILITY"
+            and looks_like_chart_letter_utterance(transcript, chart_param)
+        ):
+            letters = resolve_chart_letters(chart_param)
+            detector = ChartReadingDetector()
+            matched_option = detector.get_chart_intent(
+                [row.opt_1, row.opt_2, row.opt_3],
+                transcript,
+                letters,
+            )
+            confidence = 100.0
+            print(f"[VOICE] Chart LCS intent: {matched_option} (chart_param={chart_param})")
+        else:
+            matched_option, confidence = match_transcript(
+                transcript, response_type, self._confidence_threshold
+            )
 
         # Compute ambient RMS
         if len(audio) > 0:

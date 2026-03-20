@@ -214,11 +214,18 @@ def session_intake():
     patient_data = payload.get("patient", {})
     patient_data["visit_id"] = session_id
 
-    session = SessionOrchestrator(
-        base_url=PHOROPTER_BASE_URL,
-        phoropter_id=phoropter_id,
-        calibration_path=CALIBRATION_PATH,
-    )
+    try:
+        session = SessionOrchestrator(
+            base_url=PHOROPTER_BASE_URL,
+            phoropter_id=phoropter_id,
+            calibration_path=CALIBRATION_PATH,
+        )
+    except FileNotFoundError as e:
+        return jsonify({
+            "error": "Calibration file missing or unreadable",
+            "detail": str(e),
+            "expected_path": CALIBRATION_PATH,
+        }), 500
     sessions[session_id] = session
 
     try:
