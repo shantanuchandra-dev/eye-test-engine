@@ -971,8 +971,8 @@ class VoicePipeline:
         segments, _ = self._whisper.transcribe(
             audio_float,
             language=lang,
-            beam_size=3,
-            vad_filter=False,  # We already did VAD
+            beam_size=1,
+            vad_filter=True,
         )
         return [seg.text for seg in segments]
 

@@ -108,7 +108,7 @@ def transcribe_with_model(model, utterances):
         start = time.time()
         segments, _ = model.transcribe(
             audio, language=utt.get("lang", "en"),
-            beam_size=3, vad_filter=False,
+            beam_size=1, vad_filter=True,
         )
         transcript = " ".join(seg.text for seg in segments).strip()
         elapsed = time.time() - start
