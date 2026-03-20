@@ -78,7 +78,8 @@
       "Bash(git add:*)",
       "Bash(ffmpeg -version)",
       "Bash(git commit:*)",
-      "Bash(chmod:*)"
+      "Bash(chmod:*)",
+      "Bash(pip show:*)"
     ]
   }
 }
