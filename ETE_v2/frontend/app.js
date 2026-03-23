@@ -182,16 +182,22 @@ document.addEventListener('DOMContentLoaded', () => {
   // Keyboard shortcuts
   document.addEventListener('keydown', handleKeyboard);
 
-  // Set mic button to reflect default-on state
-  updateVoiceButton();
+  // Initialize voice mode select
+  setVoiceMode('browser'); // Default to browser STT
   if (!SpeechRecognition) {
-    voiceEnabled = false;
-    updateVoiceButton();
-    console.warn('SpeechRecognition not available in this browser');
+    console.warn('SpeechRecognition not available — browser mode disabled');
   }
 
-  // Check if faster-whisper is available on the backend
-  checkWhisperAvailability();
+  // Check whisper availability and update select options
+  checkWhisperAvailability().then(() => {
+    const sel = document.getElementById('voiceModeSelect');
+    if (sel) {
+      const whisperOpt = sel.querySelector('option[value="whisper"]');
+      if (whisperOpt) {
+        whisperOpt.textContent = whisperAvailable ? 'Mic: Whisper' : 'Mic: Whisper (model not found)';
+      }
+    }
+  });
 
   // Check if logs were previously unlocked
   if (localStorage.getItem('logs_unlocked_until')) {
@@ -487,36 +493,44 @@ async function showQuestion(data) {
 
 // ── Voice input pipeline (Browser SpeechRecognition) ──
 
-function toggleVoice() {
-  if (!SpeechRecognition) {
-    alert('Speech Recognition is not supported in this browser. Use Chrome or Edge.');
-    return;
-  }
-  voiceEnabled = !voiceEnabled;
-  updateVoiceButton();
+let voiceMode = 'browser'; // 'off', 'browser', 'whisper'
 
-  if (!voiceEnabled) {
-    if (recognition) { try { recognition.abort(); } catch(e) {} recognition = null; }
-    voiceRecording = false;
-    voiceSubmitting = false;
-    updateVoiceStatus('—');
-  } else {
-    updateVoiceStatus('Ready');
-    // If we have an active question, start listening now
-    if (currentState && !currentState.is_terminal) {
-      playBeep();
-      setTimeout(() => startVoiceCapture(currentState.state, currentState.options || [], currentState.step), 200);
-    }
+function setVoiceMode(mode) {
+  // Stop any active recording
+  if (recognition) { try { recognition.abort(); } catch(e) {} recognition = null; }
+  if (mediaRecorder && mediaRecorder.state === 'recording') { mediaRecorder.stop(); }
+  if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+  voiceRecording = false;
+  voiceSubmitting = false;
+
+  voiceMode = mode;
+  voiceEnabled = mode !== 'off';
+
+  // Force whisperAvailable based on selection
+  if (mode === 'whisper') {
+    whisperAvailable = true;
+  } else if (mode === 'browser') {
+    whisperAvailable = false;
+  }
+
+  updateVoiceModeSelect();
+  updateVoiceStatus(voiceEnabled ? `Ready (${mode})` : '—');
+
+  // If turning on and we have an active question, start listening
+  if (voiceEnabled && currentState && !currentState.is_terminal) {
+    playBeep();
+    setTimeout(() => startVoiceCapture(currentState.state, currentState.options || [], currentState.step), 200);
   }
 }
 
-function updateVoiceButton() {
-  const btn = document.getElementById('voiceBtn');
-  if (btn) {
-    btn.textContent = `Mic: ${voiceEnabled ? 'ON' : 'OFF'}`;
-    btn.style.background = voiceEnabled ? 'rgba(34,197,94,0.3)' : '';
-  }
+function updateVoiceModeSelect() {
+  const sel = document.getElementById('voiceModeSelect');
+  if (sel) sel.value = voiceMode;
 }
+
+// Legacy compatibility
+function toggleVoice() { setVoiceMode(voiceMode === 'off' ? 'browser' : 'off'); }
+function updateVoiceButton() { updateVoiceModeSelect(); }
 
 function startVoiceCapture(state, options, step) {
   if (!voiceEnabled) return;

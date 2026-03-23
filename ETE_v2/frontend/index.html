@@ -80,6 +80,20 @@ body {
   cursor: pointer; transition: all 0.15s;
 }
 .topbar-btn:hover { background: rgba(255,255,255,0.18); }
+.topbar-select {
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.15);
+  color: white; padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  font: 500 0.78rem var(--font-body);
+  cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='white'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  padding-right: 20px;
+}
+.topbar-select option { color: #0f172a; background: white; }
 .topbar-btn.danger { border-color: rgba(220,38,38,0.5); }
 .topbar-btn.danger:hover { background: rgba(220,38,38,0.3); }
 
@@ -496,7 +510,11 @@ body {
   </div>
   <div class="topbar-right">
     <span class="fog-badge" id="fogBadge">FOG ACTIVE</span>
-    <button class="topbar-btn" id="voiceBtn" onclick="toggleVoice()" style="background:rgba(34,197,94,0.3)">Mic: ON</button>
+    <select class="topbar-select" id="voiceModeSelect" onchange="setVoiceMode(this.value)">
+      <option value="browser" selected>Mic: Browser</option>
+      <option value="whisper">Mic: Whisper</option>
+      <option value="off">Mic: OFF</option>
+    </select>
     <button class="topbar-btn" id="ttsBtn" onclick="toggleTTS()">TTS: ON</button>
     <button class="topbar-btn" id="dvBtn" onclick="toggleDvPanel()">DV</button>
     <button class="topbar-btn" id="logsBtn" onclick="toggleLogs()">Logs</button>
