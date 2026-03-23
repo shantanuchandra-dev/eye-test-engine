@@ -233,7 +233,10 @@ def session_intake():
 
     session_id = f"session_{int(time.time() * 1000)}"
 
-    orchestrator = SessionOrchestrator(calibration_path=CALIBRATION_PATH)
+    orchestrator = SessionOrchestrator(
+        calibration_path=CALIBRATION_PATH,
+        phoropter_base_url=PHOROPTER_BASE_URL,
+    )
     sessions[session_id] = orchestrator
 
     result = orchestrator.initialize(patient, session_id, phoropter_id)
@@ -474,6 +477,17 @@ def session_sync_power(session_id):
     data = _request_payload()
     result = sessions[session_id].sync_power(data)
     return jsonify(result)
+
+
+@app.route("/api/session/<session_id>/phoropter-dispatch", methods=["POST"])
+def session_phoropter_dispatch(session_id):
+    """Enable/disable phoropter auto-dispatch for this session."""
+    if session_id not in sessions:
+        return jsonify({"error": "Session not found"}), 404
+    data = _request_payload()
+    enabled = data.get("enabled", True)
+    sessions[session_id].phoropter_auto_dispatch = bool(enabled)
+    return jsonify({"phoropter_auto_dispatch": bool(enabled)})
 
 
 @app.route("/api/session/<session_id>/failed-voice-attempts", methods=["POST"])

@@ -1498,6 +1498,28 @@ function toggleTTS() {
   if (!ttsEnabled) speechSynthesis.cancel();
 }
 
+// ── Phoropter auto-dispatch toggle ──
+let phoropterEnabled = true;
+
+async function togglePhoropter() {
+  phoropterEnabled = !phoropterEnabled;
+  const btn = document.getElementById('phoropBtn');
+  if (btn) {
+    btn.textContent = `Phoropter: ${phoropterEnabled ? 'ON' : 'OFF'}`;
+    btn.style.background = phoropterEnabled ? 'rgba(34,197,94,0.3)' : '';
+  }
+  // Tell backend to enable/disable auto-dispatch
+  if (sessionId) {
+    try {
+      await fetch(`${API}/api/session/${sessionId}/phoropter-dispatch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: phoropterEnabled }),
+      });
+    } catch (e) { console.warn('Could not toggle phoropter dispatch:', e); }
+  }
+}
+
 // ── Loading ──
 function showLoading(show) {
   document.getElementById('loadingOverlay').classList.toggle('active', show);

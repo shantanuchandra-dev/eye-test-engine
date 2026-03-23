@@ -11,11 +11,17 @@ Responsibilities:
 """
 from __future__ import annotations
 
+import logging
+import os
 import time
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+import requests as http_requests
+
+logger = logging.getLogger(__name__)
 
 from fsm.config.calibration_loader import CalibrationLoader
 from fsm.engines.refraction_fsm_engine import COMPACT_PROMPT_CONFIG, RefractionFSMEngine
@@ -105,10 +111,15 @@ STATE_PHASE_DISPLAY = {
 class SessionOrchestrator:
     """Drives a single eye test session using the FSMv3.1 engine."""
 
-    def __init__(self, calibration_path: str = "config/calibration.csv"):
+    def __init__(self, calibration_path: str = "config/calibration.csv",
+                 phoropter_base_url: str = ""):
         self.calibration = CalibrationLoader(calibration_path)
         self.engine = RefractionFSMEngine(self.calibration)
         self.dv_engine = DerivedVariablesEngine(self.calibration)
+        self.phoropter_base_url = phoropter_base_url or os.environ.get(
+            "PHOROPTER_BASE_URL", "https://rajasthan-royals.preprod.lenskart.com"
+        )
+        self.phoropter_auto_dispatch: bool = True  # Send commands automatically
 
         # Session state
         self.session_id: str = ""
@@ -198,6 +209,10 @@ class SessionOrchestrator:
         # Log conversation start
         self._log_conversation("system", f"Session started. State: {self.current_row.state}")
 
+        # Send initial phoropter commands (chart + power + occluder)
+        phoropter_result = self.dispatch_phoropter_commands()
+        self._log_conversation("system", f"Phoropter init: {phoropter_result}")
+
         return self._build_response()
 
     def process_response(self, response_value: str, voice_meta: Optional[Dict] = None) -> dict:
@@ -276,6 +291,9 @@ class SessionOrchestrator:
 
         # Update phoropter prev-state
         self._update_phoropter_prev_state()
+
+        # Auto-dispatch phoropter commands for the new state
+        phoropter_result = self.dispatch_phoropter_commands()
 
         # Log the question
         self._log_conversation(
@@ -574,3 +592,63 @@ class SessionOrchestrator:
             "body": body,
         }
         self.curl_log.append(entry)
+
+    # ── Phoropter auto-dispatch ─────────────────────────────────────
+
+    def dispatch_phoropter_commands(self) -> dict:
+        """Send phoropter commands to the broker for the current FSM state.
+
+        Follows the FSMv3.1_R2 command pipeline:
+        1. Send chart command (snellen/jcc/duochrome/bino/near)
+        2. Send run-tests payload with prev_state for delta calculation
+        3. For JCC states: send power_axis_switch command
+
+        Returns dict with results of each command sent.
+        """
+        if not self.phoropter_auto_dispatch or not self.phoropter_id:
+            return {"skipped": True, "reason": "auto-dispatch disabled or no phoropter_id"}
+
+        commands = self.get_phoropter_commands()
+        if not commands:
+            return {"skipped": True, "reason": "no commands for current state"}
+
+        results = {}
+        base = f"{self.phoropter_base_url}/phoropter/{self.phoropter_id}"
+
+        # 1. Chart command
+        chart = commands.get("chart")
+        if chart:
+            chart_url = f"{base}/run-tests"
+            chart_body = {"test_cases": [{"chart": chart}]}
+            results["chart"] = self._post_to_phoropter(chart_url, chart_body)
+
+        # 2. Run-tests (power + occluder with prev-state)
+        run_tests = commands.get("run_tests")
+        if run_tests:
+            run_url = f"{base}/run-tests"
+            results["run_tests"] = self._post_to_phoropter(run_url, run_tests)
+
+        # 3. JCC mode (axis/power switch for JCC states)
+        jcc_mode = commands.get("jcc_mode")
+        if jcc_mode:
+            jcc_url = f"{base}/run-tests"
+            jcc_body = {"test_cases": [{"jcc": "power_axis_switch"}]}
+            results["jcc_mode"] = self._post_to_phoropter(jcc_url, jcc_body)
+
+        return results
+
+    def _post_to_phoropter(self, url: str, body: dict) -> dict:
+        """Send a POST request to the phoropter broker and log it."""
+        self.log_curl_command("POST", url, body)
+        try:
+            resp = http_requests.post(url, json=body, timeout=15)
+            try:
+                data = resp.json()
+            except Exception:
+                data = resp.text
+            result = {"status": resp.status_code, "data": data}
+            logger.info(f"Phoropter POST {url} → {resp.status_code}")
+            return result
+        except http_requests.exceptions.RequestException as e:
+            logger.warning(f"Phoropter POST {url} failed: {e}")
+            return {"status": 0, "error": str(e)}
