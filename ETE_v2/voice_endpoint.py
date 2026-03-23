@@ -62,12 +62,14 @@ def _get_transcriber():
 def transcribe_audio(
     audio_base64: str,
     language_hint: Optional[str] = None,
+    audio_format: str = "pcm16",
 ) -> dict:
-    """Transcribe base64-encoded PCM16 audio using faster-whisper.
+    """Transcribe base64-encoded audio using faster-whisper.
 
     Args:
-        audio_base64: Base64-encoded raw PCM16 mono 16kHz audio
+        audio_base64: Base64-encoded audio data
         language_hint: Optional language hint ('en', 'hi', etc.)
+        audio_format: 'pcm16' for raw PCM16 mono 16kHz, 'webm' for WebM/Opus blob
 
     Returns:
         dict with: text, detected_language, language_probability, stt_seconds, backend
@@ -76,25 +78,34 @@ def transcribe_audio(
     if transcriber is None:
         return {"error": "faster-whisper not available", "text": "", "backend": "none"}
 
-    # Decode base64 to raw PCM bytes
+    # Decode base64
     try:
-        pcm_bytes = base64.b64decode(audio_base64)
+        audio_bytes = base64.b64decode(audio_base64)
     except Exception as e:
         return {"error": f"Invalid base64 audio: {e}", "text": "", "backend": "none"}
 
-    if len(pcm_bytes) < SAMPLE_RATE * SAMPLE_WIDTH * 0.3:
-        return {"error": "Audio too short (< 0.3s)", "text": "", "backend": transcriber.backend_name}
+    if len(audio_bytes) < 100:
+        return {"error": "Audio data too small", "text": "", "backend": transcriber.backend_name}
 
-    # Write to temp WAV file (faster-whisper needs a file path)
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-        tmp_path = tmp.name
-        with wave.open(tmp, "wb") as wf:
-            wf.setnchannels(CHANNELS)
-            wf.setsampwidth(SAMPLE_WIDTH)
-            wf.setframerate(SAMPLE_RATE)
-            wf.writeframes(pcm_bytes)
-
+    tmp_path = None
     try:
+        if audio_format == "webm":
+            # Save WebM blob directly — faster-whisper/ffmpeg can decode it
+            with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as tmp:
+                tmp_path = tmp.name
+                tmp.write(audio_bytes)
+        else:
+            # Raw PCM16 mono 16kHz — wrap in WAV
+            if len(audio_bytes) < SAMPLE_RATE * SAMPLE_WIDTH * 0.3:
+                return {"error": "Audio too short (< 0.3s)", "text": "", "backend": transcriber.backend_name}
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                tmp_path = tmp.name
+                with wave.open(tmp, "wb") as wf:
+                    wf.setnchannels(CHANNELS)
+                    wf.setsampwidth(SAMPLE_WIDTH)
+                    wf.setframerate(SAMPLE_RATE)
+                    wf.writeframes(audio_bytes)
+
         stt_start = time.perf_counter()
         result = transcriber.transcribe_result(
             tmp_path,
@@ -114,10 +125,11 @@ def transcribe_audio(
         logger.error(f"Transcription failed: {e}")
         return {"error": str(e), "text": "", "backend": transcriber.backend_name}
     finally:
-        try:
-            os.unlink(tmp_path)
-        except Exception:
-            pass
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
 
 
 def is_whisper_available() -> bool:

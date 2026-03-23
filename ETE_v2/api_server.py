@@ -257,8 +257,9 @@ def voice_transcribe():
     if not audio_b64:
         return jsonify({"error": "No audio data", "text": ""}), 400
 
+    audio_format = data.get("audio_format", "pcm16")
     from voice_endpoint import transcribe_audio
-    result = transcribe_audio(audio_b64, language_hint=language if language != "auto" else None)
+    result = transcribe_audio(audio_b64, language_hint=language if language != "auto" else None, audio_format=audio_format)
     return jsonify(result)
 
 
@@ -280,9 +281,15 @@ def voice_transcribe_and_match():
     if not audio_b64:
         return jsonify({"error": "No audio data", "text": "", "accepted": False}), 400
 
+    audio_format = data.get("audio_format", "pcm16")
+
     # Step 1: Transcribe
     from voice_endpoint import transcribe_audio
-    stt_result = transcribe_audio(audio_b64, language_hint=language if language != "auto" else None)
+    stt_result = transcribe_audio(
+        audio_b64,
+        language_hint=language if language != "auto" else None,
+        audio_format=audio_format,
+    )
 
     if stt_result.get("error"):
         return jsonify({

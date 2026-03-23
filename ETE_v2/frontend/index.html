@@ -234,8 +234,6 @@ body {
 
 /* ── Chat conversation ── */
 .conversation-panel {
-  border-bottom: 1px solid var(--border);
-  max-height: 300px;
   overflow-y: auto;
   padding: 10px 12px;
 }
@@ -243,55 +241,48 @@ body {
 .conversation-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
 .chat-bubble {
-  max-width: 88%;
-  padding: 8px 12px;
-  border-radius: 12px;
-  margin-bottom: 6px;
-  font-size: 0.82rem;
-  line-height: 1.4;
-  position: relative;
+  max-width: 95%;
+  padding: 4px 8px;
+  border-radius: 8px;
+  margin-bottom: 3px;
+  font-size: 0.78rem;
+  line-height: 1.3;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px;
 }
 .chat-bubble.optometrist {
   background: #eff6ff;
-  border: 1px solid #bfdbfe;
   color: #1e40af;
   margin-right: auto;
-  border-bottom-left-radius: 4px;
+  border-bottom-left-radius: 2px;
 }
 .chat-bubble.patient {
   background: #f0fdf4;
-  border: 1px solid #bbf7d0;
   color: #166534;
   margin-left: auto;
-  border-bottom-right-radius: 4px;
+  border-bottom-right-radius: 2px;
 }
 .chat-bubble.system {
   background: var(--surface);
-  border: 1px solid var(--border);
   color: var(--ink-muted);
   margin: 0 auto;
-  font-size: 0.75rem;
-  text-align: center;
+  font-size: 0.7rem;
 }
+.chat-text { flex-shrink: 1; }
 .chat-intent {
-  font: 600 0.72rem var(--font-mono);
+  font: 600 0.68rem var(--font-mono);
   color: var(--accent);
-  margin-top: 3px;
-  padding: 2px 6px;
+  padding: 1px 5px;
   background: rgba(37,99,235,0.08);
-  border-radius: 4px;
-  display: inline-block;
+  border-radius: 3px;
 }
 .chat-extra {
-  font-size: 0.7rem;
-  color: var(--ink-muted);
-  margin-top: 2px;
-}
-.chat-time {
   font-size: 0.65rem;
   color: var(--ink-muted);
-  text-align: right;
-  margin-top: 2px;
+}
+.chat-time {
+  font-size: 0.6rem;
+  color: var(--ink-muted);
+  margin-left: auto;
 }
 
 /* ── Terminal states ── */
@@ -339,13 +330,29 @@ body {
 .sidebar {
   background: var(--surface-card);
   border-left: 1px solid var(--border);
-  overflow-y: auto;
+  overflow: hidden;
   display: flex; flex-direction: column;
+  height: calc(100vh - 50px);
 }
 
 .sidebar-section {
   border-bottom: 1px solid var(--border);
   padding: 14px 16px;
+}
+.sidebar-section.collapsible {
+  flex-shrink: 0;
+}
+.sidebar-section.collapsible .collapsible-body {
+  overflow: hidden;
+  transition: max-height 0.25s ease;
+  max-height: 500px;
+}
+.sidebar-section.collapsible.collapsed .collapsible-body {
+  max-height: 0;
+  padding: 0;
+}
+.sidebar-section.collapsible.collapsed {
+  padding-bottom: 8px;
 }
 .sidebar-label {
   font-size: 0.7rem; font-weight: 700;
@@ -555,7 +562,7 @@ body {
 
   <!-- Sidebar -->
   <div class="sidebar">
-    <div class="sidebar-section">
+    <div class="sidebar-section" style="flex-shrink:0;">
       <div class="sidebar-label">Prescription</div>
       <table class="rx-table">
         <thead>
@@ -580,20 +587,30 @@ body {
       </table>
     </div>
 
-    <div class="sidebar-section">
-      <div class="sidebar-label">Conversation</div>
-      <div class="conversation-panel" id="conversationLog"></div>
+    <div class="sidebar-section" style="flex:1; min-height:0; display:flex; flex-direction:column; overflow:hidden;">
+      <div class="sidebar-label" style="flex-shrink:0;">Conversation</div>
+      <div class="conversation-panel" id="conversationLog" style="flex:1; min-height:0; overflow-y:auto;"></div>
     </div>
 
-    <div class="sidebar-section">
-      <div class="sidebar-label">Phase Progress</div>
-      <div class="phase-list" id="phaseList"></div>
+    <div class="sidebar-section collapsible" id="phaseSection">
+      <div class="sidebar-label" style="cursor:pointer; display:flex; align-items:center; justify-content:space-between;" onclick="toggleSidebarSection('phaseSection')">
+        Phase Progress
+        <span class="collapse-icon" style="font-size:0.7rem; color:var(--ink-muted);">▼</span>
+      </div>
+      <div class="collapsible-body">
+        <div class="phase-list" id="phaseList"></div>
+      </div>
     </div>
 
-    <div class="sidebar-section" style="flex:1">
-      <div class="sidebar-label">Session Info</div>
-      <div style="font-size:0.82rem; color:var(--ink-secondary); line-height:1.8" id="sessionInfo">
-        No active session
+    <div class="sidebar-section collapsible collapsed" id="infoSection">
+      <div class="sidebar-label" style="cursor:pointer; display:flex; align-items:center; justify-content:space-between;" onclick="toggleSidebarSection('infoSection')">
+        Session Info
+        <span class="collapse-icon" style="font-size:0.7rem; color:var(--ink-muted);">▶</span>
+      </div>
+      <div class="collapsible-body">
+        <div style="font-size:0.82rem; color:var(--ink-secondary); line-height:1.8" id="sessionInfo">
+          No active session
+        </div>
       </div>
     </div>
   </div>

@@ -229,8 +229,7 @@ async function restoreSession() {
       // Only add question to conversation if it wasn't restored from cache
       const convEl = document.getElementById('conversationLog');
       if ((!convEl || !convEl.innerHTML.trim()) && data.question && !data.is_terminal) {
-        addToConversation('optometrist', data.question, null,
-          `State: ${data.state} | ${data.phase_name}`);
+        addToConversation('optometrist', data.question, null, `${data.state}`);
       }
     } else {
       // Show language selection first (like FSMv3.1_R2)
@@ -301,8 +300,7 @@ function selectLanguage(lang, pendingData) {
   document.getElementById('endBtn').style.display = '';
   startHeartbeat();
   if (pendingData.question && !pendingData.is_terminal) {
-    addToConversation('optometrist', pendingData.question, null,
-      `State: ${pendingData.state} | ${pendingData.phase_name}`);
+    addToConversation('optometrist', pendingData.question, null, `${pendingData.state}`);
   }
 }
 
@@ -467,9 +465,12 @@ async function showQuestion(data) {
   }
 
   // 4. Speak the LOCALIZED question, then beep, then listen
+  //    Matches FSMv3.1_R2: _speak_text → _play_beep → capture
+  const canListen = voiceEnabled && (voiceMode === 'whisper' || SpeechRecognition);
+
   if (ttsEnabled) {
     speakQuestion(localizedQuestion);
-    if (voiceEnabled && SpeechRecognition) {
+    if (canListen) {
       const waitForSpeech = () => {
         if (speechSynthesis.speaking) {
           setTimeout(waitForSpeech, 100);
@@ -482,7 +483,7 @@ async function showQuestion(data) {
       };
       setTimeout(waitForSpeech, 200);
     }
-  } else if (voiceEnabled && SpeechRecognition) {
+  } else if (canListen) {
     playBeep();
     setTimeout(() => startVoiceCapture(data.state, data.options || [], data.step), 200);
   }
@@ -505,13 +506,6 @@ function setVoiceMode(mode) {
 
   voiceMode = mode;
   voiceEnabled = mode !== 'off';
-
-  // Force whisperAvailable based on selection
-  if (mode === 'whisper') {
-    whisperAvailable = true;
-  } else if (mode === 'browser') {
-    whisperAvailable = false;
-  }
 
   updateVoiceModeSelect();
   updateVoiceStatus(voiceEnabled ? `Ready (${mode})` : '—');
@@ -536,13 +530,13 @@ function startVoiceCapture(state, options, step) {
   if (!voiceEnabled) return;
   if (voiceSubmitting) return; // Don't start while a match is being submitted
 
-  // Route to faster-whisper if available (matching FSMv3.1_R2 exactly)
-  if (whisperAvailable) {
+  // Route based on user's explicit voiceMode selection
+  if (voiceMode === 'whisper') {
     startWhisperCapture(state, options, step);
     return;
   }
 
-  // Fallback to browser SpeechRecognition
+  // Browser SpeechRecognition mode
   if (!SpeechRecognition) return;
 
   // Stop any previous recognition
@@ -717,7 +711,14 @@ async function startWhisperCapture(state, options, step) {
 
   audioChunks = [];
   voiceRecording = true;
-  updateVoiceStatus('🎙 Recording (whisper)...');
+  updateVoiceStatus('🎙 Waiting for speech...');
+
+  // ── VAD parameters (matching FSMv3.1_R2 record_audio_until_silence) ──
+  const VAD_SILENCE_THRESHOLD = 0.015;  // RMS level to consider as speech
+  const VAD_START_TIMEOUT = (state === 'B' || state === 'D') ? 5.0 : 2.5; // seconds to wait for first speech
+  const VAD_END_SILENCE = (state === 'B' || state === 'D') ? 2.0 : 0.8;   // trailing silence to stop
+  const VAD_MIN_SPEECH = 0.25;  // minimum speech duration before silence can end
+  const VAD_MAX_DURATION = (state === 'B' || state === 'D') ? 15 : 5;     // hard max
 
   // Use MediaRecorder to capture audio
   const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
@@ -728,9 +729,91 @@ async function startWhisperCapture(state, options, step) {
     if (event.data.size > 0) audioChunks.push(event.data);
   };
 
+  // ── Web Audio VAD (amplitude-based, matching FSMv3.1_R2) ──
+  const vadCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const vadSource = vadCtx.createMediaStreamSource(micStream);
+  const vadAnalyser = vadCtx.createAnalyser();
+  vadAnalyser.fftSize = 2048;
+  vadAnalyser.smoothingTimeConstant = 0.3;
+  vadSource.connect(vadAnalyser);
+
+  let speechDetected = false;
+  let speechDuration = 0;
+  let trailingSilence = 0;
+  let vadStartTime = performance.now();
+  let vadStopReason = 'max_duration';
+  const vadBuffer = new Float32Array(vadAnalyser.fftSize);
+  const FRAME_MS = 50; // check every 50ms
+
+  const vadInterval = setInterval(() => {
+    if (!voiceRecording || !mediaRecorder || mediaRecorder.state !== 'recording') {
+      clearInterval(vadInterval);
+      return;
+    }
+
+    vadAnalyser.getFloatTimeDomainData(vadBuffer);
+    // Compute RMS (matching FSMv3.1_R2's chunk_rms)
+    let sumSquares = 0;
+    let peak = 0;
+    for (let i = 0; i < vadBuffer.length; i++) {
+      const v = Math.abs(vadBuffer[i]);
+      sumSquares += vadBuffer[i] * vadBuffer[i];
+      if (v > peak) peak = v;
+    }
+    const rms = Math.sqrt(sumSquares / vadBuffer.length);
+    const level = Math.max(rms, peak * 0.5); // same as FSMv3.1_R2
+    const isSpeech = level >= VAD_SILENCE_THRESHOLD;
+
+    const elapsed = (performance.now() - vadStartTime) / 1000;
+    const frameSec = FRAME_MS / 1000;
+
+    if (speechDetected) {
+      if (isSpeech) {
+        speechDuration += frameSec;
+        trailingSilence = 0;
+      } else {
+        trailingSilence += frameSec;
+        if (speechDuration >= VAD_MIN_SPEECH && trailingSilence >= VAD_END_SILENCE) {
+          vadStopReason = 'silence_after_speech';
+          console.log(`[VAD] Silence after speech (${speechDuration.toFixed(1)}s speech, ${trailingSilence.toFixed(1)}s silence)`);
+          clearInterval(vadInterval);
+          mediaRecorder.stop();
+          return;
+        }
+      }
+      updateVoiceStatus(`🎙 Recording... ${speechDuration.toFixed(1)}s`);
+    } else {
+      if (isSpeech) {
+        speechDetected = true;
+        speechDuration = frameSec;
+        trailingSilence = 0;
+        updateVoiceStatus('🎙 Speech detected...');
+        console.log(`[VAD] Speech detected at ${elapsed.toFixed(1)}s`);
+      } else if (elapsed >= VAD_START_TIMEOUT) {
+        vadStopReason = 'start_timeout';
+        console.log(`[VAD] Start timeout (${VAD_START_TIMEOUT}s, no speech)`);
+        clearInterval(vadInterval);
+        mediaRecorder.stop();
+        return;
+      }
+    }
+
+    // Hard max duration
+    if (elapsed >= VAD_MAX_DURATION) {
+      vadStopReason = 'max_duration';
+      console.log(`[VAD] Max duration reached (${VAD_MAX_DURATION}s)`);
+      clearInterval(vadInterval);
+      mediaRecorder.stop();
+      return;
+    }
+  }, FRAME_MS);
+
   mediaRecorder.onstop = async () => {
+    clearInterval(vadInterval);
+    vadCtx.close().catch(() => {});
     voiceRecording = false;
     if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+    console.log(`[VAD] Stop reason: ${vadStopReason}, speech: ${speechDetected}, duration: ${speechDuration.toFixed(1)}s`);
     if (audioChunks.length === 0) {
       updateVoiceStatus('No audio captured');
       repeatAndListen(state, options, step);
@@ -740,26 +823,16 @@ async function startWhisperCapture(state, options, step) {
     updateVoiceStatus('Processing with whisper...');
     voiceSubmitting = true;
 
-    // Convert to PCM16 via AudioContext decoding
+    // Send raw WebM blob directly — backend decodes it via ffmpeg/faster-whisper
     const blob = new Blob(audioChunks, { type: mimeType });
     try {
       const arrayBuf = await blob.arrayBuffer();
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-      const decoded = await audioCtx.decodeAudioData(arrayBuf);
-      const float32 = decoded.getChannelData(0);
-      audioCtx.close();
-
-      // Convert float32 to int16
-      const int16 = new Int16Array(float32.length);
-      for (let i = 0; i < float32.length; i++) {
-        int16[i] = Math.max(-32768, Math.min(32767, Math.round(float32[i] * 32767)));
-      }
-
-      // Base64 encode the PCM bytes
-      const bytes = new Uint8Array(int16.buffer);
+      const bytes = new Uint8Array(arrayBuf);
       let binary = '';
       for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
       const audioBase64 = btoa(binary);
+
+      console.log(`[Whisper] Sending ${(bytes.length / 1024).toFixed(1)}KB of ${mimeType} audio`);
 
       // Send to backend for transcription + matching
       const resp = await fetch(`${API}/api/voice/transcribe-and-match`, {
@@ -767,6 +840,7 @@ async function startWhisperCapture(state, options, step) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           audio: audioBase64,
+          audio_format: 'webm',
           state: state,
           options: options,
           language: sessionLanguage,
@@ -774,58 +848,66 @@ async function startWhisperCapture(state, options, step) {
         }),
       });
 
-      if (resp.ok) {
-        const result = await resp.json();
-        console.log(`[Whisper] Result:`, result);
+      const result = resp.ok ? await resp.json() : { error: `Server error ${resp.status}`, accepted: false };
+      console.log(`[Whisper] Result:`, result);
 
-        if (result.accepted && result.response_value) {
-          updateVoiceStatus(`✓ "${result.transcript}" → ${result.response_value} (${(result.confidence * 100).toFixed(0)}%, ${result.backend})`);
-          addVoiceToConversation(result.transcript, result.response_value, result.confidence);
-          const voiceMeta = {
-            transcript: result.transcript,
-            match_confidence: result.confidence,
-            match_method: result.method,
-            canonical_label: result.canonical_label,
-            input_mode: `voice_${result.backend}`,
-            detected_language: result.detected_language,
-            inferred_language: result.inferred_language,
-            stt_seconds: result.stt_seconds,
-            response_attempt_count: voiceAttemptCount + 1,
-            stimulus_letters: getCurrentStimulusLetters(),
-            session_language: sessionLanguage,
-          };
-          voiceSubmitting = false;
-          await submitResponse(result.response_value, voiceMeta);
-          return;
-        } else {
-          // Not matched
-          voiceSubmitting = false;
-          voiceAttemptCount++;
-          const transcript = result.transcript || result.error || 'no speech';
-          updateVoiceStatus(`✗ "${transcript}" (${result.backend || 'whisper'})`);
-          addVoiceToConversation(transcript, null, 0, result.reason || result.error);
-
-          failedVoiceAttempts.push({
-            timestamp: new Date().toISOString(),
-            session_id: sessionId,
-            step: step,
-            state: state,
-            transcript: transcript,
-            available_options: options,
-            attempt_number: voiceAttemptCount,
-            language: sessionLanguage,
-            backend: result.backend,
-            stt_seconds: result.stt_seconds,
-          });
-
-          if (voiceAttemptCount >= VOICE_REPROMPT_LIMIT) {
-            updateVoiceStatus(`✗ Whisper failed ${voiceAttemptCount}x. Use buttons.`);
-          } else {
-            repeatAndListen(state, options, step);
-          }
-          return;
-        }
+      // Case 1: Matched — submit response (like FSMv3.1_R2 accepted path)
+      if (result.accepted && result.response_value) {
+        updateVoiceStatus(`✓ "${result.transcript}" → ${result.response_value} (${(result.confidence * 100).toFixed(0)}%, ${result.backend})`);
+        addVoiceToConversation(result.transcript, result.response_value, result.confidence);
+        const voiceMeta = {
+          transcript: result.transcript,
+          match_confidence: result.confidence,
+          match_method: result.method,
+          canonical_label: result.canonical_label,
+          input_mode: `voice_${result.backend}`,
+          detected_language: result.detected_language,
+          inferred_language: result.inferred_language,
+          stt_seconds: result.stt_seconds,
+          response_attempt_count: voiceAttemptCount + 1,
+          stimulus_letters: getCurrentStimulusLetters(),
+          session_language: sessionLanguage,
+        };
+        voiceSubmitting = false;
+        await submitResponse(result.response_value, voiceMeta);
+        return;
       }
+
+      // Case 2: No speech / STT error — repeat question (don't count as failed attempt)
+      const errMsg = result.error || '';
+      if (errMsg.includes('No speech') || errMsg.includes('too short') || errMsg.includes('too small') || !result.transcript) {
+        voiceSubmitting = false;
+        updateVoiceStatus('No speech detected. Repeating...');
+        repeatAndListen(state, options, step);
+        return;
+      }
+
+      // Case 3: Speech heard but not matched — count as failed attempt
+      voiceSubmitting = false;
+      voiceAttemptCount++;
+      const transcript = result.transcript || 'unknown';
+      updateVoiceStatus(`✗ "${transcript}" (attempt ${voiceAttemptCount}/${VOICE_REPROMPT_LIMIT})`);
+      addVoiceToConversation(transcript, null, 0, result.reason || result.error || 'no match');
+
+      failedVoiceAttempts.push({
+        timestamp: new Date().toISOString(),
+        session_id: sessionId,
+        step: step,
+        state: state,
+        transcript: transcript,
+        available_options: options,
+        attempt_number: voiceAttemptCount,
+        language: sessionLanguage,
+        backend: result.backend,
+        stt_seconds: result.stt_seconds,
+      });
+
+      if (voiceAttemptCount >= VOICE_REPROMPT_LIMIT) {
+        updateVoiceStatus(`✗ Failed ${voiceAttemptCount}x. Use buttons below.`);
+      } else {
+        repeatAndListen(state, options, step);
+      }
+      return;
     } catch (e) {
       console.error('[Whisper] Processing error:', e);
       voiceSubmitting = false;
@@ -835,14 +917,7 @@ async function startWhisperCapture(state, options, step) {
   };
 
   mediaRecorder.start();
-
-  // Auto-stop after timeout (matching FSMv3.1_R2 _phase_voice_capture_settings)
-  const maxSeconds = (state === 'B' || state === 'D') ? 15 : 5;
-  setTimeout(() => {
-    if (mediaRecorder && mediaRecorder.state === 'recording') {
-      mediaRecorder.stop();
-    }
-  }, maxSeconds * 1000);
+  // VAD interval handles stopping — no fixed timeout needed
 }
 
 function repeatAndListen(state, options, step) {
@@ -1204,9 +1279,11 @@ async function submitResponse(responseValue, voiceMeta) {
     }, 100);
   }
 
-  // Log the response to conversation
-  addToConversation('patient', responseValue, responseValue,
-    currentState ? `State: ${currentState.state} | Step: ${currentState.step}` : '');
+  // Log the response to conversation (skip if voice already logged it via addVoiceToConversation)
+  if (!voiceMeta) {
+    addToConversation('patient', responseValue, responseValue,
+      currentState ? `${currentState.state}:${currentState.step}` : '');
+  }
 
   showLoading(true);
   try {
@@ -1224,8 +1301,7 @@ async function submitResponse(responseValue, voiceMeta) {
 
     // Log the question to conversation
     if (data.question && !data.is_terminal) {
-      addToConversation('optometrist', data.question, null,
-        `State: ${data.state} | ${data.phase_name}`);
+      addToConversation('optometrist', data.question, null, `${data.state}`);
     }
 
     handleSessionUpdate(data);
@@ -1397,15 +1473,17 @@ function addToConversation(role, text, intent, extra) {
   const bubble = document.createElement('div');
   bubble.className = `chat-bubble ${role}`;
 
-  let html = `<div class="chat-text">${escapeHtml(text)}</div>`;
-  if (intent) {
-    html += `<div class="chat-intent">Intent: ${escapeHtml(intent)}</div>`;
+  const time = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+
+  if (role === 'patient' && intent) {
+    // Compact patient bubble: "transcript" → INTENT (extra)  time
+    bubble.innerHTML = `<span class="chat-text">${escapeHtml(text)}</span> <span class="chat-intent">${escapeHtml(intent)}</span>${extra ? ` <span class="chat-extra">${escapeHtml(extra)}</span>` : ''}<span class="chat-time">${time}</span>`;
+  } else if (role === 'optometrist') {
+    // Compact optometrist bubble: question  (state info)  time
+    bubble.innerHTML = `<span class="chat-text">${escapeHtml(text)}</span>${extra ? `<span class="chat-extra">${escapeHtml(extra)}</span>` : ''}<span class="chat-time">${time}</span>`;
+  } else {
+    bubble.innerHTML = `<span class="chat-text">${escapeHtml(text)}</span><span class="chat-time">${time}</span>`;
   }
-  if (extra) {
-    html += `<div class="chat-extra">${escapeHtml(extra)}</div>`;
-  }
-  html += `<div class="chat-time">${new Date().toLocaleTimeString()}</div>`;
-  bubble.innerHTML = html;
 
   container.appendChild(bubble);
   container.scrollTop = container.scrollHeight;
@@ -1413,9 +1491,9 @@ function addToConversation(role, text, intent, extra) {
 
 function addVoiceToConversation(transcript, matchedResponse, confidence, reason) {
   if (matchedResponse) {
-    addToConversation('patient', `"${transcript}"`, matchedResponse, `Confidence: ${(confidence * 100).toFixed(0)}%`);
+    addToConversation('patient', `"${transcript}"`, matchedResponse, `${(confidence * 100).toFixed(0)}%`);
   } else {
-    addToConversation('patient', `"${transcript}"`, null, `Not matched: ${reason || 'unknown'}`);
+    addToConversation('patient', `"${transcript}"`, null, `no match: ${reason || '?'}`);
   }
 }
 
@@ -1521,6 +1599,15 @@ async function togglePhoropter() {
 }
 
 // ── Loading ──
+// ── Collapsible sidebar sections ──
+function toggleSidebarSection(sectionId) {
+  const section = document.getElementById(sectionId);
+  if (!section) return;
+  section.classList.toggle('collapsed');
+  const icon = section.querySelector('.collapse-icon');
+  if (icon) icon.textContent = section.classList.contains('collapsed') ? '▶' : '▼';
+}
+
 function showLoading(show) {
   document.getElementById('loadingOverlay').classList.toggle('active', show);
 }
