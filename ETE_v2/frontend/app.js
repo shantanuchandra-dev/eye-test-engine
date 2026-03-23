@@ -12,33 +12,75 @@ const LOGS_PASSWORD = 'Shantanu';
 let ttsEnabled = true;
 
 function speakQuestion(text, langOverride) {
-  if (!ttsEnabled || !('speechSynthesis' in window)) return;
-  speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.rate = 0.9;
-  utterance.pitch = 1.0;
-  utterance.volume = 1.0;
-
-  // Use language override or session language
-  const lang = langOverride || sessionLanguage || 'en';
-  const voices = speechSynthesis.getVoices();
-
-  if (lang === 'hi') {
-    utterance.lang = 'hi-IN';
-    const hiVoice = voices.find(v => v.lang.startsWith('hi'))
-      || voices.find(v => v.lang === 'hi-IN');
-    if (hiVoice) utterance.voice = hiVoice;
-  } else {
-    utterance.lang = 'en-IN';
-    const enVoice = voices.find(v => v.lang.startsWith('en') && v.name.includes('Samantha'))
-      || voices.find(v => v.lang.startsWith('en-IN'))
-      || voices.find(v => v.lang.startsWith('en-') && !v.name.includes('Compact'))
-      || voices.find(v => v.lang.startsWith('en'));
-    if (enVoice) utterance.voice = enVoice;
+  if (!ttsEnabled || !('speechSynthesis' in window)) {
+    console.log('[TTS] Disabled or unavailable');
+    return;
   }
 
-  speechSynthesis.speak(utterance);
-  return utterance;
+  // Chrome fix: cancel + resume to clear any stuck state
+  speechSynthesis.cancel();
+  speechSynthesis.resume();
+
+  const doSpeak = () => {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 0.9;
+    utterance.pitch = 1.0;
+    utterance.volume = 1.0;
+
+    const lang = langOverride || sessionLanguage || 'en';
+    const voices = speechSynthesis.getVoices();
+    console.log(`[TTS] Speaking (${lang}): "${text.substring(0, 50)}..." [${voices.length} voices available]`);
+
+    if (lang === 'hi') {
+      utterance.lang = 'hi-IN';
+      const hiVoice = voices.find(v => v.lang.startsWith('hi'))
+        || voices.find(v => v.lang === 'hi-IN');
+      if (hiVoice) { utterance.voice = hiVoice; console.log(`[TTS] Hindi voice: ${hiVoice.name}`); }
+    } else {
+      utterance.lang = 'en-IN';
+      const enVoice = voices.find(v => v.lang.startsWith('en') && v.name.includes('Samantha'))
+        || voices.find(v => v.lang.startsWith('en-IN'))
+        || voices.find(v => v.lang.startsWith('en-') && !v.name.includes('Compact'))
+        || voices.find(v => v.lang.startsWith('en'));
+      if (enVoice) { utterance.voice = enVoice; console.log(`[TTS] English voice: ${enVoice.name}`); }
+    }
+
+    utterance.onstart = () => console.log('[TTS] Started speaking');
+    utterance.onend = () => console.log('[TTS] Finished speaking');
+    utterance.onerror = (e) => console.error('[TTS] Error:', e.error);
+
+    speechSynthesis.speak(utterance);
+
+    // Chrome workaround: Chrome sometimes pauses speech after 15s.
+    // Periodic resume keeps it going.
+    const keepAlive = setInterval(() => {
+      if (!speechSynthesis.speaking) { clearInterval(keepAlive); return; }
+      speechSynthesis.pause();
+      speechSynthesis.resume();
+    }, 10000);
+  };
+
+  // Voices may not be loaded yet — wait with timeout
+  const voices = speechSynthesis.getVoices();
+  if (voices.length > 0) {
+    // Small delay after cancel() — Chrome needs this
+    setTimeout(doSpeak, 50);
+  } else {
+    console.log('[TTS] Waiting for voices to load...');
+    let attempts = 0;
+    const waitForVoices = () => {
+      attempts++;
+      if (speechSynthesis.getVoices().length > 0) {
+        setTimeout(doSpeak, 50);
+      } else if (attempts < 30) {
+        setTimeout(waitForVoices, 100);
+      } else {
+        console.warn('[TTS] Voices never loaded after 3s, speaking anyway');
+        setTimeout(doSpeak, 50);
+      }
+    };
+    setTimeout(waitForVoices, 50);
+  }
 }
 
 // Preload voices (needed on some browsers)
@@ -223,12 +265,12 @@ async function restoreSession() {
     const savedLang = sessionStorage.getItem('session_language');
     if (savedLang) {
       sessionLanguage = savedLang;
-      // Restore cached conversation and phase progress from before refresh
       restoreCachedConversation();
-      handleSessionUpdate(data);
+
+      // Auto-resume: start immediately, enable TTS via a one-time user interaction listener
+      await handleSessionUpdate(data);
       document.getElementById('endBtn').style.display = '';
       startHeartbeat();
-      // Only add question to conversation if it wasn't restored from cache
       const convEl = document.getElementById('conversationLog');
       if ((!convEl || !convEl.innerHTML.trim()) && data.question && !data.is_terminal) {
         addToConversation('optometrist', data.question, null, `${data.state}`);
@@ -323,7 +365,7 @@ function startHeartbeat() {
 }
 
 // ── Core: handle session update from backend ──
-function handleSessionUpdate(data) {
+async function handleSessionUpdate(data) {
   if (data.error) {
     document.getElementById('questionText').textContent = data.error;
     return;
@@ -350,8 +392,8 @@ function handleSessionUpdate(data) {
     return;
   }
 
-  // Show question
-  showQuestion(data);
+  // Show question (await so localized text is ready before TTS speaks)
+  await showQuestion(data);
 
   // Auto-flip for JCC states
   handleAutoFlip(data);
@@ -470,16 +512,14 @@ async function showQuestion(data) {
   }
 
   // 4. Speak the LOCALIZED question, then beep, then listen
-  //    For JCC states with auto_flip: TTS speaks during flip1, voice starts after flip2
+  //    For JCC states with auto_flip: ALL TTS is handled by handleAutoFlip (Flip 1 → Flip 2)
   //    For all other states: TTS → beep → listen immediately
   const canListen = voiceEnabled && (voiceMode === 'whisper' || SpeechRecognition);
   const isAutoFlip = data.auto_flip;
 
-  if (ttsEnabled) {
+  if (ttsEnabled && !isAutoFlip) {
     speakQuestion(localizedQuestion);
-    // Only start voice immediately for NON-JCC states
-    // JCC states: voice starts after flip2 (handled by handleAutoFlip)
-    if (canListen && !isAutoFlip) {
+    if (canListen) {
       const waitForSpeech = () => {
         if (speechSynthesis.speaking) {
           setTimeout(waitForSpeech, 100);
@@ -1322,6 +1362,9 @@ async function submitResponse(responseValue, voiceMeta) {
     if (document.getElementById('logsDrawer')?.classList.contains('open') && logsUnlocked) {
       loadLogs();
     }
+
+    // Auto-update screenshot PIP
+    autoUpdatePip();
   } catch (e) {
     alert('Error: ' + e.message);
   } finally {
@@ -1671,8 +1714,8 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeScreenshot();
 });
 
-// ── Auto-screenshot toggle ──
-let autoScreenshot = false;
+// ── Auto-screenshot toggle + PIP ──
+let autoScreenshot = true; // ON by default
 
 async function toggleAutoScreenshot() {
   autoScreenshot = !autoScreenshot;
@@ -1681,6 +1724,11 @@ async function toggleAutoScreenshot() {
     btn.textContent = `Screenshot: ${autoScreenshot ? 'ON' : 'OFF'}`;
     btn.style.background = autoScreenshot ? 'rgba(34,197,94,0.3)' : '';
   }
+
+  // Show/hide PIP
+  const pip = document.getElementById('screenshotPip');
+  if (pip) pip.style.display = autoScreenshot ? '' : 'none';
+
   if (sessionId) {
     try {
       await fetch(`${API}/api/session/${sessionId}/phoropter-dispatch`, {
@@ -1690,7 +1738,156 @@ async function toggleAutoScreenshot() {
       });
     } catch (e) { console.warn('Could not toggle screenshot:', e); }
   }
+
+  // Take initial screenshot
+  if (autoScreenshot) refreshPipScreenshot();
 }
+
+async function refreshPipScreenshot() {
+  if (!sessionId) return;
+  const loading = document.getElementById('pipLoading');
+  const img = document.getElementById('pipImg');
+  const footer = document.getElementById('pipFooter');
+  if (loading) { loading.style.display = 'flex'; loading.textContent = 'Capturing...'; }
+
+  try {
+    const resp = await fetch(`${API}/api/session/${sessionId}/screenshot`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(8000), // 8s timeout
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data.screenshot) {
+        img.src = 'data:image/jpeg;base64,' + data.screenshot;
+        img.style.display = '';
+        if (loading) loading.style.display = 'none';
+        if (footer) footer.textContent = new Date().toLocaleTimeString();
+        return;
+      }
+    }
+    // Non-OK or no screenshot
+    if (loading) loading.textContent = 'Device not connected';
+    if (footer) footer.textContent = 'Phoropter offline';
+  } catch (e) {
+    console.warn('PIP screenshot failed:', e);
+    if (loading) loading.textContent = 'Device not reachable';
+    if (footer) footer.textContent = 'Connection timeout';
+  }
+}
+
+// Auto-update PIP after each response (called from submitResponse)
+async function autoUpdatePip() {
+  if (!autoScreenshot) return;
+  // Small delay to let phoropter finish physical movement
+  setTimeout(refreshPipScreenshot, 500);
+}
+
+function expandPip() {
+  const img = document.getElementById('pipImg');
+  if (!img || !img.src) return;
+  // Re-use the lightbox
+  document.getElementById('screenshotImg').src = img.src;
+  document.getElementById('lightboxTitle').textContent = 'PHOROPTER CAPTURE  ' + new Date().toLocaleTimeString();
+  document.getElementById('screenshotLightbox').classList.add('open');
+}
+
+function closePip() {
+  const pip = document.getElementById('screenshotPip');
+  if (pip) pip.style.display = 'none';
+  autoScreenshot = false;
+  const btn = document.getElementById('screenshotBtn');
+  if (btn) { btn.textContent = 'Screenshot: OFF'; btn.style.background = ''; }
+}
+
+// ── Draggable PIP ──
+(function() {
+  const pip = document.getElementById('screenshotPip');
+  const header = document.getElementById('pipHeader');
+  if (!pip || !header) return;
+  let isDragging = false, startX, startY, startLeft, startTop;
+
+  header.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    const rect = pip.getBoundingClientRect();
+    startLeft = rect.left;
+    startTop = rect.top;
+    pip.style.transition = 'none';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    pip.style.left = (startLeft + e.clientX - startX) + 'px';
+    pip.style.top = (startTop + e.clientY - startY) + 'px';
+    pip.style.right = 'auto';
+    pip.style.bottom = 'auto';
+  });
+
+  document.addEventListener('mouseup', () => { isDragging = false; });
+})();
+
+// ── PIP Zoom & Pan ──
+let _pipZoom = 1;
+let _pipPanX = 0, _pipPanY = 0;
+let _pipPanning = false, _pipPanStartX = 0, _pipPanStartY = 0;
+
+function pipZoom(direction) {
+  const steps = [0.5, 0.75, 1, 1.5, 2, 3, 4, 5];
+  const idx = steps.indexOf(_pipZoom);
+  const newIdx = Math.max(0, Math.min(steps.length - 1, (idx >= 0 ? idx : 2) + direction));
+  _pipZoom = steps[newIdx];
+  applyPipTransform();
+}
+
+function pipResetZoom() {
+  _pipZoom = 1;
+  _pipPanX = 0;
+  _pipPanY = 0;
+  applyPipTransform();
+}
+
+function applyPipTransform() {
+  const img = document.getElementById('pipImg');
+  if (img) img.style.transform = `scale(${_pipZoom}) translate(${_pipPanX}px, ${_pipPanY}px)`;
+  const label = document.getElementById('pipZoomLevel');
+  if (label) label.textContent = `${_pipZoom}x`;
+}
+
+// Mouse wheel zoom
+(function() {
+  const body = document.getElementById('pipBody');
+  if (!body) return;
+
+  body.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    pipZoom(e.deltaY < 0 ? 1 : -1);
+  }, { passive: false });
+
+  // Pan with mouse drag inside pip-body
+  body.addEventListener('mousedown', (e) => {
+    if (_pipZoom <= 1) return;
+    _pipPanning = true;
+    _pipPanStartX = e.clientX - _pipPanX * _pipZoom;
+    _pipPanStartY = e.clientY - _pipPanY * _pipZoom;
+    body.classList.add('grabbing');
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!_pipPanning) return;
+    _pipPanX = (e.clientX - _pipPanStartX) / _pipZoom;
+    _pipPanY = (e.clientY - _pipPanStartY) / _pipZoom;
+    applyPipTransform();
+  });
+
+  document.addEventListener('mouseup', () => {
+    _pipPanning = false;
+    const body = document.getElementById('pipBody');
+    if (body) body.classList.remove('grabbing');
+  });
+})();
 
 // ── JCC Auto-Flip ──
 function handleAutoFlip(data) {
@@ -1704,14 +1901,36 @@ function handleAutoFlip(data) {
     return;
   }
 
-  // We're in a JCC state — show Flip 1, then auto-flip to Flip 2 after delay
+  const isAxis = data.state === 'E' || data.state === 'H';
+  const phaseLabel = isAxis ? 'axis' : 'power';
+  const eyeLabel = (data.state === 'E' || data.state === 'F') ? 'right eye' : 'left eye';
+  const eyeLabelHi = (data.state === 'E' || data.state === 'F') ? 'दाईं आँख' : 'बाईं आँख';
+
+  // ── Flip 1: Show + speak "This is Flip 1", WAIT for TTS, THEN start 2s timer ──
   _flipState = 'flip1';
   updateFlipIndicator('flip1');
-  setOptionsEnabled(false); // Disable buttons during flip delay
+  setOptionsEnabled(false);
+
+  const flip1Text = sessionLanguage === 'hi'
+    ? `यह Flip 1 है। ${eyeLabelHi} ${phaseLabel} comparison। ध्यान से देखिए।`
+    : `This is Flip 1. Look carefully.`;
+  document.getElementById('questionText').textContent = flip1Text;
+  speakQuestion(flip1Text);
 
   const waitSeconds = data.flip_wait_seconds || 2;
 
-  _autoFlipTimer = setTimeout(async () => {
+  // Wait for Flip 1 TTS to finish, THEN wait 2s, THEN flip
+  const waitForFlip1Speech = () => {
+    if (speechSynthesis.speaking) {
+      setTimeout(waitForFlip1Speech, 100);
+      return;
+    }
+    // Flip 1 speech done — now wait the observation period
+    _autoFlipTimer = setTimeout(doFlip2, waitSeconds * 1000);
+  };
+  setTimeout(waitForFlip1Speech, 200);
+
+  async function doFlip2() {
     // Send handle command to flip to position 2
     if (sessionId) {
       try {
@@ -1722,20 +1941,32 @@ function handleAutoFlip(data) {
       } catch (e) { console.warn('JCC flip failed:', e); }
     }
 
+    // ── Flip 2: Show + speak "This is Flip 2. Which is better?" ──
     _flipState = 'flip2';
     updateFlipIndicator('flip2');
-    setOptionsEnabled(true); // Enable buttons — patient can now respond
 
-    // Play beep to indicate "answer now"
-    playBeep();
+    const flip2Text = sessionLanguage === 'hi'
+      ? `यह Flip 2 है। कौन सा बेहतर है? एक, दो, समान, या फिर से कहिए।`
+      : `This is Flip 2. Which is better? Say one, two, same, or repeat.`;
+    document.getElementById('questionText').textContent = flip2Text;
+    speakQuestion(flip2Text);
 
-    // Start voice capture after flip2 is shown
-    if (voiceEnabled && currentState) {
-      setTimeout(() => {
-        startVoiceCapture(currentState.state, currentState.options || [], currentState.step);
-      }, 200);
-    }
-  }, waitSeconds * 1000);
+    // Wait for TTS to finish, then beep + enable buttons + listen
+    const waitAndEnable = () => {
+      if (speechSynthesis.speaking) {
+        setTimeout(waitAndEnable, 100);
+      } else {
+        setOptionsEnabled(true);
+        playBeep();
+        if (voiceEnabled && currentState) {
+          setTimeout(() => {
+            startVoiceCapture(currentState.state, currentState.options || [], currentState.step);
+          }, 200);
+        }
+      }
+    };
+    setTimeout(waitAndEnable, 200);
+  }
 }
 
 function updateFlipIndicator(state) {

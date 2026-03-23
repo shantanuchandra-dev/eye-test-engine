@@ -493,6 +493,68 @@ body {
 .log-entry .log-role.patient { color: var(--re-color); }
 .log-entry .log-role.optometrist { color: var(--le-color); }
 .log-entry .log-role.system { color: var(--ink-muted); }
+/* ── Screenshot PIP (Picture-in-Picture) ── */
+.screenshot-pip {
+  position: fixed;
+  bottom: 20px; right: 20px;
+  width: 340px;
+  background: var(--ink);
+  border-radius: 10px;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+  z-index: 250;
+  overflow: hidden;
+  resize: both;
+  min-width: 240px; min-height: 180px;
+}
+.pip-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 10px;
+  background: rgba(255,255,255,0.06);
+  cursor: move;
+  user-select: none;
+}
+.pip-title {
+  font: 600 0.7rem var(--font-mono);
+  color: rgba(255,255,255,0.6);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.pip-actions { display: flex; gap: 4px; }
+.pip-btn {
+  width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.08);
+  border: none; border-radius: 4px;
+  color: rgba(255,255,255,0.6);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.pip-btn:hover { background: rgba(255,255,255,0.15); color: white; }
+.pip-body {
+  position: relative;
+  background: #000;
+  overflow: hidden;
+  cursor: grab;
+}
+.pip-body.grabbing { cursor: grabbing; }
+.pip-body img {
+  width: 100%; display: block;
+  transform-origin: 0 0;
+  transition: none;
+}
+.pip-loading {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: rgba(255,255,255,0.4);
+  font: 500 0.75rem var(--font-mono);
+}
+.pip-footer {
+  padding: 4px 10px;
+  font: 400 0.62rem var(--font-mono);
+  color: rgba(255,255,255,0.35);
+  text-align: center;
+}
+
 /* ── Screenshot trigger ── */
 .screenshot-trigger {
   display: inline-flex; align-items: center; gap: 3px;
@@ -657,7 +719,7 @@ body {
     </select>
     <button class="topbar-btn" id="ttsBtn" onclick="toggleTTS()">TTS: ON</button>
     <button class="topbar-btn" id="phoropBtn" onclick="togglePhoropter()" style="background:rgba(34,197,94,0.3)">Phoropter: ON</button>
-    <button class="topbar-btn" id="screenshotBtn" onclick="toggleAutoScreenshot()">Screenshot: OFF</button>
+    <button class="topbar-btn" id="screenshotBtn" onclick="toggleAutoScreenshot()" style="background:rgba(34,197,94,0.3)">Screenshot: ON</button>
     <button class="topbar-btn" id="dvBtn" onclick="toggleDvPanel()">DV</button>
     <button class="topbar-btn" id="logsBtn" onclick="toggleLogs()">Logs</button>
     <button class="topbar-btn danger" id="endBtn" onclick="endSession()" style="display:none">End Session</button>
@@ -788,6 +850,27 @@ body {
     <button class="logs-close" onclick="toggleDvPanel()">&times;</button>
   </div>
   <div class="logs-content" id="dvContent" style="font-size:0.78rem; line-height:1.7;">Loading...</div>
+</div>
+
+<!-- Persistent draggable screenshot panel -->
+<div class="screenshot-pip" id="screenshotPip">
+  <div class="pip-header" id="pipHeader">
+    <span class="pip-title">Phoropter View</span>
+    <div class="pip-actions">
+      <button class="pip-btn" onclick="pipZoom(-1)" title="Zoom out">&minus;</button>
+      <span id="pipZoomLevel" style="font:500 0.6rem var(--font-mono);color:rgba(255,255,255,0.5);padding:0 2px;">1x</span>
+      <button class="pip-btn" onclick="pipZoom(1)" title="Zoom in">&plus;</button>
+      <button class="pip-btn" onclick="pipResetZoom()" title="Reset zoom">1:1</button>
+      <button class="pip-btn" onclick="refreshPipScreenshot()" title="Refresh">&#x21bb;</button>
+      <button class="pip-btn" onclick="expandPip()" title="Expand">&#x26F6;</button>
+      <button class="pip-btn" onclick="closePip()" title="Close">&times;</button>
+    </div>
+  </div>
+  <div class="pip-body" id="pipBody">
+    <img id="pipImg" src="" alt="Phoropter screen">
+    <div class="pip-loading" id="pipLoading">Waiting for screenshot...</div>
+  </div>
+  <div class="pip-footer" id="pipFooter">—</div>
 </div>
 
 <!-- Screenshot lightbox -->

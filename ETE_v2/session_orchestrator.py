@@ -71,14 +71,21 @@ STATE_CHART_MAP = {
 }
 
 # chart_param → phoropter chart_items
+# FSM engine emits chart_param without underscores (e.g. "200150"), so we map both forms
 CHART_PARAM_TO_ITEMS = {
     "400": {"tab": "Chart1", "chart_items": ["chart_9"]},
     "200_150": {"tab": "Chart1", "chart_items": ["chart_10"]},
+    "200150": {"tab": "Chart1", "chart_items": ["chart_10"]},
     "100_80": {"tab": "Chart1", "chart_items": ["chart_11"]},
+    "10080": {"tab": "Chart1", "chart_items": ["chart_11"]},
     "70_60_50": {"tab": "Chart1", "chart_items": ["chart_12"]},
+    "706050": {"tab": "Chart1", "chart_items": ["chart_12"]},
     "40_30_25": {"tab": "Chart1", "chart_items": ["chart_13"]},
+    "403025": {"tab": "Chart1", "chart_items": ["chart_13"]},
     "20_15_10": {"tab": "Chart1", "chart_items": ["chart_14"]},
+    "201510": {"tab": "Chart1", "chart_items": ["chart_14"]},
     "20_20_20": {"tab": "Chart1", "chart_items": ["chart_15"]},
+    "202020": {"tab": "Chart1", "chart_items": ["chart_15"]},
     "25_20_15": {"tab": "Chart1", "chart_items": ["chart_16"]},
 }
 
@@ -120,7 +127,7 @@ class SessionOrchestrator:
             "PHOROPTER_BASE_URL", "https://rajasthan-royals.preprod.lenskart.com"
         )
         self.phoropter_auto_dispatch: bool = True  # Send commands automatically
-        self.auto_screenshot: bool = False  # Capture screenshot after each command batch
+        self.auto_screenshot: bool = True  # Capture screenshot after each command batch (ON by default)
 
         # Session state
         self.session_id: str = ""
@@ -198,7 +205,31 @@ class SessionOrchestrator:
         # Track phase entry
         self._track_phase_entry(self.current_row.state)
 
-        # Initialize phoropter prev-state from starting prescription
+        # Log conversation start
+        self._log_conversation("system", f"Session started. State: {self.current_row.state}")
+
+        # Step 1: Reset phoropter to 0/0/180
+        if self.phoropter_auto_dispatch and self.phoropter_id:
+            reset_url = f"{self.phoropter_base_url}/phoropter/{self.phoropter_id}/reset"
+            self._post_to_phoropter(reset_url, {})
+            self._log_conversation("system", "Phoropter reset to 0/0/180")
+
+        # Step 2: Set prev-state to 0/0/180 (post-reset state) so the broker
+        # can compute the correct delta clicks from zero to the starting Rx
+        self._prev_re_sph = 0.0
+        self._prev_re_cyl = 0.0
+        self._prev_re_axis = 180.0
+        self._prev_le_sph = 0.0
+        self._prev_le_cyl = 0.0
+        self._prev_le_axis = 180.0
+        self._prev_add_r = 0.0
+        self._prev_add_l = 0.0
+        self._prev_aux_lens = "BINO"
+
+        # Step 3: Send chart + power (from 0/0/180 → starting Rx) + JCC eye mode
+        phoropter_result = self.dispatch_phoropter_commands(is_phase_entry=True)
+
+        # Step 4: Update prev-state to the starting Rx (for subsequent delta commands)
         self._prev_re_sph = self.current_row.re_sph or 0.0
         self._prev_re_cyl = self.current_row.re_cyl or 0.0
         self._prev_re_axis = self.current_row.re_axis or 180.0
@@ -206,12 +237,6 @@ class SessionOrchestrator:
         self._prev_le_cyl = self.current_row.le_cyl or 0.0
         self._prev_le_axis = self.current_row.le_axis or 180.0
         self._prev_aux_lens = STATE_AUX_LENS_MAP.get(self.current_row.state, "BINO")
-
-        # Log conversation start
-        self._log_conversation("system", f"Session started. State: {self.current_row.state}")
-
-        # Send initial phoropter commands (chart + power + occluder)
-        phoropter_result = self.dispatch_phoropter_commands(is_phase_entry=True)
         self._log_conversation("system", f"Phoropter init: {phoropter_result}")
 
         return self._build_response()
@@ -298,11 +323,8 @@ class SessionOrchestrator:
         if next_state != prev_state:
             self._track_phase_entry(next_state)
 
-        # Update phoropter prev-state
-        self._update_phoropter_prev_state()
-
-        # ── STEP 2: Send ENTRY commands for the NEW state ──
-        # (chart, power, JCC eye mode — only on phase transitions)
+        # ── STEP 2: Send ENTRY/STEP commands for the NEW state ──
+        # IMPORTANT: prev-state is NOT updated yet — so the broker sees the correct delta
         phase_changed = next_state != prev_state
         if phase_changed:
             self.dispatch_phoropter_commands(
@@ -310,13 +332,16 @@ class SessionOrchestrator:
                 prev_response=response_value,
                 prev_state=prev_state,
             )
-        elif next_state in ("B", "D", "K"):
-            # Coarse/bino: send power update on each step within the phase
+        elif next_state in ("B", "D", "K", "P", "Q", "R"):
+            # Coarse/bino/near: send power update on each step within the phase
             self.dispatch_phoropter_commands(
                 is_phase_entry=False,
                 prev_response=response_value,
                 prev_state=prev_state,
             )
+
+        # Update phoropter prev-state AFTER dispatching (so next command has correct prev)
+        self._update_phoropter_prev_state()
 
         # Log the question
         self._log_conversation(
@@ -605,15 +630,20 @@ class SessionOrchestrator:
                 eye_mode = "R" if state == "B" else "L"
                 results["jcc_eye"] = self._send_jcc(eye_mode)
             else:
+                # Send chart on every step (chart advances on CLEAR responses)
+                results["chart"] = self._send_chart_for_state(state)
                 results["power"] = self._send_power_with_prev()
 
-        # ── JCC Axis (E, H) — no entry commands (v1 pattern) ──
+        # ── JCC Axis (E, H) — show JCC dot chart on entry ──
         elif state in ("E", "H"):
-            pass  # Response commands handled by _dispatch_response_commands
+            if is_phase_entry:
+                # v1 relies on TOPCON auto-showing JCC chart, but broker API needs explicit command
+                results["chart"] = self._send_chart("Chart1", ["chart_19"])
 
-        # ── JCC Power (F, I) — power_axis_switch on entry only ──
+        # ── JCC Power (F, I) — JCC chart + power_axis_switch on entry ──
         elif state in ("F", "I"):
             if is_phase_entry:
+                results["chart"] = self._send_chart("Chart1", ["chart_19"])
                 results["jcc_switch"] = self._send_jcc("power_axis_switch")
             # Response commands handled by _dispatch_response_commands
 
@@ -676,8 +706,10 @@ class SessionOrchestrator:
         try:
             resp = http_requests.post(url, timeout=10)
             if resp.ok:
-                # Response is raw base64 JPEG string
-                return resp.text.strip()
+                # Broker returns base64 string, sometimes wrapped in quotes
+                text = resp.text.strip().strip('"')
+                if text.startswith('/9j/') or text.startswith('iVBOR'):
+                    return text
         except Exception as e:
             logger.debug(f"Screenshot failed: {e}")
         return None
