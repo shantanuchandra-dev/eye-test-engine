@@ -630,7 +630,9 @@ function startVoiceCapture(state, options, step) {
     const capturedState = state;
     const capturedOptions = options;
     const capturedStep = step;
-    let lastInterimTranscript = ''; // Fix 2: store interim for fallback
+    let lastInterimTranscript = ''; // store interim for fallback
+    let quickMatchTimer = null; // 1s timer to force-process short words
+    let alreadyProcessed = false; // prevent double-processing
 
     recognition.onstart = () => {
       voiceRecording = true;
@@ -638,7 +640,27 @@ function startVoiceCapture(state, options, step) {
       console.log(`[Voice] Listening for step ${capturedStep}, state ${capturedState}, options: ${capturedOptions.join(', ')}`);
     };
 
+    // Quick-match check: does this interim text match a known response?
+    function interimMatchesOption(text) {
+      const t = text.toLowerCase().trim();
+      if (!t) return false;
+      // Try server-side match would be slow — use clientSideMatch for instant check
+      return clientSideMatch(t, capturedOptions) !== null;
+    }
+
+    function forceProcessInterim() {
+      if (alreadyProcessed || !lastInterimTranscript) return;
+      alreadyProcessed = true;
+      try { recognition.stop(); } catch(e) {}
+      voiceRecording = false;
+      console.log(`[Voice] Quick-match: forcing interim "${lastInterimTranscript}" after 1s`);
+      updateVoiceStatus(`Processing: "${lastInterimTranscript}"`);
+      matchVoiceResponseWithAlternatives(lastInterimTranscript, [], capturedState, capturedOptions);
+    }
+
     recognition.onresult = (event) => {
+      if (alreadyProcessed) return;
+
       let finalTranscript = '';
       let finalAlternatives = [];
       let interimTranscript = '';
@@ -646,7 +668,6 @@ function startVoiceCapture(state, options, step) {
       for (let i = event.resultIndex; i < event.results.length; i++) {
         if (event.results[i].isFinal) {
           finalTranscript = event.results[i][0].transcript;
-          // Collect all alternatives
           for (let j = 0; j < event.results[i].length; j++) {
             finalAlternatives.push(event.results[i][j].transcript);
           }
@@ -655,26 +676,39 @@ function startVoiceCapture(state, options, step) {
         }
       }
 
-      // Show interim results and store for fallback (Fix 2)
+      // Store interim and check for quick match
       if (interimTranscript && !finalTranscript) {
         lastInterimTranscript = interimTranscript.trim();
         updateVoiceStatus(`🎙 "${interimTranscript}"...`);
+
+        // If interim matches a valid option, start 1s countdown to force-process
+        if (interimMatchesOption(lastInterimTranscript)) {
+          if (!quickMatchTimer) {
+            console.log(`[Voice] Interim "${lastInterimTranscript}" matches — waiting 1s for more speech`);
+            quickMatchTimer = setTimeout(forceProcessInterim, 1000);
+          }
+        } else {
+          // New interim doesn't match — cancel any pending quick-match
+          if (quickMatchTimer) { clearTimeout(quickMatchTimer); quickMatchTimer = null; }
+        }
       }
 
-      // Process final result
+      // Process final result (overrides any pending quick-match)
       if (finalTranscript) {
-        try { recognition.stop(); } catch(e) {} // Fix 1: stop continuous after getting result
+        if (quickMatchTimer) { clearTimeout(quickMatchTimer); quickMatchTimer = null; }
+        alreadyProcessed = true;
+        try { recognition.stop(); } catch(e) {}
         voiceRecording = false;
         const trimmed = finalTranscript.trim();
         const alts = finalAlternatives.map(a => a.trim()).filter(a => a);
         console.log(`[Voice] Final: "${trimmed}" | Alternatives: ${JSON.stringify(alts)}`);
         updateVoiceStatus(`Processing: "${trimmed}"`);
-        // Pass all alternatives — try each until one matches
         matchVoiceResponseWithAlternatives(trimmed, alts, capturedState, capturedOptions);
       }
     };
 
     recognition.onerror = (event) => {
+      if (quickMatchTimer) { clearTimeout(quickMatchTimer); quickMatchTimer = null; }
       voiceRecording = false;
       console.log(`[Voice] Error: ${event.error}`);
       if (event.error === 'no-speech') {
@@ -726,10 +760,11 @@ function startVoiceCapture(state, options, step) {
     };
 
     recognition.onend = () => {
+      if (quickMatchTimer) { clearTimeout(quickMatchTimer); quickMatchTimer = null; }
       voiceRecording = false;
 
-      // If we got a final result or an error handler already dealt with it, do nothing
-      if (gotFinalResult || gotError || voiceSubmitting) return;
+      // If already processed (final, quick-match, or error), do nothing
+      if (alreadyProcessed || gotFinalResult || gotError || voiceSubmitting) return;
 
       // Fix 2: Try interim transcript as fallback for single-syllable words
       if (lastInterimTranscript) {
