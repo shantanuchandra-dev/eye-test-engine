@@ -1091,12 +1091,12 @@ COMPACT_LOCALIZED_VOICE_PROMPTS = {
     },
     "comparison_4way": {
         "en": {
-            "initial": "Dot chart. Say one, two, same, or repeat.",
-            "retry": "Dot chart. Say one, two, same, or repeat.",
+            "initial": "Dot chart. Say first, second, same, or repeat.",
+            "retry": "Dot chart. Say first, second, same, or repeat.",
         },
         "hi": {
-            "initial": "Dot chart। एक, दो, समान, या फिर से कहिए।",
-            "retry": "Dot chart। केवल एक, दो, समान, या फिर से कहिए।",
+            "initial": "Dot chart। पहला, दूसरा, समान, या फिर से कहिए।",
+            "retry": "Dot chart। केवल पहला, दूसरा, समान, या फिर से कहिए।",
         },
     },
     "duochrome_4way": {

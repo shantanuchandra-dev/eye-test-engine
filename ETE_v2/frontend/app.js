@@ -2136,8 +2136,8 @@ function handleAutoFlip(data) {
   setOptionsEnabled(false);
 
   const flip1Text = sessionLanguage === 'hi'
-    ? `यह Flip 1 है। ${eyeLabelHi} ${phaseLabel} comparison। ध्यान से देखिए।`
-    : `This is Flip 1. Look carefully.`;
+    ? `यह विकल्प 1 है। ध्यान से देखिए।`
+    : `This is Dot Chart. First option. Look carefully.`;
   document.getElementById('questionText').textContent = flip1Text;
   speakQuestion(flip1Text);
 
@@ -2170,8 +2170,8 @@ function handleAutoFlip(data) {
     updateFlipIndicator('flip2');
 
     const flip2Text = sessionLanguage === 'hi'
-      ? `यह Flip 2 है। कौन सा बेहतर है? एक, दो, समान, या फिर से कहिए।`
-      : `This is Flip 2. Which is better? Say one, two, same, or repeat.`;
+      ? `यह विकल्प 2 है। कौन सा बेहतर है? पहला, दूसरा, समान, या फिर से कहिए।`
+      : `This is second option. Which is better? Say first, second, same, or repeat.`;
     document.getElementById('questionText').textContent = flip2Text;
     speakQuestion(flip2Text);
 
@@ -2203,10 +2203,10 @@ function updateFlipIndicator(state) {
   }
   el.style.display = '';
   if (state === 'flip1') {
-    el.textContent = 'FLIP 1 — Observing...';
+    el.textContent = 'First Option — Observing...';
     el.className = 'flip-indicator flip1';
   } else {
-    el.textContent = 'FLIP 2 — Which is better?';
+    el.textContent = 'Second Option — Which is better?';
     el.className = 'flip-indicator flip2';
   }
 }

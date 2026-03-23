@@ -43,12 +43,12 @@ COMPACT_PROMPT_CONFIG = {
     },
     "E": {
         "response_type": "comparison_4way",
-        "question": "Dot chart for axis. Say one, two, same, or repeat.",
+        "question": "Dot chart for axis. Say first, second, same, or repeat.",
         "options": ("ONE", "TWO", "SAME", "REPEAT"),
     },
     "F": {
         "response_type": "comparison_4way",
-        "question": "Dot chart for power. Say one, two, same, or repeat.",
+        "question": "Dot chart for power. Say first, second, same, or repeat.",
         "options": ("ONE", "TWO", "SAME", "REPEAT"),
     },
     "G": {
@@ -58,12 +58,12 @@ COMPACT_PROMPT_CONFIG = {
     },
     "H": {
         "response_type": "comparison_4way",
-        "question": "Dot chart for axis. Say one, two, same, or repeat.",
+        "question": "Dot chart for axis. Say first, second, same, or repeat.",
         "options": ("ONE", "TWO", "SAME", "REPEAT"),
     },
     "I": {
         "response_type": "comparison_4way",
-        "question": "Dot chart for power. Say one, two, same, or repeat.",
+        "question": "Dot chart for power. Say first, second, same, or repeat.",
         "options": ("ONE", "TWO", "SAME", "REPEAT"),
     },
     "J": {
