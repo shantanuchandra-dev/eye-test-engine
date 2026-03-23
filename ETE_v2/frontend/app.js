@@ -215,6 +215,7 @@ let heartbeatInterval = null;
 let _langSelectPendingData = null; // Stores first-question data during language selection
 let _autoFlipTimer = null; // Timer for JCC auto-flip
 let _flipState = null; // 'flip1', 'flip2', or null
+let _inputEnabled = false; // Global gate: voice, gamepad, keyboard only after beep
 
 // ── Gamepad ──
 let gamepadEnabled = true;
@@ -474,6 +475,8 @@ async function showQuestion(data) {
 
   // Reset voice attempt counter for new question
   voiceAttemptCount = 0;
+  // Disable all input until beep (voice, gamepad, keyboard)
+  _inputEnabled = false;
 
   // 1. Fetch localized labels + question FIRST (before TTS speaks)
   let localizedQuestion = data.question;
@@ -532,22 +535,25 @@ async function showQuestion(data) {
 
   if (ttsEnabled && !isAutoFlip) {
     speakQuestion(localizedQuestion);
-    if (canListen) {
-      const waitForSpeech = () => {
-        if (speechSynthesis.speaking) {
-          setTimeout(waitForSpeech, 100);
-        } else {
-          setTimeout(async () => {
-            await playBeep();
-            startVoiceCapture(data.state, data.options || [], data.step);
-          }, 300);
-        }
-      };
-      setTimeout(waitForSpeech, 200);
-    }
-  } else if (canListen && !isAutoFlip) {
-    playBeep().then(() => startVoiceCapture(data.state, data.options || [], data.step));
+    const waitForSpeech = () => {
+      if (speechSynthesis.speaking) {
+        setTimeout(waitForSpeech, 100);
+      } else {
+        setTimeout(async () => {
+          await playBeep();
+          _inputEnabled = true; // Enable ALL input (voice, gamepad, keyboard) after beep
+          if (canListen) startVoiceCapture(data.state, data.options || [], data.step);
+        }, 300);
+      }
+    };
+    setTimeout(waitForSpeech, 200);
+  } else if (!isAutoFlip) {
+    playBeep().then(() => {
+      _inputEnabled = true;
+      if (canListen) startVoiceCapture(data.state, data.options || [], data.step);
+    });
   }
+  // For JCC auto-flip states: _inputEnabled is set in handleAutoFlip after Flip 2 beep
 }
 
 // fetchLocalizedLabels removed — logic is now inline in showQuestion() to ensure
@@ -690,13 +696,20 @@ function startVoiceCapture(state, options, step) {
         lastInterimTranscript = interimTranscript.trim();
         updateVoiceStatus(`🎙 "${interimTranscript}"...`);
 
-        // If interim matches a valid option, start countdown to force-process
-        // Short words (≤3 chars like "2", "to", "red") get 600ms, longer get 1000ms
+        // If interim matches a valid option, force-process it
+        // Single digits/chars (1, 2): process IMMEDIATELY (Chrome keeps appending)
+        // Short words (≤3 chars: "to", "red"): 300ms
+        // Longer words: 800ms
         if (interimMatchesOption(lastInterimTranscript)) {
           if (!quickMatchTimer) {
-            const delay = lastInterimTranscript.length <= 3 ? 600 : 1000;
-            console.log(`[Voice] Interim "${lastInterimTranscript}" matches — waiting ${delay}ms`);
-            quickMatchTimer = setTimeout(forceProcessInterim, delay);
+            const len = lastInterimTranscript.length;
+            const delay = len <= 1 ? 0 : len <= 3 ? 300 : 800;
+            console.log(`[Voice] Interim "${lastInterimTranscript}" matches — processing in ${delay}ms`);
+            if (delay === 0) {
+              forceProcessInterim();
+            } else {
+              quickMatchTimer = setTimeout(forceProcessInterim, delay);
+            }
           }
         } else {
           // New interim doesn't match — cancel any pending quick-match
@@ -1459,6 +1472,7 @@ async function submitResponse(responseValue, voiceMeta) {
 
 // ── Keyboard shortcuts ──
 function handleKeyboard(e) {
+  if (!_inputEnabled) return; // Wait for beep
   // Number keys 1-9 for options
   if (e.key >= '1' && e.key <= '9') {
     const idx = parseInt(e.key) - 1;
@@ -1523,7 +1537,7 @@ function startGamepadPoll() {
 }
 
 function handleGamepadOption(optionIdx) {
-  if (_flipState === 'flip1') return;
+  if (!_inputEnabled || _flipState === 'flip1') return;
   // Get non-REPEAT option buttons from DOM
   const allBtns = document.querySelectorAll('#optionsGrid .option-btn');
   const nonRepeatBtns = [];
@@ -1541,7 +1555,7 @@ function handleGamepadOption(optionIdx) {
 }
 
 function handleGamepadRepeat() {
-  if (_flipState === 'flip1') return;
+  if (!_inputEnabled || _flipState === 'flip1') return;
   // Find the REPEAT button in the DOM
   const allBtns = document.querySelectorAll('#optionsGrid .option-btn');
   for (const btn of allBtns) {
@@ -2159,6 +2173,7 @@ function handleAutoFlip(data) {
       } else {
         setOptionsEnabled(true);
         playBeep().then(() => {
+          _inputEnabled = true; // Enable ALL input after Flip 2 beep
           if (voiceEnabled && currentState) {
             startVoiceCapture(currentState.state, currentState.options || [], currentState.step);
           }
