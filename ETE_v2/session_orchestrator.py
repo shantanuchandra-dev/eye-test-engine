@@ -210,7 +210,7 @@ class SessionOrchestrator:
         self._log_conversation("system", f"Session started. State: {self.current_row.state}")
 
         # Send initial phoropter commands (chart + power + occluder)
-        phoropter_result = self.dispatch_phoropter_commands()
+        phoropter_result = self.dispatch_phoropter_commands(is_phase_entry=True)
         self._log_conversation("system", f"Phoropter init: {phoropter_result}")
 
         return self._build_response()
@@ -261,6 +261,11 @@ class SessionOrchestrator:
         # Record the finalized row
         self._record_row(finalized, voice_meta=voice_meta)
 
+        # ── STEP 1: Send RESPONSE commands for the PREVIOUS state ──
+        # (JCC handle/increase/decrease, duochrome increase/decrease)
+        # These must be sent BEFORE transitioning, while we're still in the old state.
+        self._dispatch_response_commands(prev_state, response_value)
+
         # Track phase exit if state changed
         next_state = finalized.next_state
         if next_state != prev_state:
@@ -292,8 +297,22 @@ class SessionOrchestrator:
         # Update phoropter prev-state
         self._update_phoropter_prev_state()
 
-        # Auto-dispatch phoropter commands for the new state
-        phoropter_result = self.dispatch_phoropter_commands()
+        # ── STEP 2: Send ENTRY commands for the NEW state ──
+        # (chart, power, JCC eye mode — only on phase transitions)
+        phase_changed = next_state != prev_state
+        if phase_changed:
+            self.dispatch_phoropter_commands(
+                is_phase_entry=True,
+                prev_response=response_value,
+                prev_state=prev_state,
+            )
+        elif next_state in ("B", "D", "K"):
+            # Coarse/bino: send power update on each step within the phase
+            self.dispatch_phoropter_commands(
+                is_phase_entry=False,
+                prev_response=response_value,
+                prev_state=prev_state,
+            )
 
         # Log the question
         self._log_conversation(
@@ -347,71 +366,16 @@ class SessionOrchestrator:
         return asdict(self.derived_variables)
 
     def get_phoropter_commands(self) -> dict:
-        """Build phoropter command payload for current FSM state.
-
-        Returns dict with:
-        - chart: {tab, chart_items} for chart selection
-        - run_tests: full payload for /run-tests endpoint
-        - jcc_mode: optional JCC command (power_axis_switch, etc.)
-        """
-        if self.current_row is None:
+        """Build phoropter command summary for the API response (informational)."""
+        if self.current_row is None or self.current_row.state in ("END", "ESCALATE"):
             return {}
-
         state = self.current_row.state
-        if state in ("END", "ESCALATE"):
-            return {}
-
-        commands = {}
-
-        # 1. Chart command
-        chart_type = STATE_CHART_MAP.get(state, "snellen")
-        if chart_type in SPECIAL_CHART_ITEMS:
-            commands["chart"] = SPECIAL_CHART_ITEMS[chart_type]
-        else:
-            chart_param = self.current_row.chart_param or "20_20_20"
-            chart_info = CHART_PARAM_TO_ITEMS.get(chart_param)
-            if chart_info:
-                commands["chart"] = chart_info
-            else:
-                commands["chart"] = {"tab": "Chart1", "chart_items": ["chart_15"]}
-
-        # 2. Run-tests payload (power + occluder with prev-state)
-        aux_lens = STATE_AUX_LENS_MAP.get(state, "BINO")
-        commands["run_tests"] = {
-            "test_cases": [{
-                "case_id": 1,
-                "prev_aux_lens": self._prev_aux_lens,
-                "prev_right_eye": {
-                    "sph": self._prev_re_sph,
-                    "cyl": self._prev_re_cyl,
-                    "axis": self._prev_re_axis,
-                },
-                "prev_left_eye": {
-                    "sph": self._prev_le_sph,
-                    "cyl": self._prev_le_cyl,
-                    "axis": self._prev_le_axis,
-                },
-                "aux_lens": aux_lens,
-                "right_eye": {
-                    "sph": self.current_row.re_sph or 0.0,
-                    "cyl": self.current_row.re_cyl or 0.0,
-                    "axis": self.current_row.re_axis or 180.0,
-                },
-                "left_eye": {
-                    "sph": self.current_row.le_sph or 0.0,
-                    "cyl": self.current_row.le_cyl or 0.0,
-                    "axis": self.current_row.le_axis or 180.0,
-                },
-            }],
+        return {
+            "state": state,
+            "aux_lens": STATE_AUX_LENS_MAP.get(state, "BINO"),
+            "chart_type": STATE_CHART_MAP.get(state, "snellen"),
+            "chart_param": self.current_row.chart_param,
         }
-
-        # 3. JCC mode for JCC states
-        if state in ("E", "H"):
-            commands["jcc_mode"] = "axis"
-        elif state in ("F", "I"):
-            commands["jcc_mode"] = "power"
-
-        return commands
 
     # ── Private helpers ───────────────────────────────────────────────
 
@@ -595,47 +559,140 @@ class SessionOrchestrator:
 
     # ── Phoropter auto-dispatch ─────────────────────────────────────
 
-    def dispatch_phoropter_commands(self) -> dict:
-        """Send phoropter commands to the broker for the current FSM state.
+    def dispatch_phoropter_commands(self, is_phase_entry: bool = False,
+                                    prev_response: str = "",
+                                    prev_state: str = "") -> dict:
+        """Send phoropter commands matching v1 interactive_session.py patterns.
 
-        Follows the FSMv3.1_R2 command pipeline:
-        1. Send chart command (snellen/jcc/duochrome/bino/near)
-        2. Send run-tests payload with prev_state for delta calculation
-        3. For JCC states: send power_axis_switch command
+        Called on:
+        - Session init (is_phase_entry=True)
+        - Each process_response (is_phase_entry=True if state changed, prev_response set)
 
-        Returns dict with results of each command sent.
+        Command protocol per state (matching v1 exactly):
+        B/D: chart + power(prev_state) + jcc_eye_mode on entry
+        E/H: jcc("handle") per flip, jcc("increase"/"decrease") on choice
+        F/I: jcc("power_axis_switch") on entry, then handle/increase/decrease
+        G/J: chart on entry, jcc("decrease") for RED, jcc("increase") for GREEN
+        K:   chart + power + jcc("BINO") on entry, power on each step
+        P:   chart_near + power(with ADD) + jcc("R") on entry, power(with ADD) on step
+        Q:   chart_near + jcc("L") on entry (NO power to avoid ADD double-click)
+        R:   chart_near + jcc("BINO") on entry, single-ADD delta on step
         """
         if not self.phoropter_auto_dispatch or not self.phoropter_id:
             return {"skipped": True, "reason": "auto-dispatch disabled or no phoropter_id"}
 
-        commands = self.get_phoropter_commands()
-        if not commands:
-            return {"skipped": True, "reason": "no commands for current state"}
+        if self.current_row is None or self.current_row.state in ("END", "ESCALATE"):
+            return {"skipped": True, "reason": "terminal state"}
 
+        state = self.current_row.state
         results = {}
-        base = f"{self.phoropter_base_url}/phoropter/{self.phoropter_id}"
 
-        # 1. Chart command
-        chart = commands.get("chart")
-        if chart:
-            chart_url = f"{base}/run-tests"
-            chart_body = {"test_cases": [{"chart": chart}]}
-            results["chart"] = self._post_to_phoropter(chart_url, chart_body)
+        # ── Coarse Sphere (B, D) ──
+        if state in ("B", "D"):
+            if is_phase_entry:
+                results["chart"] = self._send_chart_for_state(state)
+                results["power"] = self._send_power_with_prev()
+                eye_mode = "R" if state == "B" else "L"
+                results["jcc_eye"] = self._send_jcc(eye_mode)
+            else:
+                results["power"] = self._send_power_with_prev()
 
-        # 2. Run-tests (power + occluder with prev-state)
-        run_tests = commands.get("run_tests")
-        if run_tests:
-            run_url = f"{base}/run-tests"
-            results["run_tests"] = self._post_to_phoropter(run_url, run_tests)
+        # ── JCC Axis (E, H) — no entry commands (v1 pattern) ──
+        elif state in ("E", "H"):
+            pass  # Response commands handled by _dispatch_response_commands
 
-        # 3. JCC mode (axis/power switch for JCC states)
-        jcc_mode = commands.get("jcc_mode")
-        if jcc_mode:
-            jcc_url = f"{base}/run-tests"
-            jcc_body = {"test_cases": [{"jcc": "power_axis_switch"}]}
-            results["jcc_mode"] = self._post_to_phoropter(jcc_url, jcc_body)
+        # ── JCC Power (F, I) — power_axis_switch on entry only ──
+        elif state in ("F", "I"):
+            if is_phase_entry:
+                results["jcc_switch"] = self._send_jcc("power_axis_switch")
+            # Response commands handled by _dispatch_response_commands
+
+        # ── Duochrome (G, J) — chart on entry only ──
+        elif state in ("G", "J"):
+            if is_phase_entry:
+                results["chart"] = self._send_chart("Chart1", ["chart_17"])
+            # Response commands (RED→decrease, GREEN→increase) handled by _dispatch_response_commands
+
+        # ── Binocular Balance (K) ──
+        elif state == "K":
+            if is_phase_entry:
+                results["chart"] = self._send_chart("Chart1", ["chart_20"])
+                results["power"] = self._send_power_with_prev()
+                results["jcc_bino"] = self._send_jcc("BINO")
+            else:
+                results["power"] = self._send_power_with_prev()
+
+        # ── Near Add RE (P) ──
+        elif state == "P":
+            if is_phase_entry:
+                results["chart"] = self._send_chart("Chart5", ["chart_5"])
+                results["power"] = self._send_power_with_prev(include_add=True)
+                results["jcc_eye"] = self._send_jcc("R")
+            else:
+                results["power"] = self._send_power_with_prev(include_add=True)
+
+        # ── Near Add LE (Q) ──
+        elif state == "Q":
+            if is_phase_entry:
+                results["chart"] = self._send_chart("Chart5", ["chart_5"])
+                results["jcc_eye"] = self._send_jcc("L")
+                # NO power on entry — avoids ADD double-click (v1 pattern)
+            else:
+                results["power"] = self._send_power_with_prev(include_add=True)
+
+        # ── Near Binocular (R) ──
+        elif state == "R":
+            if is_phase_entry:
+                results["chart"] = self._send_chart("Chart5", ["chart_5"])
+                results["jcc_bino"] = self._send_jcc("BINO")
+                # NO power on entry (v1 pattern)
+            else:
+                results["power"] = self._send_add_bino_delta()
 
         return results
+
+    def _dispatch_response_commands(self, state: str, response_value: str) -> None:
+        """Send phoropter commands for a patient RESPONSE in the given state.
+        Called BEFORE state transition. Handles JCC flip/adjust and duochrome SPH."""
+        if not self.phoropter_auto_dispatch or not self.phoropter_id:
+            return
+        resp = response_value.upper()
+
+        # JCC Axis (E, H): handle + increase/decrease
+        if state in ("E", "H"):
+            if resp in ("ONE", "BETTER_1"):
+                self._send_jcc("increase")
+                self._send_jcc("handle")
+            elif resp in ("TWO", "BETTER_2"):
+                self._send_jcc("decrease")
+                self._send_jcc("handle")
+            elif resp in ("REPEAT",):
+                self._send_jcc("handle")
+
+        # JCC Power (F, I): handle + increase/decrease
+        elif state in ("F", "I"):
+            if resp in ("ONE", "BETTER_1"):
+                self._send_jcc("increase")
+                self._send_jcc("handle")
+            elif resp in ("TWO", "BETTER_2"):
+                self._send_jcc("decrease")
+                self._send_jcc("handle")
+            elif resp in ("REPEAT",):
+                self._send_jcc("handle")
+
+        # Duochrome (G, J): decrease for RED, increase for GREEN
+        elif state in ("G", "J"):
+            if resp in ("RED", "RED_CLEARER"):
+                self._send_jcc("decrease")  # RAM: Red Add Minus
+            elif resp in ("GREEN", "GREEN_CLEARER"):
+                self._send_jcc("increase")  # GAP: Green Add Plus
+
+        # Coarse Sphere (B, D): power update sent via dispatch_phoropter_commands
+        # Binocular (K): power update sent via dispatch_phoropter_commands
+        # Near (P, Q, R): power with ADD sent via dispatch_phoropter_commands
+
+    def _phoropter_url(self, path: str = "/run-tests") -> str:
+        return f"{self.phoropter_base_url}/phoropter/{self.phoropter_id}{path}"
 
     def _post_to_phoropter(self, url: str, body: dict) -> dict:
         """Send a POST request to the phoropter broker and log it."""
@@ -652,3 +709,86 @@ class SessionOrchestrator:
         except http_requests.exceptions.RequestException as e:
             logger.warning(f"Phoropter POST {url} failed: {e}")
             return {"status": 0, "error": str(e)}
+
+    def _send_jcc(self, action: str) -> dict:
+        """Send a JCC command: handle, increase, decrease, power_axis_switch, R, L, BINO."""
+        url = self._phoropter_url()
+        return self._post_to_phoropter(url, {"test_cases": [{"jcc": action}]})
+
+    def _send_chart(self, tab: str, chart_items: list) -> dict:
+        """Send a chart selection command."""
+        url = self._phoropter_url()
+        return self._post_to_phoropter(url, {
+            "test_cases": [{"chart": {"tab": tab, "chart_items": chart_items}}]
+        })
+
+    def _send_chart_for_state(self, state: str) -> dict:
+        """Send the correct chart for the current FSM state."""
+        chart_type = STATE_CHART_MAP.get(state, "snellen")
+        if chart_type in SPECIAL_CHART_ITEMS:
+            info = SPECIAL_CHART_ITEMS[chart_type]
+            return self._send_chart(info["tab"], info["chart_items"])
+        chart_param = self.current_row.chart_param or "20_20_20"
+        info = CHART_PARAM_TO_ITEMS.get(chart_param, {"tab": "Chart1", "chart_items": ["chart_15"]})
+        return self._send_chart(info["tab"], info["chart_items"])
+
+    def _send_power_with_prev(self, include_add: bool = False) -> dict:
+        """Send run-tests with prev_state for delta calculation (matching v1 set_power_with_prev_state)."""
+        row = self.current_row
+        state = row.state
+        aux_lens = STATE_AUX_LENS_MAP.get(state, "BINO")
+
+        prev_right = {"sph": self._prev_re_sph, "cyl": self._prev_re_cyl, "axis": self._prev_re_axis}
+        prev_left = {"sph": self._prev_le_sph, "cyl": self._prev_le_cyl, "axis": self._prev_le_axis}
+        right_eye = {"sph": row.re_sph or 0.0, "cyl": row.re_cyl or 0.0, "axis": row.re_axis or 180.0}
+        left_eye = {"sph": row.le_sph or 0.0, "cyl": row.le_cyl or 0.0, "axis": row.le_axis or 180.0}
+
+        if include_add:
+            if row.add_r is not None:
+                right_eye["add"] = row.add_r
+            if row.add_l is not None:
+                left_eye["add"] = row.add_l
+            if self._prev_add_r:
+                prev_right["add"] = self._prev_add_r
+            if self._prev_add_l:
+                prev_left["add"] = self._prev_add_l
+
+        payload = {
+            "test_cases": [{
+                "case_id": 1,
+                "prev_aux_lens": self._prev_aux_lens,
+                "prev_right_eye": prev_right,
+                "prev_left_eye": prev_left,
+                "aux_lens": aux_lens,
+                "right_eye": right_eye,
+                "left_eye": left_eye,
+            }]
+        }
+        return self._post_to_phoropter(self._phoropter_url(), payload)
+
+    def _send_add_bino_delta(self) -> dict:
+        """Send binocular ADD with single-click (matching v1 _set_add_bino_delta_only).
+        Only right_eye carries ADD; left_eye omits it to avoid double-click."""
+        row = self.current_row
+        prev_right = {"sph": self._prev_re_sph, "cyl": self._prev_re_cyl, "axis": self._prev_re_axis}
+        prev_left = {"sph": self._prev_le_sph, "cyl": self._prev_le_cyl, "axis": self._prev_le_axis}
+        right_eye = {"sph": row.re_sph or 0.0, "cyl": row.re_cyl or 0.0, "axis": row.re_axis or 180.0}
+        left_eye = {"sph": row.le_sph or 0.0, "cyl": row.le_cyl or 0.0, "axis": row.le_axis or 180.0}
+
+        # Only right_eye gets ADD (left_eye deliberately omits it)
+        if row.add_r is not None:
+            right_eye["add"] = row.add_r
+        if self._prev_add_r:
+            prev_right["add"] = self._prev_add_r
+
+        payload = {
+            "test_cases": [{
+                "case_id": 1,
+                "prev_right_eye": prev_right,
+                "prev_left_eye": prev_left,
+                "right_eye": right_eye,
+                "left_eye": left_eye,
+                "aux_lens": "BINO",
+            }]
+        }
+        return self._post_to_phoropter(self._phoropter_url(), payload)
