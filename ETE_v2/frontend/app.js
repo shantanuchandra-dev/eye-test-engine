@@ -211,6 +211,13 @@ let _langSelectPendingData = null; // Stores first-question data during language
 let _autoFlipTimer = null; // Timer for JCC auto-flip
 let _flipState = null; // 'flip1', 'flip2', or null
 
+// ── Gamepad ──
+let gamepadEnabled = true;
+let gamepadConnected = false;
+let gamepadIndex = null;
+let _gamepadPrevButtons = [false, false, false, false];
+let _gamepadPollId = null;
+
 // ── Initialization ──
 document.addEventListener('DOMContentLoaded', () => {
   // Check for session from URL or sessionStorage
@@ -252,6 +259,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   renderPhaseList();
+  updateGamepadStatus();
 });
 
 // ── Session restore ──
@@ -1382,6 +1390,122 @@ function handleKeyboard(e) {
       e.preventDefault();
       btns[idx].click();
     }
+  }
+}
+
+// ── Gamepad input (Xbox controller via Chrome Gamepad API) ──
+// B=option1, A=option2, X=option3, Y=REPEAT (always)
+// Standard indices: A=0, B=1, X=2, Y=3
+
+const GAMEPAD_FACE_BUTTONS = [1, 0, 2]; // B, A, X → option indices 0, 1, 2
+const GAMEPAD_REPEAT_BUTTON = 3; // Y → always REPEAT
+
+window.addEventListener('gamepadconnected', (e) => {
+  console.log(`[Gamepad] Connected: ${e.gamepad.id}`);
+  gamepadIndex = e.gamepad.index;
+  gamepadConnected = true;
+  _gamepadPrevButtons = [false, false, false, false];
+  updateGamepadStatus();
+  if (gamepadEnabled && !_gamepadPollId) startGamepadPoll();
+});
+
+window.addEventListener('gamepaddisconnected', (e) => {
+  console.log(`[Gamepad] Disconnected: ${e.gamepad.id}`);
+  gamepadConnected = false;
+  gamepadIndex = null;
+  updateGamepadStatus();
+  if (_gamepadPollId) { cancelAnimationFrame(_gamepadPollId); _gamepadPollId = null; }
+});
+
+function startGamepadPoll() {
+  function poll() {
+    if (!gamepadEnabled || !gamepadConnected) {
+      _gamepadPollId = null;
+      return;
+    }
+    const gp = navigator.getGamepads()[gamepadIndex];
+    if (gp) {
+      // Check face buttons B, A, X (options 0, 1, 2)
+      GAMEPAD_FACE_BUTTONS.forEach((btnIdx, optionIdx) => {
+        const pressed = gp.buttons[btnIdx]?.pressed || false;
+        if (pressed && !_gamepadPrevButtons[optionIdx]) {
+          handleGamepadOption(optionIdx);
+        }
+        _gamepadPrevButtons[optionIdx] = pressed;
+      });
+      // Check Y button (always REPEAT)
+      const yPressed = gp.buttons[GAMEPAD_REPEAT_BUTTON]?.pressed || false;
+      if (yPressed && !_gamepadPrevButtons[3]) {
+        handleGamepadRepeat();
+      }
+      _gamepadPrevButtons[3] = yPressed;
+    }
+    _gamepadPollId = requestAnimationFrame(poll);
+  }
+  _gamepadPollId = requestAnimationFrame(poll);
+}
+
+function handleGamepadOption(optionIdx) {
+  if (_flipState === 'flip1') return;
+  // Get non-REPEAT option buttons from DOM
+  const allBtns = document.querySelectorAll('#optionsGrid .option-btn');
+  const nonRepeatBtns = [];
+  for (const btn of allBtns) {
+    // Check if this button's response value is REPEAT
+    const text = btn.textContent.trim().toUpperCase();
+    if (!text.startsWith('REPEAT') && !text.startsWith('फिर से')) {
+      nonRepeatBtns.push(btn);
+    }
+  }
+  if (optionIdx < nonRepeatBtns.length && !nonRepeatBtns[optionIdx].disabled) {
+    console.log(`[Gamepad] Button ${optionIdx} → "${nonRepeatBtns[optionIdx].textContent.trim()}"`);
+    nonRepeatBtns[optionIdx].click();
+  }
+}
+
+function handleGamepadRepeat() {
+  if (_flipState === 'flip1') return;
+  // Find the REPEAT button in the DOM
+  const allBtns = document.querySelectorAll('#optionsGrid .option-btn');
+  for (const btn of allBtns) {
+    const text = btn.textContent.trim().toUpperCase();
+    if (text.startsWith('REPEAT') || text.startsWith('फिर से')) {
+      if (!btn.disabled) {
+        console.log('[Gamepad] Y → REPEAT');
+        btn.click();
+      }
+      return;
+    }
+  }
+}
+
+function toggleGamepad() {
+  gamepadEnabled = !gamepadEnabled;
+  const btn = document.getElementById('gamepadBtn');
+  if (btn) {
+    btn.textContent = `Gamepad: ${gamepadEnabled ? 'ON' : 'OFF'}`;
+    btn.style.background = gamepadEnabled ? 'rgba(34,197,94,0.3)' : '';
+  }
+  updateGamepadStatus();
+  if (gamepadEnabled && gamepadConnected && !_gamepadPollId) startGamepadPoll();
+  if (!gamepadEnabled && _gamepadPollId) {
+    cancelAnimationFrame(_gamepadPollId);
+    _gamepadPollId = null;
+  }
+}
+
+function updateGamepadStatus() {
+  const el = document.getElementById('gamepadStatus');
+  if (!el) return;
+  if (!gamepadEnabled) {
+    el.textContent = 'GP: OFF';
+    el.style.color = 'rgba(255,255,255,0.4)';
+  } else if (gamepadConnected) {
+    el.textContent = 'GP: Connected';
+    el.style.color = '#4ade80';
+  } else {
+    el.textContent = 'GP: No pad';
+    el.style.color = 'rgba(255,255,255,0.5)';
   }
 }
 
