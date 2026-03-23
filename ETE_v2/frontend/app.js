@@ -157,16 +157,21 @@ async function checkWhisperAvailability() {
 // ── Beep (audio cue before listening) ──
 const beepCtx = new (window.AudioContext || window.webkitAudioContext)();
 function playBeep() {
-  const osc = beepCtx.createOscillator();
-  const gain = beepCtx.createGain();
-  osc.connect(gain);
-  gain.connect(beepCtx.destination);
-  osc.frequency.value = 880;
-  osc.type = 'sine';
-  gain.gain.setValueAtTime(0.3, beepCtx.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.001, beepCtx.currentTime + 0.15);
-  osc.start(beepCtx.currentTime);
-  osc.stop(beepCtx.currentTime + 0.15);
+  return new Promise(resolve => {
+    const osc = beepCtx.createOscillator();
+    const gain = beepCtx.createGain();
+    osc.connect(gain);
+    gain.connect(beepCtx.destination);
+    osc.frequency.value = 880;
+    osc.type = 'sine';
+    gain.gain.setValueAtTime(0.3, beepCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, beepCtx.currentTime + 0.15);
+    osc.start(beepCtx.currentTime);
+    osc.stop(beepCtx.currentTime + 0.15);
+    osc.onended = resolve;
+    // Fallback in case onended doesn't fire
+    setTimeout(resolve, 200);
+  });
 }
 
 // ── Phase definitions ──
@@ -532,17 +537,16 @@ async function showQuestion(data) {
         if (speechSynthesis.speaking) {
           setTimeout(waitForSpeech, 100);
         } else {
-          setTimeout(() => {
-            playBeep();
-            setTimeout(() => startVoiceCapture(data.state, data.options || [], data.step), 200);
+          setTimeout(async () => {
+            await playBeep();
+            startVoiceCapture(data.state, data.options || [], data.step);
           }, 300);
         }
       };
       setTimeout(waitForSpeech, 200);
     }
   } else if (canListen && !isAutoFlip) {
-    playBeep();
-    setTimeout(() => startVoiceCapture(data.state, data.options || [], data.step), 200);
+    playBeep().then(() => startVoiceCapture(data.state, data.options || [], data.step));
   }
 }
 
@@ -644,8 +648,10 @@ function startVoiceCapture(state, options, step) {
     function interimMatchesOption(text) {
       const t = text.toLowerCase().trim();
       if (!t) return false;
-      // Try server-side match would be slow — use clientSideMatch for instant check
-      return clientSideMatch(t, capturedOptions) !== null;
+      // Also try with digits stripped of punctuation (Chrome may add "." or spaces)
+      const cleaned = t.replace(/[^a-z0-9]/g, '');
+      return clientSideMatch(t, capturedOptions) !== null
+          || clientSideMatch(cleaned, capturedOptions) !== null;
     }
 
     function forceProcessInterim() {
@@ -653,9 +659,12 @@ function startVoiceCapture(state, options, step) {
       alreadyProcessed = true;
       try { recognition.stop(); } catch(e) {}
       voiceRecording = false;
-      console.log(`[Voice] Quick-match: forcing interim "${lastInterimTranscript}" after 1s`);
+      // Try both raw and cleaned versions
+      const cleaned = lastInterimTranscript.replace(/[^a-z0-9]/gi, '').toLowerCase();
+      const alts = cleaned !== lastInterimTranscript.toLowerCase() ? [cleaned] : [];
+      console.log(`[Voice] Quick-match: forcing "${lastInterimTranscript}" (cleaned: "${cleaned}")`);
       updateVoiceStatus(`Processing: "${lastInterimTranscript}"`);
-      matchVoiceResponseWithAlternatives(lastInterimTranscript, [], capturedState, capturedOptions);
+      matchVoiceResponseWithAlternatives(lastInterimTranscript, alts, capturedState, capturedOptions);
     }
 
     recognition.onresult = (event) => {
@@ -681,11 +690,13 @@ function startVoiceCapture(state, options, step) {
         lastInterimTranscript = interimTranscript.trim();
         updateVoiceStatus(`🎙 "${interimTranscript}"...`);
 
-        // If interim matches a valid option, start 1s countdown to force-process
+        // If interim matches a valid option, start countdown to force-process
+        // Short words (≤3 chars like "2", "to", "red") get 600ms, longer get 1000ms
         if (interimMatchesOption(lastInterimTranscript)) {
           if (!quickMatchTimer) {
-            console.log(`[Voice] Interim "${lastInterimTranscript}" matches — waiting 1s for more speech`);
-            quickMatchTimer = setTimeout(forceProcessInterim, 1000);
+            const delay = lastInterimTranscript.length <= 3 ? 600 : 1000;
+            console.log(`[Voice] Interim "${lastInterimTranscript}" matches — waiting ${delay}ms`);
+            quickMatchTimer = setTimeout(forceProcessInterim, delay);
           }
         } else {
           // New interim doesn't match — cancel any pending quick-match
@@ -2147,12 +2158,11 @@ function handleAutoFlip(data) {
         setTimeout(waitAndEnable, 100);
       } else {
         setOptionsEnabled(true);
-        playBeep();
-        if (voiceEnabled && currentState) {
-          setTimeout(() => {
+        playBeep().then(() => {
+          if (voiceEnabled && currentState) {
             startVoiceCapture(currentState.state, currentState.options || [], currentState.step);
-          }, 200);
-        }
+          }
+        });
       }
     };
     setTimeout(waitAndEnable, 200);
