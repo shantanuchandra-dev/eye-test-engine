@@ -595,7 +595,16 @@ function updateVoiceButton() { updateVoiceModeSelect(); }
 
 function startVoiceCapture(state, options, step) {
   if (!voiceEnabled) return;
-  if (voiceSubmitting) return; // Don't start while a match is being submitted
+  if (voiceSubmitting) return;
+  // Don't start listening while TTS is speaking
+  if (speechSynthesis.speaking) {
+    const waitForTTS = () => {
+      if (speechSynthesis.speaking) { setTimeout(waitForTTS, 100); return; }
+      startVoiceCapture(state, options, step);
+    };
+    setTimeout(waitForTTS, 100);
+    return;
+  }
 
   // Route based on user's explicit voiceMode selection
   if (voiceMode === 'whisper') {
@@ -1472,7 +1481,7 @@ async function submitResponse(responseValue, voiceMeta) {
 
 // ── Keyboard shortcuts ──
 function handleKeyboard(e) {
-  if (!_inputEnabled) return; // Wait for beep
+  if (!_inputEnabled || speechSynthesis.speaking) return;
   // Number keys 1-9 for options
   if (e.key >= '1' && e.key <= '9') {
     const idx = parseInt(e.key) - 1;
@@ -1537,7 +1546,7 @@ function startGamepadPoll() {
 }
 
 function handleGamepadOption(optionIdx) {
-  if (!_inputEnabled || _flipState === 'flip1') return;
+  if (!_inputEnabled || _flipState === 'flip1' || speechSynthesis.speaking) return;
   // Get non-REPEAT option buttons from DOM
   const allBtns = document.querySelectorAll('#optionsGrid .option-btn');
   const nonRepeatBtns = [];
@@ -1555,7 +1564,7 @@ function handleGamepadOption(optionIdx) {
 }
 
 function handleGamepadRepeat() {
-  if (!_inputEnabled || _flipState === 'flip1') return;
+  if (!_inputEnabled || _flipState === 'flip1' || speechSynthesis.speaking) return;
   // Find the REPEAT button in the DOM
   const allBtns = document.querySelectorAll('#optionsGrid .option-btn');
   for (const btn of allBtns) {
