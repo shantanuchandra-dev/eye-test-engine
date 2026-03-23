@@ -1,0 +1,11 @@
+flask>=3.0
+flask-cors>=4.0
+python-dotenv>=1.0
+requests>=2.31
+pandas>=2.0
+supabase>=1.0
+# Voice pipeline (matching FSMv3.1_R2)
+faster-whisper>=1.0
+numpy>=1.24
+soundfile>=0.12
+psutil>=5.9

@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ETE v2 — Dashboard</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ink: #0f172a; --ink-secondary: #475569; --ink-muted: #94a3b8;
+  --surface: #f1f5f9; --surface-card: #ffffff; --border: #e2e8f0;
+  --accent: #2563eb; --accent-hover: #1d4ed8;
+  --success: #059669; --warning: #d97706;
+  --radius-sm: 6px; --radius-md: 10px; --radius-lg: 14px;
+  --shadow-sm: 0 1px 2px rgba(15,23,42,0.06);
+  --shadow-md: 0 4px 12px rgba(15,23,42,0.08);
+  --font-body: 'DM Sans', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+html { font-size: 15px; }
+body { font-family: var(--font-body); background: var(--surface); color: var(--ink); min-height: 100vh; -webkit-font-smoothing: antialiased; }
+
+.topbar {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--ink); color: white;
+  padding: 0 2rem; height: 50px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.topbar-brand { font-weight: 600; font-size: 0.95rem; }
+.topbar-nav a { color: rgba(255,255,255,0.7); text-decoration: none; font-size: 0.85rem; margin-left: 20px; }
+.topbar-nav a:hover { color: white; }
+
+.page { max-width: 1100px; margin: 0 auto; padding: 1.5rem; }
+.page h1 { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem; }
+
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 1.5rem 0; }
+.stat-card {
+  background: var(--surface-card); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 20px;
+  box-shadow: var(--shadow-sm);
+}
+.stat-label { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-muted); }
+.stat-value { font-size: 2rem; font-weight: 700; margin-top: 4px; }
+
+.card {
+  background: var(--surface-card); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-sm);
+  margin-bottom: 16px;
+}
+.card-header { padding: 14px 20px; border-bottom: 1px solid var(--border); font-weight: 700; font-size: 0.9rem; }
+.card-body { padding: 16px 20px; }
+
+.filter-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+.filter-group { display: flex; flex-direction: column; gap: 4px; }
+.filter-label { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-muted); }
+.filter-input {
+  height: 36px; padding: 0 10px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  font: 400 0.85rem var(--font-body); color: var(--ink);
+}
+.filter-btn {
+  height: 36px; padding: 0 16px;
+  background: var(--accent); color: white; border: none;
+  border-radius: var(--radius-sm); font: 600 0.82rem var(--font-body);
+  cursor: pointer;
+}
+.filter-btn:hover { background: var(--accent-hover); }
+.filter-btn.secondary { background: var(--surface); color: var(--ink); border: 1px solid var(--border); }
+
+table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+th { text-align: left; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-muted); padding: 8px 12px; border-bottom: 2px solid var(--border); }
+td { padding: 8px 12px; border-bottom: 1px solid var(--border); color: var(--ink-secondary); }
+tbody tr:hover { background: rgba(37,99,235,0.03); }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="topbar-brand">ETE v2 — Dashboard</span>
+  <nav class="topbar-nav">
+    <a href="/intake">New Test</a>
+    <a href="/dashboard">Dashboard</a>
+  </nav>
+</div>
+
+<div class="page">
+  <h1>Session Dashboard</h1>
+
+  <!-- Filters -->
+  <div class="card">
+    <div class="card-header">Filters</div>
+    <div class="card-body">
+      <div class="filter-bar">
+        <div class="filter-group">
+          <label class="filter-label">From</label>
+          <input type="date" class="filter-input" id="filterFrom">
+        </div>
+        <div class="filter-group">
+          <label class="filter-label">To</label>
+          <input type="date" class="filter-input" id="filterTo">
+        </div>
+        <div class="filter-group">
+          <label class="filter-label">Operator</label>
+          <input type="text" class="filter-input" id="filterOperator" placeholder="All">
+        </div>
+        <div class="filter-group">
+          <label class="filter-label">Phoropter</label>
+          <input type="text" class="filter-input" id="filterPhoropter" placeholder="All">
+        </div>
+        <button class="filter-btn" onclick="applyFilters()">Apply</button>
+        <button class="filter-btn secondary" onclick="exportCSV()">Export CSV</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="stat-grid">
+    <div class="stat-card">
+      <div class="stat-label">Total Sessions</div>
+      <div class="stat-value" id="statTotal">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Today</div>
+      <div class="stat-value" id="statToday">—</div>
+    </div>
+  </div>
+
+  <!-- Recent Sessions -->
+  <div class="card">
+    <div class="card-header">Recent Sessions</div>
+    <div class="card-body" style="overflow-x:auto;">
+      <table>
+        <thead><tr><th>Session</th><th>Start</th><th>Operator</th><th>Phoropter</th><th>Status</th><th>Duration</th></tr></thead>
+        <tbody id="recentTable"><tr><td colspan="6" style="text-align:center;">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- R&R -->
+  <div class="card">
+    <div class="card-header">R&R — By Operator</div>
+    <div class="card-body" style="overflow-x:auto;">
+      <table>
+        <thead><tr><th>Operator</th><th>Sessions</th><th>Avg Duration</th><th>Completion Rate</th><th>Avg Jump Rate</th></tr></thead>
+        <tbody id="rrOperator"><tr><td colspan="5" style="text-align:center;">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">R&R — By Phoropter</div>
+    <div class="card-body" style="overflow-x:auto;">
+      <table>
+        <thead><tr><th>Phoropter</th><th>Sessions</th><th>Avg Duration</th><th>Completion Rate</th><th>Avg Jump Rate</th></tr></thead>
+        <tbody id="rrPhoropter"><tr><td colspan="5" style="text-align:center;">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = window.BACKEND_URL || '';
+
+function getFilters() {
+  const params = new URLSearchParams();
+  const from = document.getElementById('filterFrom').value;
+  const to = document.getElementById('filterTo').value;
+  const op = document.getElementById('filterOperator').value.trim();
+  const ph = document.getElementById('filterPhoropter').value.trim();
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
+  if (op) params.set('operator', op);
+  if (ph) params.set('phoropter', ph);
+  return params.toString();
+}
+
+async function applyFilters() {
+  await Promise.all([loadStats(), loadRR()]);
+}
+
+async function loadStats() {
+  try {
+    const resp = await fetch(`${API}/api/dashboard/stats?${getFilters()}`);
+    const data = await resp.json();
+    document.getElementById('statTotal').textContent = data.total_sessions || 0;
+    document.getElementById('statToday').textContent = data.today_count || 0;
+
+    const tbody = document.getElementById('recentTable');
+    if (!data.recent_sessions || data.recent_sessions.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">No sessions found</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.recent_sessions.map(s => `<tr>
+      <td style="font-family:var(--font-mono);font-size:0.8rem">${s.Session_ID || ''}</td>
+      <td>${s.Start_Time ? new Date(s.Start_Time).toLocaleString() : ''}</td>
+      <td>${s.Operator_Name || ''}</td>
+      <td>${s.Phoropter_ID || ''}</td>
+      <td>${s.Completion_Status || ''}</td>
+      <td>${s.Duration_Seconds ? Math.round(s.Duration_Seconds) + 's' : ''}</td>
+    </tr>`).join('');
+  } catch (e) {
+    console.error('Stats error:', e);
+  }
+}
+
+async function loadRR() {
+  try {
+    const resp = await fetch(`${API}/api/dashboard/rr?${getFilters()}`);
+    const data = await resp.json();
+
+    const opBody = document.getElementById('rrOperator');
+    const ops = data.by_operator || {};
+    if (Object.keys(ops).length === 0) {
+      opBody.innerHTML = '<tr><td colspan="5" style="text-align:center;">No data</td></tr>';
+    } else {
+      opBody.innerHTML = Object.entries(ops).map(([k, v]) => `<tr>
+        <td>${k}</td><td>${v.count}</td>
+        <td>${Math.round(v.mean_duration_seconds)}s</td>
+        <td>${(v.completion_rate * 100).toFixed(1)}%</td>
+        <td>${(v.mean_phase_jump_rate * 100).toFixed(1)}%</td>
+      </tr>`).join('');
+    }
+
+    const phBody = document.getElementById('rrPhoropter');
+    const phs = data.by_phoropter || {};
+    if (Object.keys(phs).length === 0) {
+      phBody.innerHTML = '<tr><td colspan="5" style="text-align:center;">No data</td></tr>';
+    } else {
+      phBody.innerHTML = Object.entries(phs).map(([k, v]) => `<tr>
+        <td>${k}</td><td>${v.count}</td>
+        <td>${Math.round(v.mean_duration_seconds)}s</td>
+        <td>${(v.completion_rate * 100).toFixed(1)}%</td>
+        <td>${(v.mean_phase_jump_rate * 100).toFixed(1)}%</td>
+      </tr>`).join('');
+    }
+  } catch (e) {
+    console.error('R&R error:', e);
+  }
+}
+
+function exportCSV() {
+  window.open(`${API}/api/dashboard/export?${getFilters()}`);
+}
+
+// Auto-load on page open
+applyFilters();
+</script>
+</body>
+</html>

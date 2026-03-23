@@ -98,7 +98,9 @@
       "Bash(railway list:*)",
       "Bash(railway link:*)",
       "Bash(railway service:*)",
-      "Bash(railway redeploy:*)"
+      "Bash(railway redeploy:*)",
+      "Bash(lsof -ti:5050)",
+      "Bash(lsof -i:8766)"
     ]
   }
 }

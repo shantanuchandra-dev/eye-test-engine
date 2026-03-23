@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ETE v2 — Eye Test Session</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ink: #0f172a;
+  --ink-secondary: #475569;
+  --ink-muted: #94a3b8;
+  --surface: #f1f5f9;
+  --surface-card: #ffffff;
+  --surface-hover: #f8fafc;
+  --border: #e2e8f0;
+  --border-focus: #3b82f6;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-glow: rgba(37,99,235,0.12);
+  --success: #059669;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --re-color: #2563eb;
+  --le-color: #7c3aed;
+  --bin-color: #059669;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --shadow-sm: 0 1px 2px rgba(15,23,42,0.06);
+  --shadow-md: 0 4px 12px rgba(15,23,42,0.08);
+  --shadow-lg: 0 8px 30px rgba(15,23,42,0.12);
+  --font-body: 'DM Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', monospace;
+}
+
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+html { font-size: 15px; }
+body {
+  font-family: var(--font-body);
+  background: var(--surface);
+  color: var(--ink);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Topbar ── */
+.topbar {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--ink);
+  color: white;
+  padding: 0 1.5rem;
+  height: 50px;
+  display: flex; align-items: center; justify-content: space-between;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+}
+.topbar-left { display: flex; align-items: center; gap: 16px; }
+.topbar-brand { font-weight: 600; font-size: 0.95rem; letter-spacing: -0.02em; }
+.topbar-phase {
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 0.78rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.topbar-phase.re { background: var(--re-color); }
+.topbar-phase.le { background: var(--le-color); }
+.topbar-phase.bin { background: var(--bin-color); }
+.topbar-phase.end { background: var(--warning); }
+.topbar-phase.escalate { background: var(--danger); }
+
+.topbar-right { display: flex; align-items: center; gap: 8px; }
+.topbar-info { font-size: 0.78rem; color: rgba(255,255,255,0.7); }
+.topbar-btn {
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.15);
+  color: white; padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  font: 500 0.78rem var(--font-body);
+  cursor: pointer; transition: all 0.15s;
+}
+.topbar-btn:hover { background: rgba(255,255,255,0.18); }
+.topbar-btn.danger { border-color: rgba(220,38,38,0.5); }
+.topbar-btn.danger:hover { background: rgba(220,38,38,0.3); }
+
+/* ── Main Layout ── */
+.main-layout {
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  gap: 0;
+  min-height: calc(100vh - 50px);
+}
+
+/* ── Center: Question Panel ── */
+.center-panel {
+  padding: 2rem;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  min-height: 0;
+}
+
+.question-card {
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  padding: 2.5rem;
+  width: 100%; max-width: 600px;
+  text-align: center;
+}
+.question-step {
+  font: 500 0.72rem var(--font-mono);
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 8px;
+}
+.question-state {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 4px;
+  font: 700 0.82rem var(--font-body);
+  letter-spacing: 0.02em;
+  margin-bottom: 16px;
+}
+.question-state.re { background: rgba(37,99,235,0.1); color: var(--re-color); }
+.question-state.le { background: rgba(124,58,237,0.1); color: var(--le-color); }
+.question-state.bin { background: rgba(5,150,105,0.1); color: var(--bin-color); }
+
+.question-text {
+  font-size: 1.25rem; font-weight: 600;
+  line-height: 1.4;
+  color: var(--ink);
+  margin-bottom: 2rem;
+}
+
+.options-grid {
+  display: flex; flex-wrap: wrap;
+  gap: 10px; justify-content: center;
+}
+.option-btn {
+  min-width: 130px;
+  padding: 14px 24px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius-md);
+  background: white;
+  font: 600 0.95rem var(--font-body);
+  color: var(--ink);
+  cursor: pointer;
+  transition: all 0.15s;
+  position: relative;
+}
+.option-btn .key-hint {
+  position: absolute;
+  top: 4px; right: 8px;
+  font: 500 0.65rem var(--font-mono);
+  color: var(--ink-muted);
+}
+.opt-internal {
+  display: block;
+  font: 500 0.65rem var(--font-mono);
+  color: var(--ink-muted);
+  margin-top: 2px;
+}
+.option-btn:hover {
+  border-color: var(--accent);
+  background: var(--accent-glow);
+  transform: translateY(-1px);
+}
+.option-btn:active { transform: translateY(0); }
+.option-btn.clear { border-color: #bbf7d0; background: #f0fdf4; color: #166534; }
+.option-btn.clear:hover { border-color: #22c55e; background: #dcfce7; }
+.option-btn.blurry { border-color: #fed7aa; background: #fff7ed; color: #9a3412; }
+.option-btn.blurry:hover { border-color: #f97316; background: #ffedd5; }
+.option-btn.repeat { border-color: #e2e8f0; background: #f8fafc; color: #64748b; }
+.option-btn.same { border-color: #e2e8f0; background: #f8fafc; color: #64748b; }
+.option-btn.red { border-color: #fca5a5; background: #fef2f2; color: #dc2626; }
+.option-btn.red:hover { border-color: #ef4444; background: #fee2e2; }
+.option-btn.green { border-color: #86efac; background: #f0fdf4; color: #16a34a; }
+.option-btn.green:hover { border-color: #22c55e; background: #dcfce7; }
+
+/* ── Stimulus & Letter chart ── */
+.stimulus-desc {
+  font-size: 0.82rem; color: var(--ink-muted);
+  text-transform: uppercase; letter-spacing: 0.04em;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.letter-chart {
+  background: #fafafa;
+  border: 2px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 20px 30px;
+  margin-bottom: 16px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--ink);
+  min-width: 280px;
+}
+.chart-line {
+  margin: 6px 0;
+  white-space: nowrap;
+}
+
+/* ── Voice bar ── */
+.voice-bar {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  margin-bottom: 16px;
+  padding: 8px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  min-height: 38px;
+}
+.voice-status {
+  font-size: 0.85rem; font-weight: 600;
+  font-family: var(--font-mono);
+}
+
+/* ── Chat conversation ── */
+.conversation-panel {
+  border-bottom: 1px solid var(--border);
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 10px 12px;
+}
+.conversation-panel::-webkit-scrollbar { width: 4px; }
+.conversation-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.chat-bubble {
+  max-width: 88%;
+  padding: 8px 12px;
+  border-radius: 12px;
+  margin-bottom: 6px;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  position: relative;
+}
+.chat-bubble.optometrist {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e40af;
+  margin-right: auto;
+  border-bottom-left-radius: 4px;
+}
+.chat-bubble.patient {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: #166534;
+  margin-left: auto;
+  border-bottom-right-radius: 4px;
+}
+.chat-bubble.system {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--ink-muted);
+  margin: 0 auto;
+  font-size: 0.75rem;
+  text-align: center;
+}
+.chat-intent {
+  font: 600 0.72rem var(--font-mono);
+  color: var(--accent);
+  margin-top: 3px;
+  padding: 2px 6px;
+  background: rgba(37,99,235,0.08);
+  border-radius: 4px;
+  display: inline-block;
+}
+.chat-extra {
+  font-size: 0.7rem;
+  color: var(--ink-muted);
+  margin-top: 2px;
+}
+.chat-time {
+  font-size: 0.65rem;
+  color: var(--ink-muted);
+  text-align: right;
+  margin-top: 2px;
+}
+
+/* ── Terminal states ── */
+.terminal-card {
+  display: none;
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  padding: 2.5rem;
+  width: 100%; max-width: 600px;
+  text-align: center;
+}
+.terminal-card.active { display: block; }
+.terminal-icon { font-size: 3rem; margin-bottom: 1rem; }
+.terminal-title { font-size: 1.4rem; font-weight: 700; margin-bottom: 0.5rem; }
+.terminal-subtitle { color: var(--ink-secondary); font-size: 0.95rem; margin-bottom: 2rem; }
+
+.feedback-area {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font: 400 0.9rem var(--font-body);
+  resize: vertical;
+  min-height: 80px;
+  margin-bottom: 1rem;
+}
+.action-row { display: flex; gap: 10px; justify-content: center; }
+.action-btn {
+  padding: 12px 24px;
+  border: none;
+  border-radius: var(--radius-md);
+  font: 600 0.9rem var(--font-body);
+  cursor: pointer; transition: all 0.15s;
+}
+.action-btn.primary { background: var(--accent); color: white; }
+.action-btn.primary:hover { background: var(--accent-hover); }
+.action-btn.secondary { background: var(--surface); color: var(--ink); border: 1px solid var(--border); }
+.action-btn.secondary:hover { background: #e2e8f0; }
+.action-btn.danger { background: var(--danger); color: white; }
+.action-btn.danger:hover { background: #b91c1c; }
+
+/* ── Right Sidebar ── */
+.sidebar {
+  background: var(--surface-card);
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  display: flex; flex-direction: column;
+}
+
+.sidebar-section {
+  border-bottom: 1px solid var(--border);
+  padding: 14px 16px;
+}
+.sidebar-label {
+  font-size: 0.7rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--ink-muted);
+  margin-bottom: 10px;
+}
+
+/* Rx Table */
+.rx-table {
+  width: 100%;
+  border-collapse: collapse;
+  font: 500 0.85rem var(--font-mono);
+}
+.rx-table th {
+  font-size: 0.68rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--ink-muted);
+  padding: 2px 6px 6px;
+  text-align: center;
+}
+.rx-table td {
+  padding: 6px;
+  text-align: center;
+  border-top: 1px solid var(--border);
+}
+.rx-table .eye-label {
+  font: 700 0.78rem var(--font-body);
+  text-align: left;
+  padding-left: 0;
+}
+.rx-table .eye-label.re { color: var(--re-color); }
+.rx-table .eye-label.le { color: var(--le-color); }
+
+/* Phase progress */
+.phase-list { display: flex; flex-direction: column; gap: 4px; }
+.phase-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  transition: background 0.15s;
+}
+.phase-item.active { background: var(--accent-glow); font-weight: 600; }
+.phase-item.completed { color: var(--success); }
+.phase-item.completed::before { content: '✓'; margin-right: 2px; }
+.phase-item.pending { color: var(--ink-muted); }
+.phase-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.phase-dot.active { background: var(--accent); }
+.phase-dot.completed { background: var(--success); }
+.phase-dot.pending { background: var(--border); }
+
+/* Fog indicator */
+.fog-badge {
+  display: none;
+  padding: 4px 10px;
+  border-radius: 4px;
+  background: rgba(217,119,6,0.1);
+  color: var(--warning);
+  font-size: 0.78rem; font-weight: 600;
+}
+.fog-badge.active { display: inline-block; }
+
+/* ── Logs drawer ── */
+.logs-drawer {
+  display: none;
+  position: fixed; right: 0; top: 50px; bottom: 0;
+  width: 420px;
+  background: var(--surface-card);
+  border-left: 1px solid var(--border);
+  box-shadow: -4px 0 20px rgba(0,0,0,0.1);
+  z-index: 90;
+  flex-direction: column;
+}
+.logs-drawer.open { display: flex; }
+.logs-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.logs-header h3 { font-size: 0.9rem; font-weight: 700; }
+.logs-close {
+  background: none; border: none;
+  font-size: 1.2rem; cursor: pointer; color: var(--ink-muted);
+}
+.logs-tabs {
+  display: flex; border-bottom: 1px solid var(--border);
+}
+.logs-tab {
+  flex: 1; padding: 8px;
+  text-align: center;
+  font-size: 0.78rem; font-weight: 600;
+  background: none; border: none; border-bottom: 2px solid transparent;
+  cursor: pointer; color: var(--ink-muted);
+  transition: all 0.15s;
+}
+.logs-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.logs-content {
+  flex: 1; overflow-y: auto;
+  padding: 12px;
+  font: 400 0.78rem var(--font-mono);
+  line-height: 1.6;
+  color: var(--ink-secondary);
+}
+.log-entry { padding: 6px 0; border-bottom: 1px solid var(--border); }
+.log-entry .log-time { color: var(--ink-muted); font-size: 0.7rem; }
+.log-entry .log-role { font-weight: 600; }
+.log-entry .log-role.patient { color: var(--re-color); }
+.log-entry .log-role.optometrist { color: var(--le-color); }
+.log-entry .log-role.system { color: var(--ink-muted); }
+
+/* ── Password gate ── */
+.password-gate {
+  padding: 2rem; text-align: center;
+}
+.password-gate input {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font: 400 0.9rem var(--font-body);
+  margin-right: 8px;
+}
+.password-gate button {
+  padding: 8px 16px;
+  background: var(--accent); color: white;
+  border: none; border-radius: var(--radius-sm);
+  font: 500 0.85rem var(--font-body);
+  cursor: pointer;
+}
+
+/* ── Loading ── */
+.loading-overlay {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(15,23,42,0.4);
+  z-index: 200;
+  align-items: center; justify-content: center;
+}
+.loading-overlay.active { display: flex; }
+.spinner { width: 36px; height: 36px; border: 3px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Responsive ── */
+@media (max-width: 900px) {
+  .main-layout { grid-template-columns: 1fr; }
+  .sidebar { border-left: none; border-top: 1px solid var(--border); }
+}
+</style>
+</head>
+<body>
+
+<!-- Topbar -->
+<div class="topbar">
+  <div class="topbar-left">
+    <span class="topbar-brand">ETE v2</span>
+    <span class="topbar-phase" id="topbarPhase">—</span>
+    <span class="topbar-info" id="topbarInfo">No session</span>
+  </div>
+  <div class="topbar-right">
+    <span class="fog-badge" id="fogBadge">FOG ACTIVE</span>
+    <button class="topbar-btn" id="voiceBtn" onclick="toggleVoice()" style="background:rgba(34,197,94,0.3)">Mic: ON</button>
+    <button class="topbar-btn" id="ttsBtn" onclick="toggleTTS()">TTS: ON</button>
+    <button class="topbar-btn" id="dvBtn" onclick="toggleDvPanel()">DV</button>
+    <button class="topbar-btn" id="logsBtn" onclick="toggleLogs()">Logs</button>
+    <button class="topbar-btn danger" id="endBtn" onclick="endSession()" style="display:none">End Session</button>
+  </div>
+</div>
+
+<!-- Main -->
+<div class="main-layout">
+  <!-- Center -->
+  <div class="center-panel" id="centerPanel">
+    <!-- Question card (shown during test) -->
+    <div class="question-card" id="questionCard">
+      <div class="question-step" id="questionStep">STEP 1</div>
+      <div class="question-state" id="questionState">B</div>
+      <div class="stimulus-desc" id="stimulusDescription"></div>
+      <div class="letter-chart" id="letterChart" style="display:none"></div>
+      <div class="question-text" id="questionText">Waiting for session...</div>
+      <div class="voice-bar" id="voiceBar">
+        <span class="voice-status" id="voiceStatus">—</span>
+      </div>
+      <div class="options-grid" id="optionsGrid"></div>
+    </div>
+
+    <!-- End card -->
+    <div class="terminal-card" id="endCard">
+      <div class="terminal-icon" id="terminalIcon"></div>
+      <div class="terminal-title" id="terminalTitle"></div>
+      <div class="terminal-subtitle" id="terminalSubtitle"></div>
+      <textarea class="feedback-area" id="feedbackArea" placeholder="Qualitative feedback (optional)..."></textarea>
+      <div class="action-row">
+        <button class="action-btn primary" onclick="signOff()">Sign Off & Store</button>
+        <button class="action-btn danger" onclick="discardSession()">Discard</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-label">Prescription</div>
+      <table class="rx-table">
+        <thead>
+          <tr><th></th><th>SPH</th><th>CYL</th><th>AXIS</th><th>ADD</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="eye-label re">R</td>
+            <td id="rxReSph">0.00</td>
+            <td id="rxReCyl">0.00</td>
+            <td id="rxReAxis">180</td>
+            <td id="rxReAdd">—</td>
+          </tr>
+          <tr>
+            <td class="eye-label le">L</td>
+            <td id="rxLeSph">0.00</td>
+            <td id="rxLeCyl">0.00</td>
+            <td id="rxLeAxis">180</td>
+            <td id="rxLeAdd">—</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-label">Conversation</div>
+      <div class="conversation-panel" id="conversationLog"></div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-label">Phase Progress</div>
+      <div class="phase-list" id="phaseList"></div>
+    </div>
+
+    <div class="sidebar-section" style="flex:1">
+      <div class="sidebar-label">Session Info</div>
+      <div style="font-size:0.82rem; color:var(--ink-secondary); line-height:1.8" id="sessionInfo">
+        No active session
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Logs drawer -->
+<div class="logs-drawer" id="logsDrawer">
+  <div class="logs-header">
+    <h3>Session Logs</h3>
+    <button class="logs-close" onclick="toggleLogs()">&times;</button>
+  </div>
+  <div id="logsGate" class="password-gate">
+    <p style="margin-bottom:12px; font-size:0.9rem">Enter password to view logs</p>
+    <input type="password" id="logsPassword" placeholder="Password">
+    <button onclick="unlockLogs()">Unlock</button>
+  </div>
+  <div id="logsUnlocked" style="display:none; flex:1; display:none; flex-direction:column;">
+    <div class="logs-tabs">
+      <button class="logs-tab active" data-tab="conversation" onclick="switchLogTab(this)">Conversation</button>
+      <button class="logs-tab" data-tab="curl" onclick="switchLogTab(this)">CURL Commands</button>
+      <button class="logs-tab" data-tab="responses" onclick="switchLogTab(this)">Responses</button>
+    </div>
+    <div class="logs-content" id="logsContent"></div>
+  </div>
+</div>
+
+<!-- Loading -->
+<!-- DV Summary drawer -->
+<div class="logs-drawer" id="dvDrawer">
+  <div class="logs-header">
+    <h3>Derived Variables</h3>
+    <button class="logs-close" onclick="toggleDvPanel()">&times;</button>
+  </div>
+  <div class="logs-content" id="dvContent" style="font-size:0.78rem; line-height:1.7;">Loading...</div>
+</div>
+
+<div class="loading-overlay" id="loadingOverlay"><div class="spinner"></div></div>
+
+<script src="app.js"></script>
+</body>
+</html>

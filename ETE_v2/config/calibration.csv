@@ -1,0 +1,132 @@
+Section,Parameter_Key,Value,Unit_or_Type,Allowed_Values,Notes_Used_By,Parameter_Explanation
+SYSTEM,system_version,3.1,text,any,Version tracking,Version number of the calibration setup
+SYSTEM,active_profile,FSMv3.1,text,any,Calibration profile name,Name of the currently active calibration profile
+
+PATIENT_TO_DV,age_child_max,17,years,integer,dv_age_bucket,Maximum age classified as Child
+PATIENT_TO_DV,age_presbyope_min,40,years,integer,dv_age_bucket,Minimum age classified as Presbyope
+PATIENT_TO_DV,driving_hours_high,2,hours,float/int,dv_distance_priority,Driving time threshold above which distance priority becomes high
+PATIENT_TO_DV,screen_time_high,6,hours,float/int,dv_near_priority,Screen-time threshold above which near priority becomes high
+PATIENT_TO_DV,near_work_hours_high,4,hours,float/int,dv_near_priority,Near-work threshold above which near priority becomes high
+PATIENT_TO_DV,last_eye_test_uncertain_months,24,months,integer,dv_stability_level,Months after which refraction history is considered uncertain
+PATIENT_TO_DV,add_possible_min_age,38,years,integer,dv_add_expected,Minimum age at which ADD can become possible
+PATIENT_TO_DV,add_likely_min_age,42,years,integer,dv_add_expected,Minimum age at which ADD is likely
+PATIENT_TO_DV,allow_high_near_priority_to_force_near,TRUE,boolean,TRUE/FALSE,dv_add_expected / near workflow trigger,"If TRUE, high near priority can trigger near workflow even without strong age evidence"
+
+MISMATCH_THRESHOLDS,mismatch_re_sph_medium,1,D,float,dv_ar_lenso_mismatch_level_RE,Medium mismatch threshold for RE sphere difference between AR and Lenso
+MISMATCH_THRESHOLDS,mismatch_re_sph_large,2,D,float,dv_ar_lenso_mismatch_level_RE,Large mismatch threshold for RE sphere difference between AR and Lenso
+MISMATCH_THRESHOLDS,mismatch_re_cyl_medium,0.5,D,float,dv_ar_lenso_mismatch_level_RE,Medium mismatch threshold for RE cylinder difference between AR and Lenso
+MISMATCH_THRESHOLDS,mismatch_re_cyl_large,1,D,float,dv_ar_lenso_mismatch_level_RE,Large mismatch threshold for RE cylinder difference between AR and Lenso
+MISMATCH_THRESHOLDS,mismatch_re_axis_medium,15,deg,integer,dv_ar_lenso_mismatch_level_RE,Medium mismatch threshold for RE axis difference between AR and Lenso
+MISMATCH_THRESHOLDS,mismatch_re_axis_large,30,deg,integer,dv_ar_lenso_mismatch_level_RE,Large mismatch threshold for RE axis difference between AR and Lenso
+
+MISMATCH_THRESHOLDS,mismatch_le_sph_medium,1,D,float,dv_ar_lenso_mismatch_level_LE,Medium mismatch threshold for LE sphere difference between AR and Lenso
+MISMATCH_THRESHOLDS,mismatch_le_sph_large,2,D,float,dv_ar_lenso_mismatch_level_LE,Large mismatch threshold for LE sphere difference between AR and Lenso
+MISMATCH_THRESHOLDS,mismatch_le_cyl_medium,0.5,D,float,dv_ar_lenso_mismatch_level_LE,Medium mismatch threshold for LE cylinder difference between AR and Lenso
+MISMATCH_THRESHOLDS,mismatch_le_cyl_large,1,D,float,dv_ar_lenso_mismatch_level_LE,Large mismatch threshold for LE cylinder difference between AR and Lenso
+MISMATCH_THRESHOLDS,mismatch_le_axis_medium,15,deg,integer,dv_ar_lenso_mismatch_level_LE,Medium mismatch threshold for LE axis difference between AR and Lenso
+MISMATCH_THRESHOLDS,mismatch_le_axis_large,30,deg,integer,dv_ar_lenso_mismatch_level_LE,Large mismatch threshold for LE axis difference between AR and Lenso
+
+START_POLICY,start_policy_if_only_ar,Start_AR,text,Start_AR/Start_Lenso/Hybrid,dv_start_source_policy,Start policy when only AR data exists
+START_POLICY,start_policy_if_only_lenso,Start_Lenso,text,Start_AR/Start_Lenso/Hybrid,dv_start_source_policy,Start policy when only Lenso data exists
+START_POLICY,start_policy_if_satisfied_small_mismatch,Start_Lenso,text,Start_AR/Start_Lenso/Hybrid,dv_start_source_policy,Start policy when current prescription is satisfactory and mismatch is small
+START_POLICY,start_policy_if_unsatisfied_or_blur,Start_AR,text,Start_AR/Start_Lenso/Hybrid,dv_start_source_policy,Start policy when patient is unsatisfied or reports blur
+START_POLICY,start_policy_if_large_mismatch_or_unstable,Hybrid,text,Start_AR/Start_Lenso/Hybrid,dv_start_source_policy,Start policy when mismatch is large or stability is poor
+START_POLICY,hybrid_rounding_step,0.25,D,float,dv_start_rx_* hybrid averaging,Rounding step used when averaging AR and Lenso values in Hybrid mode
+
+DISTANCE_TARGET,default_distance_target,6/6_target,text,6/6_target/6/9_acceptable,dv_target_distance_va,Default target for distance acuity
+DISTANCE_TARGET,high_risk_distance_target,6/9_acceptable,text,6/6_target/6/9_acceptable,dv_target_distance_va,Distance acuity target used when risk or instability is high
+DISTANCE_TARGET,distance_target_6_6_chart,20_20_20,text,chart label,FSM target_line,Chart group used to represent 6/6 endpoint
+DISTANCE_TARGET,distance_target_6_9_chart,40_30_25,text,chart label,FSM target_line,Chart group used to represent 6/9 acceptable endpoint
+
+ENDPOINT_BIAS,comfort_presbyope_high_near_bias,Undercorrect,text,Neutral/Undercorrect/Overcorrect,dv_endpoint_bias_policy,Bias used when patient prioritizes comfort and near vision
+ENDPOINT_BIAS,driver_night_issue_bias,Overcorrect,text,Neutral/Undercorrect/Overcorrect,dv_endpoint_bias_policy,Bias used for drivers or patients with night vision demands
+ENDPOINT_BIAS,high_symptom_bias,Neutral,text,Neutral/Undercorrect/Overcorrect,dv_endpoint_bias_policy,Bias used when symptom risk is high
+ENDPOINT_BIAS,undercorrect_step,0.25,D,float,duochrome/final sphere,Amount of plus bias used for undercorrection
+ENDPOINT_BIAS,overcorrect_step,0.25,D,float,duochrome/final sphere,Amount of minus bias used for overcorrection
+
+STEP_POLICY,conservative_sph_step,0.25,D,float,FSM sph_step,Sphere step used in Conservative mode
+STEP_POLICY,standard_sph_step,0.25,D,float,FSM sph_step,Sphere step used in Standard mode
+STEP_POLICY,aggressive_sph_step,0.25,D,float,FSM sph_step,Sphere step used in Aggressive mode
+STEP_POLICY,conservative_cyl_step,0.25,D,float,FSM cyl_step,Cylinder step used in Conservative mode
+STEP_POLICY,standard_cyl_step,0.25,D,float,FSM cyl_step,Cylinder step used in Standard mode
+STEP_POLICY,aggressive_cyl_step,0.25,D,float,FSM cyl_step,Cylinder step used in Aggressive mode
+
+AXIS_POLICY,axis_start_step,5,deg,integer,FSM axis_step initialization,Initial JCC axis refinement step
+AXIS_POLICY,axis_reversal_step_1,3,deg,integer,FSM axis_step after first reversal,Axis step after first preference reversal
+AXIS_POLICY,axis_reversal_step_2,1,deg,integer,FSM axis_step after second reversal,Axis step after second preference reversal
+AXIS_POLICY,axis_fixed_step,5,deg,integer,FSM v2.3 JCC axis delta,Fixed JCC axis step used for all axis changes
+AXIS_POLICY,jcc_axis_same_required,2,count,integer,FSM axis convergence,Number of SAME confirmations required before exiting axis refinement
+AXIS_POLICY,jcc_axis_max_flips,3,count,integer,FSM axis convergence,Maximum BETTER_1 ↔ BETTER_2 reversals allowed in JCC axis
+AXIS_POLICY,axis_tol_strict,1,deg,integer,dv_axis_tolerance_deg,Axis tolerance used when branching guardrails are strict
+AXIS_POLICY,axis_tol_normal,3,deg,integer,dv_axis_tolerance_deg,Axis tolerance used when branching guardrails are normal
+AXIS_POLICY,axis_tol_relaxed,5,deg,integer,dv_axis_tolerance_deg,Axis tolerance used when branching guardrails are relaxed
+
+CYL_POLICY,cyl_tol_conservative,0.25,D,float,dv_cyl_tolerance_D,Cylinder tolerance used in Conservative mode
+CYL_POLICY,cyl_tol_standard,0.25,D,float,dv_cyl_tolerance_D,Cylinder tolerance used in Standard mode
+CYL_POLICY,cyl_tol_aggressive,0.5,D,float,dv_cyl_tolerance_D,Cylinder tolerance used in Aggressive mode
+CYL_POLICY,jcc_power_same_low,1,count,integer,FSM JCC power convergence,Number of SAME confirmations required in low confidence cases
+CYL_POLICY,jcc_power_same_medium,2,count,integer,FSM JCC power convergence,Number of SAME confirmations required in medium confidence cases
+CYL_POLICY,jcc_power_same_high,2,count,integer,FSM JCC power convergence,Number of SAME confirmations required in high confidence cases
+CYL_POLICY,jcc_power_max_flips,3,count,integer,FSM JCC power convergence,Maximum allowed BETTER_1 ↔ BETTER_2 flips in JCC power before forcing exit to duochrome
+
+FOGGING,no_fog_amount,0.5,D,float,dv_fogging_amount_D,Sphere shift added when no fogging is applied
+FOGGING,standard_fog_amount,1.25,D,float,dv_fogging_amount_D,Sphere fog amount used for standard fogging
+FOGGING,strong_fog_amount,1.5,D,float,dv_fogging_amount_D,Sphere fog amount used for strong fogging
+FOGGING,fogging_apply_at_coarse_entry_only,TRUE,boolean,TRUE/FALSE,FSM v3.1 coarse sphere entry,If TRUE fogging is applied once at entry into coarse sphere and not re-applied later
+FOGGING,fogging_clear_until_target_va,TRUE,boolean,TRUE/FALSE,FSM v3.1 fogging clearance,If TRUE fogging is reduced only until target VA is reached during coarse refinement
+FOGGING,fogging_use_accommodation_logic,TRUE,boolean,TRUE/FALSE,FSM v3.1 fogging decision,If TRUE fogging behavior is interpreted as an accommodation control mechanism rather than a generic risk feature
+FOGGING,strong_fog_for_children,TRUE,boolean,TRUE/FALSE,FSM v3.1 fogging decision,Documentation row for FSM v3.1: child cases are treated as high accommodation risk and receive strong fogging
+FOGGING,standard_fog_for_adult_instability_or_moderate_risk,TRUE,boolean,TRUE/FALSE,FSM v3.1 fogging decision,Documentation row for FSM v3.1: unstable adults or moderate-risk adults receive standard fogging
+FOGGING,no_fog_for_presbyopes,TRUE,boolean,TRUE/FALSE,FSM v3.1 fogging decision,Documentation row for FSM v3.1: presbyopes are treated as low accommodation risk and receive no fogging
+FOGGING,strong_fog_if_presbyope,FALSE,boolean,TRUE/FALSE,dv_fogging_policy,"Legacy deprecated row. FSM v3.1 does NOT use presbyopia as a trigger for fogging."
+FOGGING,strong_fog_if_unstable,FALSE,boolean,TRUE/FALSE,dv_fogging_policy,"Legacy deprecated row. FSM v3.1 does NOT use instability alone to trigger strong fogging."
+
+DUOCHROME,duochrome_red_step,-0.25,D,float,FSM dS in duochrome,Sphere adjustment applied when red is clearer
+DUOCHROME,duochrome_green_step,0.25,D,float,FSM dS in duochrome,Sphere adjustment applied when green is clearer
+DUOCHROME,duochrome_equal_confirmations,1,count,integer,FSM duochrome convergence,Number of consecutive equal responses needed for duochrome convergence
+DUOCHROME,duochrome_max_flips_strict,2,count,integer,dv_duochrome_max_flips,Maximum red-green flips allowed in strict cases
+DUOCHROME,duochrome_max_flips_normal,3,count,integer,dv_duochrome_max_flips,Maximum red-green flips allowed in normal cases
+DUOCHROME,duochrome_max_flips_relaxed,5,count,integer,dv_duochrome_max_flips,Maximum red-green flips allowed in relaxed cases
+
+BINOC_BALANCE,bino_balance_step,0.25,D,float,FSM K phase,Sphere adjustment used during binocular balance
+BINOC_BALANCE,bino_balance_same_required,1,count,integer,FSM K convergence,Number of SAME confirmations needed before leaving binocular balance
+
+NEAR_WORKFLOW,trigger_near_if_dv_add_expected_possible,TRUE,boolean,TRUE/FALSE,FSM K -> P decision,"If TRUE, a Possible ADD expectation is enough to trigger near workflow"
+NEAR_WORKFLOW,trigger_near_if_dv_add_expected_likely,TRUE,boolean,TRUE/FALSE,FSM K -> P decision,"If TRUE, a Likely ADD expectation is enough to trigger near workflow"
+NEAR_WORKFLOW,near_add_step,0.25,D,float,FSM P/Q phases,Sphere ADD increment used during monocular near add workflow
+NEAR_WORKFLOW,near_binoc_target_response,TARGET_OK,text,response label,FSM R convergence,Response that indicates binocular near endpoint has been reached
+NEAR_WORKFLOW,near_binoc_step_D,0.25,D,float,FSM R phase,Binocular near add step applied equally to both eyes
+NEAR_WORKFLOW,near_binoc_max_plus_steps,4,count,integer,FSM R guardrail,Maximum allowed +0.25 OU steps during binocular near search
+NEAR_WORKFLOW,near_binoc_max_minus_steps,4,count,integer,FSM R guardrail,Maximum allowed -0.25 OU steps during binocular near search
+
+ESCALATION,max_delta_start_conservative,2,D,float,dv_max_delta_from_start_sph,Maximum allowed drift from start sphere in conservative mode
+ESCALATION,max_delta_start_standard,3,D,float,dv_max_delta_from_start_sph,Maximum allowed drift from start sphere in standard mode
+ESCALATION,max_delta_start_aggressive,4,D,float,dv_max_delta_from_start_sph,Maximum allowed drift from start sphere in aggressive mode
+ESCALATION,max_delta_ar_standard,4,D,float,dv_max_delta_from_ar_sph,Maximum allowed drift from AR sphere in standard cases
+ESCALATION,max_delta_ar_high_medical,3,D,float,dv_max_delta_from_ar_sph,Maximum allowed drift from AR sphere in high medical risk cases
+ESCALATION,immediate_review_if_high_symptom,FALSE,boolean,TRUE/FALSE,dv_requires_optom_review,"If TRUE, high symptom risk immediately triggers optometrist review"
+ESCALATION,immediate_review_if_high_medical,TRUE,boolean,TRUE/FALSE,dv_requires_optom_review,"If TRUE, high medical risk immediately triggers optometrist review"
+
+PHASE_TIMEOUTS,timeout_coarse_fast,30,steps,integer,FSM phaseMax,Maximum allowed coarse sphere iterations in fast cases
+PHASE_TIMEOUTS,timeout_coarse_normal,48,steps,integer,FSM phaseMax,Maximum allowed coarse sphere iterations in normal cases
+PHASE_TIMEOUTS,timeout_coarse_slow,60,steps,integer,FSM phaseMax,Maximum allowed coarse sphere iterations in slow cases
+PHASE_TIMEOUTS,timeout_jcc_fast,15,steps,integer,FSM phaseMax,Maximum allowed JCC axis/power iterations in fast cases
+PHASE_TIMEOUTS,timeout_jcc_normal,20,steps,integer,FSM phaseMax,Maximum allowed JCC axis/power iterations in normal cases
+PHASE_TIMEOUTS,timeout_jcc_slow,36,steps,integer,FSM phaseMax,Maximum allowed JCC axis/power iterations in slow cases
+PHASE_TIMEOUTS,timeout_duochrome_fast,12,steps,integer,FSM phaseMax,Maximum allowed duochrome iterations in fast cases
+PHASE_TIMEOUTS,timeout_duochrome_normal,14,steps,integer,FSM phaseMax,Maximum allowed duochrome iterations in normal cases
+PHASE_TIMEOUTS,timeout_duochrome_slow,16,steps,integer,FSM phaseMax,Maximum allowed duochrome iterations in slow cases
+PHASE_TIMEOUTS,timeout_bino_fast,10,steps,integer,FSM phaseMax,Maximum allowed binocular balance iterations in fast cases
+PHASE_TIMEOUTS,timeout_bino_normal,14,steps,integer,FSM phaseMax,Maximum allowed binocular balance iterations in normal cases
+PHASE_TIMEOUTS,timeout_bino_slow,18,steps,integer,FSM phaseMax,Maximum allowed binocular balance iterations in slow cases
+PHASE_TIMEOUTS,timeout_near_fast,16,steps,integer,FSM phaseMax,Maximum allowed near workflow iterations in fast cases
+PHASE_TIMEOUTS,timeout_near_normal,22,steps,integer,FSM phaseMax,Maximum allowed near workflow iterations in normal cases
+PHASE_TIMEOUTS,timeout_near_slow,28,steps,integer,FSM phaseMax,Maximum allowed near workflow iterations in slow cases
+
+CHARTS,dist_chart_1,400,text,chart label,Distance chart ladder,First / easiest distance chart group
+CHARTS,coarse_start_chart,200_150,text,chart label,FSM v3.1 coarse sphere entry,Default starting chart for coarse sphere after baseline removal
+CHARTS,dist_chart_2,200_150,text,chart label,Distance chart ladder,Second distance chart group
+CHARTS,dist_chart_3,100_80,text,chart label,Distance chart ladder,Third distance chart group
+CHARTS,dist_chart_4,70_60_50,text,chart label,Distance chart ladder,Fourth distance chart group
+CHARTS,dist_chart_5,40_30_25,text,chart label,Distance chart ladder,Fifth distance chart group
+CHARTS,dist_chart_6,20_20_20,text,chart label,Distance chart ladder,Final / hardest distance chart group
