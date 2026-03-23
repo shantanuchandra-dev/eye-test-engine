@@ -217,6 +217,32 @@ body {
   white-space: nowrap;
 }
 
+/* ── Flip indicator (JCC states) ── */
+.flip-indicator {
+  text-align: center;
+  padding: 8px 16px;
+  border-radius: var(--radius-md);
+  font: 700 0.9rem var(--font-mono);
+  letter-spacing: 0.05em;
+  margin-bottom: 12px;
+  animation: flip-pulse 1.5s ease infinite;
+}
+.flip-indicator.flip1 {
+  background: rgba(37,99,235,0.08);
+  border: 2px solid rgba(37,99,235,0.25);
+  color: var(--accent);
+}
+.flip-indicator.flip2 {
+  background: rgba(5,150,105,0.08);
+  border: 2px solid rgba(5,150,105,0.3);
+  color: var(--success);
+  animation: none;
+}
+@keyframes flip-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
 /* ── Voice bar ── */
 .voice-bar {
   display: flex; align-items: center; justify-content: center; gap: 8px;
@@ -467,6 +493,113 @@ body {
 .log-entry .log-role.patient { color: var(--re-color); }
 .log-entry .log-role.optometrist { color: var(--le-color); }
 .log-entry .log-role.system { color: var(--ink-muted); }
+/* ── Screenshot trigger ── */
+.screenshot-trigger {
+  display: inline-flex; align-items: center; gap: 3px;
+  margin-left: 6px;
+  font-size: 0.68rem; font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+  padding: 2px 7px;
+  background: rgba(37,99,235,0.06);
+  border: 1px solid rgba(37,99,235,0.2);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.screenshot-trigger:hover {
+  background: var(--accent); color: white;
+  border-color: var(--accent);
+}
+.screenshot-trigger svg { width: 11px; height: 11px; }
+.screenshot-trigger.mini {
+  font-size: 0.6rem; font-weight: 500;
+  color: var(--ink-muted);
+  background: none; border: none;
+  padding: 0 3px;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+.screenshot-trigger.mini:hover {
+  color: var(--accent); background: none;
+}
+
+/* ── Screenshot lightbox ── */
+.lightbox {
+  position: fixed; inset: 0;
+  z-index: 400;
+  display: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.lightbox.open { display: flex; opacity: 1; }
+.lightbox-backdrop {
+  position: absolute; inset: 0;
+  background: rgba(8, 12, 24, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.lightbox-frame {
+  position: relative;
+  margin: auto;
+  z-index: 1;
+  max-width: 92vw; max-height: 92vh;
+  display: flex; flex-direction: column;
+  animation: lightbox-enter 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes lightbox-enter {
+  from { transform: scale(0.92); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+.lightbox-topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px;
+  background: rgba(15,23,42,0.9);
+  border-radius: 10px 10px 0 0;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.lightbox-title {
+  font: 600 0.78rem var(--font-mono);
+  color: rgba(255,255,255,0.7);
+  letter-spacing: 0.03em;
+}
+.lightbox-actions { display: flex; gap: 6px; }
+.lightbox-btn {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.8);
+  padding: 4px 10px;
+  border-radius: 5px;
+  font: 500 0.72rem var(--font-body);
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.lightbox-btn:hover { background: rgba(255,255,255,0.15); color: white; }
+.lightbox-btn.close-btn {
+  width: 26px; height: 26px;
+  padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1rem; font-weight: 300;
+  border-radius: 50%;
+}
+.lightbox-btn.close-btn:hover { background: rgba(220,38,38,0.6); }
+.lightbox-img-wrap {
+  background: #0a0e1a;
+  border-radius: 0 0 10px 10px;
+  overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  min-height: 200px;
+}
+.lightbox-img-wrap img {
+  max-width: 90vw; max-height: 82vh;
+  display: block;
+  object-fit: contain;
+}
+.lightbox-img-wrap img.zoomed {
+  cursor: zoom-out;
+  max-width: none; max-height: none;
+  width: auto; height: auto;
+}
 
 /* ── Password gate ── */
 .password-gate {
@@ -524,6 +657,7 @@ body {
     </select>
     <button class="topbar-btn" id="ttsBtn" onclick="toggleTTS()">TTS: ON</button>
     <button class="topbar-btn" id="phoropBtn" onclick="togglePhoropter()" style="background:rgba(34,197,94,0.3)">Phoropter: ON</button>
+    <button class="topbar-btn" id="screenshotBtn" onclick="toggleAutoScreenshot()">Screenshot: OFF</button>
     <button class="topbar-btn" id="dvBtn" onclick="toggleDvPanel()">DV</button>
     <button class="topbar-btn" id="logsBtn" onclick="toggleLogs()">Logs</button>
     <button class="topbar-btn danger" id="endBtn" onclick="endSession()" style="display:none">End Session</button>
@@ -541,6 +675,7 @@ body {
       <div class="stimulus-desc" id="stimulusDescription"></div>
       <div class="letter-chart" id="letterChart" style="display:none"></div>
       <div class="question-text" id="questionText">Waiting for session...</div>
+      <div class="flip-indicator" id="flipIndicator" style="display:none"></div>
       <div class="voice-bar" id="voiceBar">
         <span class="voice-status" id="voiceStatus">—</span>
       </div>
@@ -630,8 +765,16 @@ body {
   <div id="logsUnlocked" style="display:none; flex:1; display:none; flex-direction:column;">
     <div class="logs-tabs">
       <button class="logs-tab active" data-tab="conversation" onclick="switchLogTab(this)">Conversation</button>
-      <button class="logs-tab" data-tab="curl" onclick="switchLogTab(this)">CURL Commands</button>
+      <button class="logs-tab" data-tab="curl" onclick="switchLogTab(this)">CURL</button>
       <button class="logs-tab" data-tab="responses" onclick="switchLogTab(this)">Responses</button>
+      <div style="display:flex;flex-direction:column;gap:2px;padding:4px 8px;font-size:0.65rem;color:var(--ink-muted);">
+        <label style="display:flex;align-items:center;gap:3px;cursor:pointer;white-space:nowrap;">
+          <input type="checkbox" id="hideHeartbeat" checked onchange="loadLogs()" style="accent-color:var(--accent);width:12px;height:12px;"> Heartbeat
+        </label>
+        <label style="display:flex;align-items:center;gap:3px;cursor:pointer;white-space:nowrap;">
+          <input type="checkbox" id="hideScreenshots" onchange="loadLogs()" style="accent-color:var(--accent);width:12px;height:12px;"> Screenshots
+        </label>
+      </div>
     </div>
     <div class="logs-content" id="logsContent"></div>
   </div>
@@ -645,6 +788,24 @@ body {
     <button class="logs-close" onclick="toggleDvPanel()">&times;</button>
   </div>
   <div class="logs-content" id="dvContent" style="font-size:0.78rem; line-height:1.7;">Loading...</div>
+</div>
+
+<!-- Screenshot lightbox -->
+<div class="lightbox" id="screenshotLightbox">
+  <div class="lightbox-backdrop" onclick="closeScreenshot()"></div>
+  <div class="lightbox-frame">
+    <div class="lightbox-topbar">
+      <span class="lightbox-title" id="lightboxTitle">PHOROPTER CAPTURE</span>
+      <div class="lightbox-actions">
+        <button class="lightbox-btn" onclick="toggleZoom()">Zoom</button>
+        <button class="lightbox-btn" onclick="downloadScreenshot()">Save</button>
+        <button class="lightbox-btn close-btn" onclick="closeScreenshot()">&times;</button>
+      </div>
+    </div>
+    <div class="lightbox-img-wrap" onclick="toggleZoom()">
+      <img id="screenshotImg" src="" alt="Phoropter Screenshot">
+    </div>
+  </div>
 </div>
 
 <div class="loading-overlay" id="loadingOverlay"><div class="spinner"></div></div>

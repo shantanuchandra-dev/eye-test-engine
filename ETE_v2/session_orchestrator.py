@@ -120,6 +120,7 @@ class SessionOrchestrator:
             "PHOROPTER_BASE_URL", "https://rajasthan-royals.preprod.lenskart.com"
         )
         self.phoropter_auto_dispatch: bool = True  # Send commands automatically
+        self.auto_screenshot: bool = False  # Capture screenshot after each command batch
 
         # Session state
         self.session_id: str = ""
@@ -233,13 +234,16 @@ class SessionOrchestrator:
         # REPEAT re-displays the same question without recording a row or advancing counters
         normalized = str(response_value or "").strip().upper()
         if normalized in ("REPEAT", "__REPEAT__"):
+            # JCC states: send handle (back to flip1), frontend does auto-flip to flip2 after 2s
+            if prev_state in ("E", "F", "H", "I") and self.phoropter_auto_dispatch and self.phoropter_id:
+                self._send_jcc("handle")  # → flip1
             self._log_conversation(
                 "system",
                 "Repeating the same step.",
                 state=prev_state,
                 step=self.current_row.step,
             )
-            return self._build_response()
+            return self._build_response()  # auto_flip=True in response triggers frontend flip
 
         # Log the response
         self._log_conversation(
@@ -483,6 +487,9 @@ class SessionOrchestrator:
             "same_streak": row.same_streak,
             "phase_step_count": row.phase_step_count,
             "phoropter_commands": self.get_phoropter_commands() if not is_terminal else {},
+            "auto_flip": state in ("E", "F", "H", "I") and not is_terminal,
+            "flip_wait_seconds": 2,
+            "flip_state": "flip1",  # Always starts at flip1; frontend sends handle after delay
         }
 
         return response
@@ -547,7 +554,8 @@ class SessionOrchestrator:
         }
         self.conversation_log.append(entry)
 
-    def log_curl_command(self, method: str, url: str, body: Optional[dict] = None) -> None:
+    def log_curl_command(self, method: str, url: str, body: Optional[dict] = None,
+                        screenshot: Optional[str] = None) -> None:
         """Log a CURL command sent to the phoropter."""
         entry = {
             "timestamp": datetime.now().isoformat(),
@@ -555,6 +563,8 @@ class SessionOrchestrator:
             "url": url,
             "body": body,
         }
+        if screenshot:
+            entry["screenshot"] = screenshot
         self.curl_log.append(entry)
 
     # ── Phoropter auto-dispatch ─────────────────────────────────────
@@ -649,16 +659,43 @@ class SessionOrchestrator:
             else:
                 results["power"] = self._send_add_bino_delta()
 
+        # Capture screenshot after commands and attach to last curl log entry
+        if results and self.auto_screenshot:
+            screenshot = self._capture_screenshot()
+            if screenshot and self.curl_log:
+                self.curl_log[-1]["screenshot"] = screenshot
+                results["screenshot"] = True
+
         return results
+
+    def _capture_screenshot(self) -> Optional[str]:
+        """Capture a screenshot from the phoropter. Returns base64 JPEG or None."""
+        if not self.phoropter_id:
+            return None
+        url = f"{self.phoropter_base_url}/phoropter/{self.phoropter_id}/screenshot"
+        try:
+            resp = http_requests.post(url, timeout=10)
+            if resp.ok:
+                # Response is raw base64 JPEG string
+                return resp.text.strip()
+        except Exception as e:
+            logger.debug(f"Screenshot failed: {e}")
+        return None
 
     def _dispatch_response_commands(self, state: str, response_value: str) -> None:
         """Send phoropter commands for a patient RESPONSE in the given state.
-        Called BEFORE state transition. Handles JCC flip/adjust and duochrome SPH."""
+        Called BEFORE state transition. Handles JCC flip/adjust and duochrome SPH.
+
+        JCC REPEAT: sends handle + handle (flip back to pos1, then re-show pos2)
+        matching v1's handle + auto_flip pattern.
+        Non-JCC REPEAT: no CURL commands (already intercepted by process_response).
+        """
         if not self.phoropter_auto_dispatch or not self.phoropter_id:
             return
         resp = response_value.upper()
 
-        # JCC Axis (E, H): handle + increase/decrease
+        # JCC Axis (E, H): increase/decrease + handle
+        # REPEAT handled in process_response before this is called
         if state in ("E", "H"):
             if resp in ("ONE", "BETTER_1"):
                 self._send_jcc("increase")
@@ -666,10 +703,8 @@ class SessionOrchestrator:
             elif resp in ("TWO", "BETTER_2"):
                 self._send_jcc("decrease")
                 self._send_jcc("handle")
-            elif resp in ("REPEAT",):
-                self._send_jcc("handle")
 
-        # JCC Power (F, I): handle + increase/decrease
+        # JCC Power (F, I): increase/decrease + handle
         elif state in ("F", "I"):
             if resp in ("ONE", "BETTER_1"):
                 self._send_jcc("increase")
@@ -677,19 +712,17 @@ class SessionOrchestrator:
             elif resp in ("TWO", "BETTER_2"):
                 self._send_jcc("decrease")
                 self._send_jcc("handle")
-            elif resp in ("REPEAT",):
-                self._send_jcc("handle")
 
         # Duochrome (G, J): decrease for RED, increase for GREEN
+        # REPEAT/SAME: no CURL commands
         elif state in ("G", "J"):
             if resp in ("RED", "RED_CLEARER"):
                 self._send_jcc("decrease")  # RAM: Red Add Minus
             elif resp in ("GREEN", "GREEN_CLEARER"):
                 self._send_jcc("increase")  # GAP: Green Add Plus
 
-        # Coarse Sphere (B, D): power update sent via dispatch_phoropter_commands
-        # Binocular (K): power update sent via dispatch_phoropter_commands
-        # Near (P, Q, R): power with ADD sent via dispatch_phoropter_commands
+        # All other states: no response-level CURL commands
+        # B/D coarse, K binocular, P/Q/R near: power updates handled by dispatch_phoropter_commands
 
     def _phoropter_url(self, path: str = "/run-tests") -> str:
         return f"{self.phoropter_base_url}/phoropter/{self.phoropter_id}{path}"

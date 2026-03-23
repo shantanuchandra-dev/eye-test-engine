@@ -166,6 +166,8 @@ let activeLogTab = 'conversation';
 let completedPhases = new Set();
 let heartbeatInterval = null;
 let _langSelectPendingData = null; // Stores first-question data during language selection
+let _autoFlipTimer = null; // Timer for JCC auto-flip
+let _flipState = null; // 'flip1', 'flip2', or null
 
 // ── Initialization ──
 document.addEventListener('DOMContentLoaded', () => {
@@ -351,6 +353,9 @@ function handleSessionUpdate(data) {
   // Show question
   showQuestion(data);
 
+  // Auto-flip for JCC states
+  handleAutoFlip(data);
+
   // Update phase progress
   if (data.state) {
     updatePhaseProgress(data.state);
@@ -465,12 +470,16 @@ async function showQuestion(data) {
   }
 
   // 4. Speak the LOCALIZED question, then beep, then listen
-  //    Matches FSMv3.1_R2: _speak_text → _play_beep → capture
+  //    For JCC states with auto_flip: TTS speaks during flip1, voice starts after flip2
+  //    For all other states: TTS → beep → listen immediately
   const canListen = voiceEnabled && (voiceMode === 'whisper' || SpeechRecognition);
+  const isAutoFlip = data.auto_flip;
 
   if (ttsEnabled) {
     speakQuestion(localizedQuestion);
-    if (canListen) {
+    // Only start voice immediately for NON-JCC states
+    // JCC states: voice starts after flip2 (handled by handleAutoFlip)
+    if (canListen && !isAutoFlip) {
       const waitForSpeech = () => {
         if (speechSynthesis.speaking) {
           setTimeout(waitForSpeech, 100);
@@ -483,7 +492,7 @@ async function showQuestion(data) {
       };
       setTimeout(waitForSpeech, 200);
     }
-  } else if (canListen) {
+  } else if (canListen && !isAutoFlip) {
     playBeep();
     setTimeout(() => startVoiceCapture(data.state, data.options || [], data.step), 200);
   }
@@ -1308,6 +1317,11 @@ async function submitResponse(responseValue, voiceMeta) {
 
     // Cache state for refresh recovery
     cacheSessionState();
+
+    // Auto-refresh logs if the panel is open
+    if (document.getElementById('logsDrawer')?.classList.contains('open') && logsUnlocked) {
+      loadLogs();
+    }
   } catch (e) {
     alert('Error: ' + e.message);
   } finally {
@@ -1428,6 +1442,12 @@ async function loadLogs() {
     const resp = await fetch(`${API}/api/session/${sessionId}/logs/${endpoint}`);
     const data = await resp.json();
 
+    // Guard: API may return an error object instead of an array
+    if (!Array.isArray(data)) {
+      content.textContent = data.error || 'No data';
+      return;
+    }
+
     if (activeLogTab === 'conversation') {
       content.innerHTML = data.map(entry => `
         <div class="log-entry">
@@ -1438,12 +1458,25 @@ async function loadLogs() {
         </div>
       `).join('');
     } else if (activeLogTab === 'curl') {
-      content.innerHTML = data.map(entry => `
-        <div class="log-entry">
-          <span class="log-time">${new Date(entry.timestamp).toLocaleTimeString()}</span>
-          <code>curl -X ${entry.method} ${escapeHtml(entry.url)}${entry.body ? ` -d '${escapeHtml(JSON.stringify(entry.body))}'` : ''}</code>
-        </div>
-      `).join('') || '<div>No CURL commands recorded yet.</div>';
+      const hideHb = document.getElementById('hideHeartbeat')?.checked;
+      const hideScreens = document.getElementById('hideScreenshots')?.checked;
+      let filtered = data;
+      if (hideHb) filtered = filtered.filter(e => !e.url || !e.url.includes('/heartbeat'));
+      content.innerHTML = (filtered.length ? '' : '<div>No CURL commands recorded yet.</div>') +
+        filtered.map(entry => {
+          let html = `<div class="log-entry">
+            <span class="log-time">${new Date(entry.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'})}</span>
+            <code>curl -X ${entry.method} ${escapeHtml(entry.url)}${entry.body ? ` -d '${escapeHtml(JSON.stringify(entry.body))}'` : ''}</code>`;
+          if (entry.screenshot && !hideScreens) {
+            html += `<a href="#" onclick="openScreenshot(this); return false;" class="screenshot-trigger"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="10" rx="1.5"/><circle cx="8" cy="8" r="2.5"/></svg> View</a>`;
+            html += `<input type="hidden" class="screenshot-data" value="${entry.screenshot}">`;
+          } else if (entry.screenshot) {
+            html += `<a href="#" onclick="openScreenshot(this); return false;" class="screenshot-trigger mini">[img]</a>`;
+            html += `<input type="hidden" class="screenshot-data" value="${entry.screenshot}">`;
+          }
+          html += `</div>`;
+          return html;
+        }).join('');
     } else {
       content.innerHTML = data.map(entry => `
         <div class="log-entry">
@@ -1599,6 +1632,139 @@ async function togglePhoropter() {
 }
 
 // ── Loading ──
+// ── Screenshot lightbox ──
+let _currentScreenshotB64 = '';
+
+function openScreenshot(clickedEl) {
+  const hiddenInput = clickedEl.parentElement.querySelector('.screenshot-data');
+  if (!hiddenInput || !hiddenInput.value) return;
+  _currentScreenshotB64 = hiddenInput.value;
+
+  const img = document.getElementById('screenshotImg');
+  img.src = 'data:image/jpeg;base64,' + _currentScreenshotB64;
+  img.classList.remove('zoomed');
+
+  const time = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+  document.getElementById('lightboxTitle').textContent = `PHOROPTER CAPTURE  ${time}`;
+  document.getElementById('screenshotLightbox').classList.add('open');
+}
+
+function closeScreenshot() {
+  document.getElementById('screenshotLightbox').classList.remove('open');
+  setTimeout(() => { document.getElementById('screenshotImg').src = ''; }, 200);
+  _currentScreenshotB64 = '';
+}
+
+function toggleZoom() {
+  document.getElementById('screenshotImg').classList.toggle('zoomed');
+}
+
+function downloadScreenshot() {
+  if (!_currentScreenshotB64) return;
+  const a = document.createElement('a');
+  a.href = 'data:image/jpeg;base64,' + _currentScreenshotB64;
+  a.download = `phoropter_${Date.now()}.jpg`;
+  a.click();
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeScreenshot();
+});
+
+// ── Auto-screenshot toggle ──
+let autoScreenshot = false;
+
+async function toggleAutoScreenshot() {
+  autoScreenshot = !autoScreenshot;
+  const btn = document.getElementById('screenshotBtn');
+  if (btn) {
+    btn.textContent = `Screenshot: ${autoScreenshot ? 'ON' : 'OFF'}`;
+    btn.style.background = autoScreenshot ? 'rgba(34,197,94,0.3)' : '';
+  }
+  if (sessionId) {
+    try {
+      await fetch(`${API}/api/session/${sessionId}/phoropter-dispatch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: phoropterEnabled, auto_screenshot: autoScreenshot }),
+      });
+    } catch (e) { console.warn('Could not toggle screenshot:', e); }
+  }
+}
+
+// ── JCC Auto-Flip ──
+function handleAutoFlip(data) {
+  // Clear any pending flip timer
+  if (_autoFlipTimer) { clearTimeout(_autoFlipTimer); _autoFlipTimer = null; }
+
+  if (!data.auto_flip) {
+    _flipState = null;
+    updateFlipIndicator(null);
+    setOptionsEnabled(true);
+    return;
+  }
+
+  // We're in a JCC state — show Flip 1, then auto-flip to Flip 2 after delay
+  _flipState = 'flip1';
+  updateFlipIndicator('flip1');
+  setOptionsEnabled(false); // Disable buttons during flip delay
+
+  const waitSeconds = data.flip_wait_seconds || 2;
+
+  _autoFlipTimer = setTimeout(async () => {
+    // Send handle command to flip to position 2
+    if (sessionId) {
+      try {
+        await fetch(`${API}/api/session/${sessionId}/jcc-flip`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        });
+      } catch (e) { console.warn('JCC flip failed:', e); }
+    }
+
+    _flipState = 'flip2';
+    updateFlipIndicator('flip2');
+    setOptionsEnabled(true); // Enable buttons — patient can now respond
+
+    // Play beep to indicate "answer now"
+    playBeep();
+
+    // Start voice capture after flip2 is shown
+    if (voiceEnabled && currentState) {
+      setTimeout(() => {
+        startVoiceCapture(currentState.state, currentState.options || [], currentState.step);
+      }, 200);
+    }
+  }, waitSeconds * 1000);
+}
+
+function updateFlipIndicator(state) {
+  const el = document.getElementById('flipIndicator');
+  if (!el) return;
+  if (!state) {
+    el.style.display = 'none';
+    el.textContent = '';
+    return;
+  }
+  el.style.display = '';
+  if (state === 'flip1') {
+    el.textContent = 'FLIP 1 — Observing...';
+    el.className = 'flip-indicator flip1';
+  } else {
+    el.textContent = 'FLIP 2 — Which is better?';
+    el.className = 'flip-indicator flip2';
+  }
+}
+
+function setOptionsEnabled(enabled) {
+  const btns = document.querySelectorAll('#optionsGrid .option-btn');
+  btns.forEach(btn => {
+    btn.disabled = !enabled;
+    btn.style.opacity = enabled ? '' : '0.4';
+    btn.style.pointerEvents = enabled ? '' : 'none';
+  });
+}
+
 // ── Collapsible sidebar sections ──
 function toggleSidebarSection(sectionId) {
   const section = document.getElementById(sectionId);

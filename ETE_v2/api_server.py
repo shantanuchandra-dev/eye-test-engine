@@ -494,7 +494,38 @@ def session_phoropter_dispatch(session_id):
     data = _request_payload()
     enabled = data.get("enabled", True)
     sessions[session_id].phoropter_auto_dispatch = bool(enabled)
-    return jsonify({"phoropter_auto_dispatch": bool(enabled)})
+    auto_screenshot = data.get("auto_screenshot")
+    if auto_screenshot is not None:
+        sessions[session_id].auto_screenshot = bool(auto_screenshot)
+    return jsonify({
+        "phoropter_auto_dispatch": bool(enabled),
+        "auto_screenshot": sessions[session_id].auto_screenshot,
+    })
+
+
+@app.route("/api/session/<session_id>/jcc-flip", methods=["POST"])
+def session_jcc_flip(session_id):
+    """Send JCC handle command (flip from position 1 to position 2).
+    Called by frontend after 2s auto-flip delay."""
+    if session_id not in sessions:
+        return jsonify({"error": "Session not found"}), 404
+    orch = sessions[session_id]
+    if not orch.phoropter_auto_dispatch or not orch.phoropter_id:
+        return jsonify({"skipped": True})
+    result = orch._send_jcc("handle")
+    return jsonify({"flip": "flip2", "result": result})
+
+
+@app.route("/api/session/<session_id>/screenshot", methods=["POST"])
+def session_screenshot(session_id):
+    """Capture a screenshot from the phoropter."""
+    if session_id not in sessions:
+        return jsonify({"error": "Session not found"}), 404
+    orch = sessions[session_id]
+    img = orch._capture_screenshot()
+    if img:
+        return jsonify({"screenshot": img})
+    return jsonify({"error": "Screenshot failed"}), 502
 
 
 @app.route("/api/session/<session_id>/failed-voice-attempts", methods=["POST"])
