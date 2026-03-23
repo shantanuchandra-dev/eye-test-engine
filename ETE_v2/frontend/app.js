@@ -609,15 +609,28 @@ function startVoiceCapture(state, options, step) {
     if (!voiceEnabled || voiceSubmitting) return;
 
     recognition = new SpeechRecognition();
-    // Use language setting — en-IN supports both English and Hindi-accented English
-    recognition.lang = sessionLanguage === 'hi' ? 'hi-IN' : 'en-IN';
-    recognition.continuous = false;
+    // Fix 4: en-US better for short words than en-IN
+    recognition.lang = sessionLanguage === 'hi' ? 'hi-IN' : 'en-US';
+    // Fix 1: continuous=true prevents premature termination on single-syllable words
+    recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.maxAlternatives = 5; // More alternatives = better chance of correct match
+    recognition.maxAlternatives = 5;
+
+    // Fix 5: SpeechGrammarList constrains recognition to expected vocabulary
+    try {
+      const SpeechGrammarList = window.SpeechGrammarList || window.webkitSpeechGrammarList;
+      if (SpeechGrammarList) {
+        const grammar = '#JSGF V1.0; grammar r; public <r> = clear | blurry | repeat | one | two | same | red | green | top | bottom | first | second ;';
+        const list = new SpeechGrammarList();
+        list.addFromString(grammar, 1);
+        recognition.grammars = list;
+      }
+    } catch (e) { /* grammar not supported — ok */ }
 
     const capturedState = state;
     const capturedOptions = options;
     const capturedStep = step;
+    let lastInterimTranscript = ''; // Fix 2: store interim for fallback
 
     recognition.onstart = () => {
       voiceRecording = true;
@@ -642,13 +655,15 @@ function startVoiceCapture(state, options, step) {
         }
       }
 
-      // Show interim results
+      // Show interim results and store for fallback (Fix 2)
       if (interimTranscript && !finalTranscript) {
+        lastInterimTranscript = interimTranscript.trim();
         updateVoiceStatus(`🎙 "${interimTranscript}"...`);
       }
 
       // Process final result
       if (finalTranscript) {
+        try { recognition.stop(); } catch(e) {} // Fix 1: stop continuous after getting result
         voiceRecording = false;
         const trimmed = finalTranscript.trim();
         const alts = finalAlternatives.map(a => a.trim()).filter(a => a);
@@ -716,8 +731,15 @@ function startVoiceCapture(state, options, step) {
       // If we got a final result or an error handler already dealt with it, do nothing
       if (gotFinalResult || gotError || voiceSubmitting) return;
 
-      // We ended without a result or known error — speech wasn't picked up
-      // This happens when: garbled audio, low confidence, network timeout, etc.
+      // Fix 2: Try interim transcript as fallback for single-syllable words
+      if (lastInterimTranscript) {
+        console.log(`[Voice] Using interim as fallback: "${lastInterimTranscript}"`);
+        updateVoiceStatus(`Processing interim: "${lastInterimTranscript}"`);
+        matchVoiceResponseWithAlternatives(lastInterimTranscript, [], capturedState, capturedOptions);
+        return;
+      }
+
+      // No interim either — speech wasn't picked up
       console.log('[Voice] Recognition ended without result — repeating question');
       updateVoiceStatus('Could not hear clearly. Repeating...');
 
@@ -1179,25 +1201,34 @@ async function matchVoiceResponse(transcript, state, options) {
 function clientSideMatch(transcript, options) {
   const t = transcript.toLowerCase().trim();
 
-  // Direct keyword map (matching FSMv3.1_R2 response_matching.py patterns)
+  // Direct keyword map + common Chrome misrecognitions for single-syllable words
   const KEYWORD_MAP = {
-    // Clarity
+    // Clarity + misrecognitions
     'clear': 'CLEAR', 'clearly': 'CLEAR', 'yes': 'CLEAR', 'readable': 'CLEAR',
+    'here': 'CLEAR', 'beer': 'CLEAR', 'cheer': 'CLEAR', 'dear': 'CLEAR', 'near': 'CLEAR',
     'saaf': 'CLEAR', 'saaf hai': 'CLEAR', 'haan': 'CLEAR',
     'blurry': 'BLURRY', 'blurred': 'BLURRY', 'blur': 'BLURRY', 'not clear': 'BLURRY',
+    'blare': 'BLURRY', 'blaring': 'BLURRY', 'glory': 'BLURRY',
     'dhundhla': 'BLURRY', 'nahi dikh raha': 'BLURRY',
     'repeat': 'REPEAT', 'again': 'REPEAT', 'dobara': 'REPEAT', 'phir se': 'REPEAT',
-    // Comparison
+    // Comparison + misrecognitions
     'one': 'ONE', 'first': 'ONE', 'option 1': 'ONE', 'ek': 'ONE', 'pehla': 'ONE', '1': 'ONE',
+    'won': 'ONE', 'want': 'ONE', 'on': 'ONE', 'wan': 'ONE', 'wand': 'ONE',
     'two': 'TWO', 'second': 'TWO', 'option 2': 'TWO', 'do': 'TWO', 'doosra': 'TWO', '2': 'TWO',
+    'to': 'TWO', 'too': 'TWO', 'tu': 'TWO', 'who': 'TWO', 'through': 'TWO',
     'same': 'SAME', 'both same': 'SAME', 'equal': 'SAME', 'barabar': 'SAME', 'dono same': 'SAME',
     "can't tell": 'SAME', 'cant tell': 'SAME',
-    // Duochrome
+    'sane': 'SAME', 'saint': 'SAME', 'shame': 'SAME', 'came': 'SAME',
+    // Duochrome + misrecognitions
     'red': 'RED', 'red one': 'RED', 'laal': 'RED',
+    'read': 'RED', 'bread': 'RED', 'wed': 'RED', 'said': 'RED', 'bed': 'RED', 'dead': 'RED',
     'green': 'GREEN', 'green one': 'GREEN', 'hara': 'GREEN',
-    // Binocular
+    'queen': 'GREEN', 'cream': 'GREEN', 'gene': 'GREEN', 'lean': 'GREEN', 'mean': 'GREEN',
+    // Binocular + misrecognitions
     'top': 'TOP_CLEARER', 'top one': 'TOP_CLEARER', 'upar': 'TOP_CLEARER',
+    'talk': 'TOP_CLEARER', 'tall': 'TOP_CLEARER', 'stop': 'TOP_CLEARER',
     'bottom': 'BOTTOM_CLEARER', 'bottom one': 'BOTTOM_CLEARER', 'neeche': 'BOTTOM_CLEARER',
+    'button': 'BOTTOM_CLEARER', 'bought him': 'BOTTOM_CLEARER',
     // Near
     'target ok': 'TARGET_OK', 'ok': 'TARGET_OK', 'fine': 'TARGET_OK',
     'not clear': 'NOT_CLEAR',
