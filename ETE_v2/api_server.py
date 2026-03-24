@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, redirect, request, send_from_directory
 from flask_cors import CORS
 
 from session_orchestrator import SessionOrchestrator
@@ -114,7 +114,7 @@ def _proxy_request(method: str, path: str, body: Optional[dict] = None) -> tuple
 
 @app.route("/")
 def serve_index():
-    return send_from_directory("frontend", "index.html")
+    return redirect("/intake")
 
 
 @app.route("/intake")
