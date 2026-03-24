@@ -441,7 +441,12 @@ body {
       </label>
       <div class="section-body"><div class="section-content">
         <div class="form-grid cols-2">
-          <!-- Left: Phoropter Device -->
+          <!-- Left: Operator Name -->
+          <div class="form-group">
+            <label class="form-label">Operator Name</label>
+            <input type="text" class="form-input" id="operatorName" placeholder="Dr. / Optometrist name">
+          </div>
+          <!-- Right: Phoropter Device -->
           <div class="form-group">
             <label class="form-label">Phoropter Device</label>
             <div class="device-select-row">
@@ -461,11 +466,6 @@ body {
               <span class="acquire-badge none" id="acquireBadge">Not Acquired</span>
             </div>
             <input type="hidden" id="phoropterId">
-          </div>
-          <!-- Right: Operator Name -->
-          <div class="form-group">
-            <label class="form-label">Operator Name</label>
-            <input type="text" class="form-input" id="operatorName" placeholder="Dr. / Optometrist name" style="margin-top:1px">
           </div>
         </div>
       </div></div>
@@ -834,14 +834,30 @@ function stepVal(id, delta) {
 let selectedDeviceId = null;
 let deviceAcquired = false;
 
-function getDeviceId(d)     { return typeof d === 'string' ? d : (d.device_id || d.id || d.name || ''); }
-function getDeviceLabel(d)  { if (typeof d === 'string') return d; return d.name || d.device_id || d.id || ''; }
+function getDeviceId(d)    { return typeof d === 'string' ? d : (d.device_id || d.id || d.name || ''); }
+function getDeviceLabel(d) { if (typeof d === 'string') return d; return d.name || d.device_id || d.id || ''; }
 function getDeviceStatus(d) {
   if (typeof d === 'string') return 'available';
+
+  // Log full device object once for debugging
+  console.log('[Device]', JSON.stringify(d));
+
   const s = (d.status || d.state || '').toLowerCase();
-  if (s.includes('acquired') || s.includes('busy') || s.includes('in_use')) return 'acquired';
-  if (s.includes('offline')) return 'offline';
-  return 'available';
+  if (s.includes('offline') || s.includes('disconnected')) return 'offline';
+
+  // Check every common field that signals the device is held by someone
+  const isAcquired =
+    s.includes('acquired') || s.includes('busy') ||
+    s.includes('in_use')   || s.includes('locked') ||
+    s.includes('occupied') || s.includes('taken')  ||
+    // Non-empty brain/owner fields mean it's held
+    !!d.brain_id     || !!d.acquired_by ||
+    !!d.locked_by    || !!d.held_by     ||
+    !!d.owner        || !!d.session_id  ||
+    d.is_acquired === true || d.locked === true ||
+    d.available === false;
+
+  return isAcquired ? 'acquired' : 'available';
 }
 
 function setAcquireBadge(state, label) {
@@ -881,17 +897,26 @@ function onDeviceSelectChange(val) {
 
 async function acquireSelectedDevice() {
   if (!selectedDeviceId || selectedDeviceId === '__test__') return;
-  const operatorName = document.getElementById('operatorName').value.trim() || 'ETE Operator';
+
+  const operatorName = document.getElementById('operatorName').value.trim();
+  if (!operatorName) {
+    alert('Please enter the Operator Name before acquiring the device.');
+    document.getElementById('operatorName').focus();
+    return;
+  }
+
   const btn = document.getElementById('acquireBtn');
 
   btn.disabled = true;
   setAcquireBadge('acquiring', 'Acquiring…');
 
   try {
+    const acquirePayload = { brain_id: 'brain_01', name: operatorName, operator_name: operatorName };
+    console.log('[Acquire] →', selectedDeviceId, acquirePayload);
     const resp = await fetch(`${API}/api/devices/${selectedDeviceId}/acquire`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ brain_id: 'brain_01', name: operatorName }),
+      body: JSON.stringify(acquirePayload),
     });
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
@@ -927,10 +952,20 @@ async function loadDevices() {
   setAcquireBadge('none', 'Not Acquired');
 
   try {
-    const resp = await fetch(`${API}/api/devices?all=true`);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const data = await resp.json();
-    const devices = Array.isArray(data) ? data : (data.devices || []);
+    // Try dedicated available-only endpoint first; fall back to full list + client filter
+    let devices = [];
+    const availResp = await fetch(`${API}/api/devices/available`);
+    if (availResp.ok) {
+      const data = await availResp.json();
+      devices = Array.isArray(data) ? data : (data.devices || []);
+      console.log(`[Device] ${devices.length} device(s) from /devices/available`);
+    } else {
+      const allResp = await fetch(`${API}/api/devices`);
+      if (!allResp.ok) throw new Error(`HTTP ${allResp.status}`);
+      const data = await allResp.json();
+      devices = Array.isArray(data) ? data : (data.devices || []);
+      console.log(`[Device] Fallback: ${devices.length} total, filtering client-side`);
+    }
 
     sel.innerHTML = '';
 
@@ -940,31 +975,40 @@ async function loadDevices() {
     testOpt.textContent = '🧪 Test Mode (No Device)';
     sel.appendChild(testOpt);
 
-    if (devices.length) {
+    // Client-side guard: drop anything our parser considers acquired or offline
+    const availableDevices = devices.filter(d => getDeviceStatus(d) === 'available');
+
+    const availableCount = availableDevices.length;
+    if (availableCount > 0) {
       const sep = document.createElement('option');
       sep.disabled = true;
-      sep.textContent = '── Available Devices ──';
+      sep.textContent = `── Available Devices (${availableCount}) ──`;
       sel.appendChild(sep);
     }
 
-    devices.forEach(d => {
+    availableDevices.forEach(d => {
       const id = getDeviceId(d);
       const label = getDeviceLabel(d);
-      const status = getDeviceStatus(d);
-      const statusIcon = status === 'available' ? '🟢' : status === 'acquired' ? '🟡' : '🔴';
       const opt = document.createElement('option');
       opt.value = id;
-      opt.textContent = `${statusIcon} ${id}${label && label !== id ? '  —  ' + label : ''}`;
-      opt.disabled = status === 'offline';
+      opt.textContent = `🟢 ${id}${label && label !== id ? '  —  ' + label : ''}`;
       sel.appendChild(opt);
     });
 
-    // Default: select first real available device
-    const firstAvailable = devices.find(d => getDeviceStatus(d) === 'available');
+    if (!availableDevices.length) {
+      const noOpt = document.createElement('option');
+      noOpt.disabled = true;
+      noOpt.textContent = 'No available devices';
+      sel.appendChild(noOpt);
+    }
+
+    // Default: select first available device
+    const firstAvailable = availableDevices[0];
     if (firstAvailable) {
       sel.value = getDeviceId(firstAvailable);
       onDeviceSelectChange(sel.value);
     } else {
+      // No free devices — default to Test Mode
       sel.value = '__test__';
       onDeviceSelectChange('__test__');
     }
