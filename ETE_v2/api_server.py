@@ -57,7 +57,7 @@ BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:5050")
 CALIBRATION_PATH = os.environ.get("CALIBRATION_PATH", "config/calibration.csv")
 
 # ── Log paths ──
-LOG_BASE = Path(os.environ.get("LOG_DIR", "logs"))
+LOG_BASE = Path(os.environ.get("LOG_DIR", "/tmp/logs"))
 SESSIONS_DIR = LOG_BASE / "sessions"
 COMBINED_LOG_PATH = LOG_BASE / "combined_log.csv"
 COMBINED_METADATA_PATH = LOG_BASE / "combined_metadata.csv"
