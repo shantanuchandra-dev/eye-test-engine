@@ -1,21 +1,24 @@
 """Voice pipeline for Eye Test Engine v2.
 
-Direct pipeline (no pipecat PipelineTask): mic audio → VAD → STT → fuzzy match.
-TTS is handled by DirectTTSProcessor which sends audio directly to the browser.
+Direct `VoicePipeline` (mic → VAD → STT → fuzzy match → FSM → TTS), not Pipecat
+`PipelineTask`. TTS is handled by `DirectTTSProcessor` (Piper ONNX) over WebSocket.
 
 All models are loaded from voice/models/ (local directory).
 Run `python -m voice.download_models` to download them first.
 """
 
 import asyncio
+import os
+import re
 import numpy as np
 from pathlib import Path
 from typing import Optional
 
-import torch
 from faster_whisper import WhisperModel
 
 from voice.fuzzy_matcher import match_transcript
+from voice import deepgram_stt
+from voice.silero_onnx import SileroOnnxVAD
 
 # Exit keywords — if the user says any of these, confirm before stopping.
 EXIT_KEYWORDS = [
@@ -36,6 +39,25 @@ def _is_exit_request(transcript: str) -> bool:
         if kw in text:
             return True
     return False
+
+
+# Filler / backchannel tokens — reject utterances that are only these (not real answers).
+_FILLER_WORDS = frozenset({
+    "uh", "um", "uhh", "umm", "hmm", "hm", "mm", "mhm", "eh", "ah", "er", "erm", "huh",
+})
+
+
+def _is_substantive_transcript(transcript: str) -> bool:
+    """Filter filler-only and very short noise; allow single-word answers like 'clear' or 'one'."""
+    if not transcript or not transcript.strip():
+        return False
+    raw = transcript.strip().lower()
+    words = re.findall(r"[\w\u0900-\u097F]+", raw)
+    if not words:
+        return False
+    if all(w in _FILLER_WORDS for w in words):
+        return False
+    return True
 
 # Rephrased questions for when patient doesn't respond within 3 seconds.
 # Simpler language, explicit options spelled out.
@@ -331,6 +353,9 @@ DEFAULT_PIPER_VOICES = {
 SAMPLE_RATE = 16000
 CHANNELS = 1
 
+# After TTS ends, ignore mic for this long (late ASR chunks / cough / word tail).
+DEFAULT_POST_TTS_GUARD_SEC = 0.5
+
 
 def _resolve_whisper_model() -> str:
     if WHISPER_MODEL_DIR.exists():
@@ -353,10 +378,11 @@ def _resolve_piper_voice(voice_name: Optional[str] = None, lang: str = "en") -> 
     return voice_name
 
 
-def _resolve_silero_hub_dir() -> Optional[str]:
-    if SILERO_MODEL_DIR.exists() and any(SILERO_MODEL_DIR.iterdir()):
-        return str(SILERO_MODEL_DIR)
-    return None
+def _resolve_silero_onnx_path() -> Path:
+    env = os.environ.get("SILERO_VAD_ONNX", "").strip()
+    if env and Path(env).is_file():
+        return Path(env)
+    return SILERO_MODEL_DIR / "silero_vad.onnx"
 
 
 class DirectTTSProcessor:
@@ -401,87 +427,47 @@ class DirectTTSProcessor:
         self._speaking = False
 
 
-class MetaTTSProcessor:
-    """Synthesizes Hindi speech via Meta MMS-TTS (facebook/mms-tts-hin).
-
-    Same interface as DirectTTSProcessor so they're interchangeable.
-    """
-
-    def __init__(self, ws_send_bytes, ws_send_json, model=None, tokenizer=None):
-        self._ws_send_bytes = ws_send_bytes
-        self._ws_send_json = ws_send_json
-        self._speaking = False
-
-        if model and tokenizer:
-            # Use pre-loaded model
-            self._model = model
-            self._tokenizer = tokenizer
-        else:
-            from transformers import VitsModel, AutoTokenizer
-            print("[TTS] Loading Meta MMS-TTS Hindi model...")
-            self._model = VitsModel.from_pretrained("facebook/mms-tts-hin")
-            self._tokenizer = AutoTokenizer.from_pretrained("facebook/mms-tts-hin")
-            print("[TTS] Meta MMS-TTS loaded")
-
-        self._sample_rate = self._model.config.sampling_rate  # 16000
-
-    @property
-    def sample_rate(self) -> int:
-        return self._sample_rate
-
-    async def speak(self, text: str):
-        if not text:
-            return
-        self._speaking = True
-        await self._ws_send_json({"type": "tts_start", "text": text})
-        try:
-            audio_bytes = await asyncio.to_thread(self._synthesize, text)
-            if self._speaking and audio_bytes:
-                await self._ws_send_bytes(b'\x01' + audio_bytes)
-        except Exception as e:
-            print(f"[TTS Meta] Error: {e}")
-        finally:
-            self._speaking = False
-            await self._ws_send_json({"type": "tts_end"})
-
-    def _synthesize(self, text: str) -> bytes:
-        inputs = self._tokenizer(text, return_tensors="pt")
-        with torch.no_grad():
-            output = self._model(**inputs)
-        waveform = output.waveform[0].numpy()
-        wav_int16 = (waveform * 32767).astype(np.int16)
-        return wav_int16.tobytes()
-
-    def stop(self):
-        self._speaking = False
-
-
 class VoicePipeline:
     """Direct voice pipeline: VAD → STT → fuzzy match → FSM → TTS.
 
     Runs without pipecat PipelineTask. Audio frames are pushed directly
     into process_audio() from the WebSocket handler.
+
+    Turn locking: mic is disabled while the bot speaks and for a short guard
+    after TTS; buffers are flushed before listening opens for the next answer.
     """
 
-    def __init__(self, session, ws_send_json, tts, silero_hub_dir=None,
-                 whisper_model=None, confidence_threshold=60.0, lang="en"):
+    def __init__(self, session, ws_send_json, tts,
+                 silero_onnx_path: Optional[Path] = None,
+                 whisper_model=None, confidence_threshold=60.0, lang="en",
+                 post_tts_guard_sec: float = DEFAULT_POST_TTS_GUARD_SEC,
+                 stt_backend: str = "whisper",
+                 deepgram_api_key: Optional[str] = None,
+                 deepgram_model: str = "nova-2"):
         """
         Args:
-            whisper_model: Pre-loaded WhisperModel instance, or a path string.
+            whisper_model: Pre-loaded WhisperModel instance, path string, or None if using Deepgram.
             lang: Language code ('en' or 'hi'). 'hi' enables Hinglish translation.
+            post_tts_guard_sec: Seconds to ignore mic after TTS ends (300–800 ms typical).
+            stt_backend: 'whisper' (local faster-whisper) or 'deepgram' (cloud API).
+            deepgram_api_key: Required when stt_backend is 'deepgram' (server-side only).
+            deepgram_model: Deepgram model name (e.g. nova-2).
         """
         self.session = session
         self.ws_send_json = ws_send_json
         self.tts = tts
         self._confidence_threshold = confidence_threshold
         self._lang = lang
+        self._post_tts_guard_sec = post_tts_guard_sec
+        self._stt_backend = (stt_backend or "whisper").lower().strip()
+        if self._stt_backend not in ("whisper", "deepgram"):
+            self._stt_backend = "whisper"
+        self._deepgram_api_key = (deepgram_api_key or "").strip() or None
+        self._deepgram_model = (deepgram_model or "nova-2").strip()
 
-        # Load Silero VAD
-        if silero_hub_dir:
-            torch.hub.set_dir(silero_hub_dir)
-        self._vad_model, _ = torch.hub.load(
-            "snakers4/silero-vad", model="silero_vad", trust_repo=True
-        )
+        onnx_path = silero_onnx_path if silero_onnx_path is not None else _resolve_silero_onnx_path()
+        print(f"[VOICE] Silero VAD ONNX: {onnx_path}")
+        self._vad = SileroOnnxVAD(onnx_path)
         self._vad_speaking = False
         self._vad_buffer = np.array([], dtype=np.int16)
         self._vad_chunk_size = 512  # Silero needs 512 samples at 16kHz
@@ -490,9 +476,16 @@ class VoicePipeline:
         self._speech_trigger = 3    # need 3 consecutive speech chunks (~96ms) to trigger
         self._silence_trigger = 8   # need 8 consecutive silence chunks (~256ms) to stop
 
-        # Use pre-loaded whisper model or load new one
-        if isinstance(whisper_model, WhisperModel):
+        # STT: local Whisper or Deepgram (mutually exclusive load)
+        if self._stt_backend == "deepgram":
+            if not self._deepgram_api_key:
+                raise ValueError("stt_backend='deepgram' requires deepgram_api_key (set DEEPGRAM_API_KEY)")
+            self._whisper = None
+            print(f"[VOICE] STT: Deepgram model={self._deepgram_model}")
+        elif isinstance(whisper_model, WhisperModel):
             self._whisper = whisper_model
+        elif whisper_model is None:
+            raise ValueError("Whisper model not provided; use stt_backend='deepgram' with DEEPGRAM_API_KEY or load Whisper")
         else:
             model_path = whisper_model or _resolve_whisper_model()
             print(f"[VOICE] Loading Whisper model: {model_path}")
@@ -513,10 +506,74 @@ class VoicePipeline:
         self._awaiting_exit_confirm = False
 
         self._running = True
+        # Listening window: only True after TTS + post-TTS guard + buffer flush.
+        self._listening_enabled = False
+
+    def _flush_audio_buffers(self):
+        """Drop VAD/STT accumulation (prevents old audio leaking into the next turn)."""
+        self._vad_buffer = np.array([], dtype=np.int16)
+        self._speech_buffer = np.array([], dtype=np.int16)
+        self._vad_speaking = False
+        self._speech_streak = 0
+        self._silence_streak = 0
+        self._vad.reset()
+
+    def _reopen_listening_after_skip(self):
+        """Re-enable mic after an ignored utterance (noise / empty STT) with fresh buffers."""
+        self._flush_audio_buffers()
+        self._listening_enabled = True
+        self.start_silence_timer()
+
+    def force_open_listening(self):
+        """Arm the mic after TTS/boot failure so audio is never stuck disabled."""
+        self._reopen_listening_after_skip()
+
+    async def speak_prompt_and_open_listening(self, text: str):
+        """Speak a prompt, then post-TTS guard, flush buffers, open listening, start silence timer."""
+        if not text or not str(text).strip():
+            self._reopen_listening_after_skip()
+            return
+        self._cancel_silence_timer()
+        self._listening_enabled = False
+        self._flush_audio_buffers()
+        try:
+            await self.tts.speak(text)
+            await asyncio.sleep(self._post_tts_guard_sec)
+        finally:
+            self._flush_audio_buffers()
+            self._listening_enabled = True
+            self.start_silence_timer()
+
+    async def speak_only_no_listen(self, text: str):
+        """Speak without opening the listening window (e.g. terminal message, JCC flip 1)."""
+        if not text:
+            return
+        self._cancel_silence_timer()
+        self._listening_enabled = False
+        self._flush_audio_buffers()
+        try:
+            await self.tts.speak(text)
+            await asyncio.sleep(self._post_tts_guard_sec)
+        finally:
+            self._flush_audio_buffers()
+
+    async def open_listening_after_boot(self):
+        """No initial TTS at connect; still apply guard delay + flush before arming the mic."""
+        self._cancel_silence_timer()
+        self._listening_enabled = False
+        self._flush_audio_buffers()
+        try:
+            await asyncio.sleep(self._post_tts_guard_sec)
+        finally:
+            self._flush_audio_buffers()
+            self._listening_enabled = True
+            self.start_silence_timer()
 
     async def process_audio(self, audio_int16: bytes):
         """Process an audio chunk from the browser mic."""
         if not self._running:
+            return
+        if not self._listening_enabled:
             return
 
         try:
@@ -547,8 +604,7 @@ class VoicePipeline:
                     # Too quiet — treat as silence without running VAD
                     is_speech = False
                 else:
-                    tensor = torch.from_numpy(audio_float)
-                    confidence = self._vad_model(tensor, SAMPLE_RATE).item()
+                    confidence = self._vad.speech_probability(audio_float)
                     is_speech = confidence > 0.6  # raised threshold to reduce false positives
             except Exception as e:
                 print(f"[VAD] Error: {e}")
@@ -573,6 +629,7 @@ class VoicePipeline:
                 self._vad_speaking = False
                 await self.ws_send_json({"type": "vad", "speaking": False})
                 if len(self._speech_buffer) > SAMPLE_RATE * 0.3:  # min 0.3s
+                    self._listening_enabled = False
                     await self._transcribe_and_process()
 
             # Accumulate speech audio
@@ -616,8 +673,7 @@ class VoicePipeline:
 
         self._has_rephrased = True
         print(f"[VOICE] Silence timeout — rephrasing ({response_type})")
-        await self.tts.speak(rephrased)
-        # After rephrasing, start another timer (but won't rephrase again due to _has_rephrased)
+        await self.speak_prompt_and_open_listening(rephrased)
 
     async def _transcribe_and_process(self):
         """Run STT on the speech buffer and process the result."""
@@ -625,16 +681,35 @@ class VoicePipeline:
         self._speech_buffer = np.array([], dtype=np.int16)
 
         if len(audio) < SAMPLE_RATE * 0.3:
+            self._reopen_listening_after_skip()
             return
 
-        # Convert to float32 for whisper
-        audio_float = audio.astype(np.float32) / 32768.0
-
-        # Run transcription in a thread
-        segments = await asyncio.to_thread(self._run_whisper, audio_float)
-        transcript = " ".join(segments).strip()
+        if self._stt_backend == "deepgram":
+            pcm_bytes = audio.astype(np.int16).tobytes()
+            try:
+                transcript = await deepgram_stt.transcribe_pcm16_le(
+                    pcm_bytes,
+                    self._deepgram_api_key,
+                    language=self._lang,
+                    model=self._deepgram_model,
+                )
+            except Exception as e:
+                print(f"[VOICE] Deepgram STT error: {e}")
+                self._reopen_listening_after_skip()
+                return
+        else:
+            # Convert to float32 for whisper
+            audio_float = audio.astype(np.float32) / 32768.0
+            segments = await asyncio.to_thread(self._run_whisper, audio_float)
+            transcript = " ".join(segments).strip()
 
         if not transcript:
+            self._reopen_listening_after_skip()
+            return
+
+        if not _is_substantive_transcript(transcript):
+            print(f"[VOICE] Ignoring noise utterance: '{transcript}'")
+            self._reopen_listening_after_skip()
             return
 
         print(f"[VOICE] Transcript: '{transcript}'")
@@ -647,16 +722,15 @@ class VoicePipeline:
             is_yes = any(w in text_lower for w in ["yes", "haan", "ha", "confirm", "stop", "sure", "okay", "ok"])
             if is_yes:
                 print(f"[VOICE] Exit confirmed")
-                await self.ws_send_json({"type": "exit_confirmed"})
                 end_msg = "ठीक है, परीक्षा रोक रहे हैं।" if self._lang == "hi" else "Okay, stopping the test. Please wait."
-                await self.tts.speak(end_msg)
+                await self.speak_only_no_listen(end_msg)
+                await self.ws_send_json({"type": "exit_confirmed"})
                 self._cancel_silence_timer()
                 return
             else:
                 print(f"[VOICE] Exit cancelled, resuming")
                 resume_msg = "ठीक है, परीक्षा जारी है।" if self._lang == "hi" else "Okay, let's continue."
-                await self.tts.speak(resume_msg)
-                self.start_silence_timer()
+                await self.speak_prompt_and_open_listening(resume_msg)
                 return
 
         # ── Check for exit keywords ──
@@ -665,12 +739,13 @@ class VoicePipeline:
             self._awaiting_exit_confirm = True
             self._cancel_silence_timer()
             confirm_msg = "क्या आप परीक्षा रोकना चाहते हैं? हाँ या ना बोलिए।" if self._lang == "hi" else "Do you want to stop the test? Say yes or no."
-            await self.tts.speak(confirm_msg)
+            await self.speak_prompt_and_open_listening(confirm_msg)
             return
 
         # Get current FSM state
         row = self.session.current_row
         if row is None:
+            self._reopen_listening_after_skip()
             return
 
         response_type = row.response_type
@@ -700,7 +775,7 @@ class VoicePipeline:
                 self._cancel_silence_timer()
                 end_msg = "परीक्षा पूरी हो गई है। धन्यवाद।" if self._lang == "hi" else "The eye test is now complete. Thank you for your patience."
                 # Speak FIRST, then notify frontend to show completion UI
-                await self.tts.speak(end_msg)
+                await self.speak_only_no_listen(end_msg)
                 await self.ws_send_json({"type": "test_complete"})
                 return
 
@@ -747,17 +822,17 @@ class VoicePipeline:
                 else:
                     question = _strip_intents(question)
                 self._prev_state = current_state
-                await self.tts.speak(question)
-                self.start_silence_timer()
+                await self.speak_prompt_and_open_listening(question)
         else:
             print(f"[VOICE] No match for: '{transcript}'")
             await self.ws_send_json({"type": "no_match", "transcript": transcript})
             no_match_msg = "समझ नहीं आया। कृपया फिर से बोलिए।" if self._lang == "hi" else "I didn't catch that clearly. Could you please repeat?"
-            await self.tts.speak(no_match_msg)
-            self.start_silence_timer()
+            await self.speak_prompt_and_open_listening(no_match_msg)
 
     def _run_whisper(self, audio_float: np.ndarray) -> list:
         """Run faster-whisper transcription (called in thread)."""
+        if self._whisper is None:
+            return []
         # Use Hindi language detection when Hindi voice is selected,
         # otherwise English. None = auto-detect (slower but handles both).
         lang = "hi" if self._lang == "hi" else "en"
@@ -771,7 +846,7 @@ class VoicePipeline:
 
     async def _handle_jcc_flip1_then_flip2(self, flip1_msg: str, wait_seconds: float):
         """Speak Flip 1 instruction, wait, then auto-flip to Flip 2 and ask."""
-        await self.tts.speak(flip1_msg)
+        await self.speak_only_no_listen(flip1_msg)
         await asyncio.sleep(wait_seconds)
 
         next_state = self.session.process_response("AUTO_FLIP")
@@ -785,8 +860,7 @@ class VoicePipeline:
             flip2_msg = "यह दूसरा है। पहला या दूसरा?" if self._lang == "hi" else "This is two. Which is better, one or two?"
         self._has_rephrased = False
         self._cancel_silence_timer()
-        await self.tts.speak(flip2_msg)
-        self.start_silence_timer()
+        await self.speak_prompt_and_open_listening(flip2_msg)
 
     def stop(self):
         self._running = False
@@ -801,12 +875,12 @@ def build_pipeline(session, ws_send_json, ws_send_bytes,
     """
     whisper_model = whisper_model or _resolve_whisper_model()
     piper_voice = piper_voice or _resolve_piper_voice(lang=lang)
-    silero_hub = _resolve_silero_hub_dir()
+    silero_onnx = _resolve_silero_onnx_path()
 
     piper_onnx = str(PIPER_MODEL_DIR / f"{piper_voice}.onnx")
     print(f"[VOICE] Whisper: {whisper_model}")
     print(f"[VOICE] Piper:   {piper_onnx}")
-    print(f"[VOICE] Silero:  {silero_hub or 'default'}")
+    print(f"[VOICE] Silero VAD ONNX: {silero_onnx}")
 
     tts = DirectTTSProcessor(
         voice_path=piper_onnx,
@@ -818,7 +892,7 @@ def build_pipeline(session, ws_send_json, ws_send_bytes,
         session=session,
         ws_send_json=ws_send_json,
         tts=tts,
-        silero_hub_dir=silero_hub,
+        silero_onnx_path=silero_onnx,
         whisper_model=whisper_model,
     )
 

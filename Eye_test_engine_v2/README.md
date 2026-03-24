@@ -32,7 +32,6 @@ source venv/bin/activate
 pip install -r requirements.txt
 
 # 3. Install additional voice deps
-pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
 pip install pathvalidate
 
 # 4. Download models locally (~620MB total, one-time)

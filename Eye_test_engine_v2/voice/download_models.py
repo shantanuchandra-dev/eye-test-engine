@@ -7,7 +7,7 @@ Run once before starting the voice server:
 Downloads into voice/models/:
     - faster-whisper 'small' model (~460MB)  → voice/models/whisper-small/
     - Piper TTS voices (~60MB each)          → voice/models/piper/
-    - Silero VAD model (~2MB)                → voice/models/silero/
+    - Silero VAD ONNX (~2.3MB)               → voice/models/silero/silero_vad.onnx
 """
 
 import os
@@ -28,6 +28,10 @@ PIPER_VOICES = {
     "hi_IN-pratham-medium": "hi/hi_IN/pratham/medium",
 }
 PIPER_HF_BASE = "https://huggingface.co/rhasspy/piper-voices/resolve/main"
+
+SILERO_VAD_ONNX_URL = (
+    "https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx"
+)
 
 
 def download_whisper():
@@ -79,21 +83,18 @@ def download_piper():
 
 
 def download_silero():
-    """Download the Silero VAD model to voice/models/silero/."""
-    print(f"[3/3] Downloading Silero VAD model → {SILERO_DIR}")
+    """Download Silero VAD ONNX to voice/models/silero/silero_vad.onnx."""
+    print(f"[3/3] Downloading Silero VAD ONNX → {SILERO_DIR}")
     SILERO_DIR.mkdir(parents=True, exist_ok=True)
+    dest = SILERO_DIR / "silero_vad.onnx"
+    if dest.exists():
+        print(f"  Already exists: silero_vad.onnx")
+        return True
+    print(f"  Fetching from snakers4/silero-vad …")
     try:
-        import torch
-        original_hub_dir = torch.hub.get_dir()
-        torch.hub.set_dir(str(SILERO_DIR))
-        model, _ = torch.hub.load(
-            repo_or_dir="snakers4/silero-vad",
-            model="silero_vad",
-            trust_repo=True,
-        )
-        torch.hub.set_dir(original_hub_dir)
-        print(f"  OK  Silero VAD model saved to {SILERO_DIR}")
-        del model
+        urllib.request.urlretrieve(SILERO_VAD_ONNX_URL, str(dest))
+        size_mb = dest.stat().st_size / (1024 * 1024)
+        print(f"  OK  silero_vad.onnx ({size_mb:.1f}MB)")
     except Exception as e:
         print(f"  FAIL  {e}")
         return False
@@ -105,7 +106,7 @@ def check_models():
     status = {}
     status["whisper"] = WHISPER_DIR.exists() and any(WHISPER_DIR.iterdir())
     status["piper"] = PIPER_DIR.exists() and any(PIPER_DIR.iterdir())
-    status["silero"] = SILERO_DIR.exists() and any(SILERO_DIR.iterdir())
+    status["silero"] = (SILERO_DIR / "silero_vad.onnx").is_file()
     return status
 
 

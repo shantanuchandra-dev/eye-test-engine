@@ -1357,8 +1357,8 @@ async function jumpToPhase(targetState) {
 }
 
 // ── Escalation ──────────────────────────────────────────────────────────
-function handleEscalation(data) {
-    stopVoiceMode();
+function handleEscalation(data, { stopVoice = true } = {}) {
+    if (stopVoice) stopVoiceMode();
     const questionText = document.getElementById('questionText');
     const intentButtons = document.getElementById('intentButtons');
 
@@ -1710,6 +1710,9 @@ const voiceState = {
     scriptNode: null,
     playQueue: [],
     playing: false,
+    /** When true, close voice only after TTS queue has drained (avoids cutting final message). */
+    pendingVoiceShutdown: false,
+    _shutdownFallbackTimer: null,
 };
 
 const VOICE_WS_PORT = 8766;
@@ -1720,7 +1723,13 @@ function getVoiceWsUrl() {
     const selectedOption = voiceSelect ? voiceSelect.selectedOptions[0] : null;
     const voice = selectedOption ? selectedOption.value : 'en_US-kusal-medium';
     const lang = selectedOption && selectedOption.dataset.lang ? selectedOption.dataset.lang : 'en';
-    return `ws://${host}:${VOICE_WS_PORT}/ws/voice/${sessionState.sessionId}?lang=${lang}&voice=${voice}`;
+    const pageParams = new URLSearchParams(window.location.search);
+    let url = `ws://${host}:${VOICE_WS_PORT}/ws/voice/${sessionState.sessionId}?lang=${encodeURIComponent(lang)}&voice=${encodeURIComponent(voice)}`;
+    // Omit stt unless ?voice_stt= is set so server VOICE_STT (e.g. deepgram) applies.
+    if (pageParams.has('voice_stt')) {
+        url += `&stt=${encodeURIComponent(pageParams.get('voice_stt') || 'whisper')}`;
+    }
+    return url;
 }
 
 async function toggleVoiceMode() {
@@ -1854,7 +1863,39 @@ async function startVoiceMode() {
     }
 }
 
+function maybeFinishVoiceShutdown() {
+    if (!voiceState.pendingVoiceShutdown) return;
+    if (voiceState.playQueue.length > 0 || voiceState.playing) return;
+    if (voiceState._shutdownFallbackTimer) {
+        clearTimeout(voiceState._shutdownFallbackTimer);
+        voiceState._shutdownFallbackTimer = null;
+    }
+    voiceState.pendingVoiceShutdown = false;
+    stopVoiceMode();
+}
+
+/** After test_complete / exit_confirmed: wait until all TTS PCM has played, then tear down. */
+function scheduleVoiceStopWhenIdle() {
+    voiceState.pendingVoiceShutdown = true;
+    if (voiceState._shutdownFallbackTimer) clearTimeout(voiceState._shutdownFallbackTimer);
+    voiceState._shutdownFallbackTimer = setTimeout(() => {
+        if (voiceState.pendingVoiceShutdown) {
+            console.warn('[VOICE] Forced shutdown after TTS wait timeout');
+            voiceState.pendingVoiceShutdown = false;
+            stopVoiceMode();
+        }
+    }, 45000);
+    maybeFinishVoiceShutdown();
+    setTimeout(maybeFinishVoiceShutdown, 100);
+    setTimeout(maybeFinishVoiceShutdown, 400);
+}
+
 function stopVoiceMode() {
+    voiceState.pendingVoiceShutdown = false;
+    if (voiceState._shutdownFallbackTimer) {
+        clearTimeout(voiceState._shutdownFallbackTimer);
+        voiceState._shutdownFallbackTimer = null;
+    }
     voiceState.enabled = false;
 
     if (voiceState._micPollInterval) {
@@ -1892,9 +1933,19 @@ let _voiceChipTimer = null;
 
 function handleVoiceMessage(msg) {
     switch (msg.type) {
+        case 'error':
+            addToHistory(msg.message || 'Voice server error', 'error');
+            console.error('[VOICE] Server:', msg.message);
+            break;
+
         case 'voice_ready':
             if (msg.tts_sample_rate) voiceState.ttsSampleRate = msg.tts_sample_rate;
-            addToHistory('Voice mode active — speak your responses', 'info');
+            addToHistory(
+                msg.stt === 'deepgram'
+                    ? 'Voice mode active (Deepgram STT) — speak your responses'
+                    : 'Voice mode active — speak your responses',
+                'info',
+            );
             setVoiceChip('idle');
             break;
 
@@ -1966,13 +2017,13 @@ function handleVoiceMessage(msg) {
 
         case 'test_complete':
             addVoiceLog('system', 'Test complete');
-            stopVoiceMode();
+            scheduleVoiceStopWhenIdle();
             break;
 
         case 'exit_confirmed':
             addVoiceLog('system', 'Test stopped by patient');
-            stopVoiceMode();
-            handleEscalation({ state: 'ESCALATE' });
+            handleEscalation({ state: 'ESCALATE' }, { stopVoice: false });
+            scheduleVoiceStopWhenIdle();
             break;
 
         case 'speaking':
@@ -1985,9 +2036,11 @@ function handleVoiceMessage(msg) {
             break;
 
         case 'tts_end':
-            // TTS finished speaking
+            // TTS finished speaking (server done sending); playback may still be queued.
             setQuestionSpeaking(false);
             if (voiceState.enabled) setVoiceChip('idle');
+            setTimeout(maybeFinishVoiceShutdown, 50);
+            setTimeout(maybeFinishVoiceShutdown, 250);
             break;
 
         case 'vad':
@@ -2056,6 +2109,7 @@ function handleVoiceAudio(arrayBuffer) {
 async function playNextAudioChunk() {
     if (voiceState.playQueue.length === 0) {
         voiceState.playing = false;
+        maybeFinishVoiceShutdown();
         return;
     }
     voiceState.playing = true;
