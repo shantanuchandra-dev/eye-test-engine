@@ -493,16 +493,23 @@ function selectLanguage(lang, pendingData) {
 }
 
 // ── Heartbeat ──
+function getSessionBrainId() {
+  return sessionStorage.getItem('acquired_brain_id')
+    || sessionStorage.getItem('operator_name')
+    || 'brain_01';
+}
+
 function startHeartbeat() {
   const phoropterId = sessionStorage.getItem('phoropter_id');
   if (!phoropterId) return;
   if (heartbeatInterval) clearInterval(heartbeatInterval);
   heartbeatInterval = setInterval(async () => {
     try {
+      const brainId = getSessionBrainId();
       await fetch(`${API}/api/devices/${phoropterId}/heartbeat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ brain_id: 'ete_v2' }),
+        body: JSON.stringify({ brain_id: brainId }),
       });
     } catch (e) { /* ignore */ }
   }, 15000);
@@ -1780,7 +1787,7 @@ async function discardSession() {
 async function releaseDevice() {
   const deviceId = sessionStorage.getItem('acquired_device_id');
   if (!deviceId) return;
-  const body = JSON.stringify({ brain_id: 'brain_01' });
+  const body = JSON.stringify({ brain_id: getSessionBrainId() });
   try {
     // keepalive: true ensures the request completes even if the page navigates away
     await fetch(`${API}/api/devices/${deviceId}/release`, {
@@ -1807,7 +1814,7 @@ window.addEventListener('pagehide', () => {
   if (!deviceId) return;
   try {
     navigator.sendBeacon(`${API}/api/devices/${deviceId}/release`,
-      JSON.stringify({ brain_id: 'brain_01' }));
+      JSON.stringify({ brain_id: getSessionBrainId() }));
   } catch (_) {}
 });
 
@@ -1818,6 +1825,7 @@ async function cleanup() {
   sessionStorage.removeItem('session_language');
   sessionStorage.removeItem('cached_state');
   sessionStorage.removeItem('acquired_device_id');
+  sessionStorage.removeItem('acquired_brain_id');
   window.location.href = '/intake';
 }
 

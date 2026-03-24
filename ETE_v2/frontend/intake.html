@@ -453,7 +453,7 @@ body {
               <select class="form-select" id="phoropterSelect" onchange="onDeviceSelectChange(this.value)">
                 <option value="">Loading devices…</option>
               </select>
-              <button type="button" class="device-refresh-btn" id="deviceRefreshBtn" onclick="loadDevices()">
+            <button type="button" class="device-refresh-btn" id="deviceRefreshBtn" onclick="loadDevices(true)">
                 <svg id="deviceRefreshIcon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
                 Refresh
               </button>
@@ -834,6 +834,14 @@ function stepVal(id, delta) {
 let selectedDeviceId = null;
 let deviceAcquired = false;
 
+function getCurrentBrainId() {
+  const operatorName = (document.getElementById('operatorName')?.value || '').trim();
+  if (operatorName) return operatorName;
+  const stored = sessionStorage.getItem('acquired_brain_id');
+  if (stored) return stored;
+  return 'brain_01';
+}
+
 function getDeviceId(d)    { return typeof d === 'string' ? d : (d.device_id || d.id || d.name || ''); }
 function getDeviceLabel(d) { if (typeof d === 'string') return d; return d.name || d.device_id || d.id || ''; }
 function getDeviceStatus(d) {
@@ -858,6 +866,54 @@ function getDeviceStatus(d) {
     d.available === false;
 
   return isAcquired ? 'acquired' : 'available';
+}
+
+function isOwnedByCurrentBrain(d) {
+  if (!d || typeof d === 'string') return false;
+  const ownerCandidates = [
+    d.brain_id,
+    d.acquired_by,
+    d.locked_by,
+    d.held_by,
+    d.owner,
+    d.connected_brain,
+  ].filter(Boolean).map(v => String(v).trim());
+  return ownerCandidates.includes(getCurrentBrainId());
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function releaseOwnedDevicesForRefresh() {
+  const allResp = await fetch(`${API}/api/devices?all=true`);
+  if (!allResp.ok) throw new Error(`Could not inspect acquired devices (HTTP ${allResp.status})`);
+  const allData = await allResp.json();
+  const allDevices = Array.isArray(allData) ? allData : (allData.devices || []);
+
+  const owned = allDevices.filter(d => isOwnedByCurrentBrain(d));
+  const brainId = getCurrentBrainId();
+  if (!owned.length) {
+    console.log(`[Device] Refresh: no devices owned by ${brainId}`);
+    return 0;
+  }
+
+  console.log(`[Device] Refresh: releasing ${owned.length} device(s) owned by ${brainId}`);
+  for (const d of owned) {
+    const id = getDeviceId(d);
+    if (!id) continue;
+    const resp = await fetch(`${API}/api/devices/${id}/release`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ brain_id: brainId }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(`Release failed for ${id}: ${err.error || err.message || `HTTP ${resp.status}`}`);
+    }
+    console.log(`[Device] Refresh release OK: ${id}`);
+  }
+  return owned.length;
 }
 
 function setAcquireBadge(state, label) {
@@ -911,7 +967,8 @@ async function acquireSelectedDevice() {
   setAcquireBadge('acquiring', 'Acquiring…');
 
   try {
-    const acquirePayload = { brain_id: 'brain_01', name: operatorName, operator_name: operatorName };
+    const brainId = operatorName; // Show operator identity in broker as lock owner
+    const acquirePayload = { brain_id: brainId, name: operatorName, operator_name: operatorName };
     console.log('[Acquire] →', selectedDeviceId, acquirePayload);
     const resp = await fetch(`${API}/api/devices/${selectedDeviceId}/acquire`, {
       method: 'POST',
@@ -924,6 +981,7 @@ async function acquireSelectedDevice() {
     }
     deviceAcquired = true;
     document.getElementById('phoropterId').value = selectedDeviceId;
+    sessionStorage.setItem('acquired_brain_id', brainId);
     btn.className = 'acquire-btn acquired';
     btn.disabled = false;
     btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Acquired`;
@@ -939,7 +997,7 @@ async function acquireSelectedDevice() {
   }
 }
 
-async function loadDevices() {
+async function loadDevices(releaseOwnedFirst = false) {
   const sel = document.getElementById('phoropterSelect');
   const refreshBtn = document.getElementById('deviceRefreshBtn');
   refreshBtn.classList.add('spinning');
@@ -952,6 +1010,15 @@ async function loadDevices() {
   setAcquireBadge('none', 'Not Acquired');
 
   try {
+    if (releaseOwnedFirst) {
+      setAcquireBadge('acquiring', 'Refreshing: releasing owned devices…');
+      const released = await releaseOwnedDevicesForRefresh();
+      if (released > 0) {
+        // Broker state update can be slightly eventual; wait a moment before re-fetching available list.
+        await sleep(900);
+      }
+    }
+
     // Try dedicated available-only endpoint first; fall back to full list + client filter
     let devices = [];
     const availResp = await fetch(`${API}/api/devices/available`);
@@ -1020,7 +1087,7 @@ async function loadDevices() {
     refreshBtn.classList.remove('spinning');
   }
 }
-loadDevices();
+loadDevices(false);
 
 // ── Fill dummy data ──
 function fillDummy() {
@@ -1178,8 +1245,10 @@ document.getElementById('intakeForm').addEventListener('submit', async (e) => {
     sessionStorage.setItem('operator_name', data.operator_name);
     if (deviceAcquired && data.phoropter_id) {
       sessionStorage.setItem('acquired_device_id', data.phoropter_id);
+      sessionStorage.setItem('acquired_brain_id', getCurrentBrainId());
     } else {
       sessionStorage.removeItem('acquired_device_id');
+      sessionStorage.removeItem('acquired_brain_id');
     }
 
     // Redirect to test screen
