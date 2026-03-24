@@ -17,6 +17,8 @@ import time
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
+
+from ete_io.ist_time import ist_now
 from typing import Any, Dict, List, Optional
 
 import requests as http_requests
@@ -174,7 +176,7 @@ class SessionOrchestrator:
         """
         self.session_id = session_id
         self.phoropter_id = phoropter_id
-        self.session_start_time = datetime.now()
+        self.session_start_time = ist_now()
 
         # Build PatientInput from form data
         self.patient_input = self._build_patient_input(patient_data)
@@ -530,7 +532,7 @@ class SessionOrchestrator:
 
         # Add session-level fields
         record["row_number"] = len(self.session_history) + 1
-        record["timestamp"] = datetime.now().isoformat()
+        record["timestamp"] = ist_now().isoformat()
         record["interaction_type"] = interaction_type
         record["prompt_instance_id"] = self.prompt_instance_id
         record["session_language"] = self.session_language
@@ -572,7 +574,7 @@ class SessionOrchestrator:
 
     def _log_conversation(self, role: str, message: str, **extra) -> None:
         entry = {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": ist_now().isoformat(),
             "role": role,
             "message": message,
             **extra,
@@ -583,7 +585,7 @@ class SessionOrchestrator:
                         screenshot: Optional[str] = None) -> None:
         """Log a CURL command sent to the phoropter."""
         entry = {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": ist_now().isoformat(),
             "method": method,
             "url": url,
             "body": body,

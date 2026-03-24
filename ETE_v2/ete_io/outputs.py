@@ -4,6 +4,7 @@ Adapted for ETE_v2 — uses FSMRuntimeRow instead of RowContext.
 """
 import csv
 import json
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -150,6 +151,29 @@ COMBINED_METADATA_FIELDS = [
     "Final_R_SPH", "Final_R_CYL", "Final_R_AXIS", "Final_R_ADD",
     "Final_L_SPH", "Final_L_CYL", "Final_L_AXIS", "Final_L_ADD",
     "Phases_Completed",
+    # ── Patient Input fields ──
+    "PI_Age", "PI_Occupation", "PI_Screen_Time_Hours", "PI_Driving_Hours",
+    "PI_Primary_Reason", "PI_Symptoms", "PI_Satisfaction",
+    "PI_Wear_Type", "PI_Distance_Target", "PI_Priority", "PI_Near_Priority",
+    "PI_Last_Test_Months", "PI_Rx_Change_Large", "PI_Fluctuating_Vision",
+    "PI_Diabetes", "PI_Prior_Surgery", "PI_Keratoconus", "PI_Amblyopia",
+    "PI_Infection", "PI_Optom_Review",
+    # ── Derived Variables fields ──
+    "DV_Age_Bucket", "DV_Distance_Priority", "DV_Near_Priority",
+    "DV_Symptom_Risk", "DV_Medical_Risk", "DV_Stability",
+    "DV_Mismatch_RE", "DV_Mismatch_LE", "DV_Start_Source_Policy",
+    "DV_Start_RE_SPH", "DV_Start_RE_CYL", "DV_Start_RE_AXIS",
+    "DV_Start_LE_SPH", "DV_Start_LE_CYL", "DV_Start_LE_AXIS",
+    "DV_Add_Expected", "DV_Target_VA", "DV_Endpoint_Bias", "DV_Step_Size_Policy",
+    "DV_Max_Delta_Start_SPH", "DV_Max_Delta_AR_SPH",
+    "DV_Axis_Tolerance", "DV_Cyl_Tolerance",
+    "DV_Requires_Optom_Review", "DV_Anomaly_Watch",
+    "DV_Convergence_Time", "DV_Branching_Guardrails", "DV_Confidence_Req",
+    "DV_Fogging_Policy", "DV_Fogging_Amount", "DV_Fogging_Clearance", "DV_Fogging_Confirm",
+    "DV_Axis_Step_Policy", "DV_Duochrome_Max_Flips", "DV_Near_Test_Required",
+    "DV_Accommodation_Level", "DV_Fogging_Required", "DV_Fogging_Stop_At_Target",
+    "DV_JCC_Axis_Same_Req", "DV_JCC_Axis_Max_Flips",
+    "DV_Near_Binoc_Step", "DV_Near_Binoc_Max_Plus", "DV_Near_Binoc_Max_Minus",
 ]
 
 
@@ -168,6 +192,8 @@ def build_combined_metadata_flat(metadata: dict) -> dict:
     final = metadata.get("final_prescription", {})
     ar = metadata.get("ar", {})
     lenso = metadata.get("lensometry", {})
+    pi = metadata.get("patient_input", {})
+    dv = metadata.get("derived_variables", {})
     return {
         "Session_ID": metadata.get("session_id", ""),
         "Phoropter_ID": metadata.get("phoropter_id", ""),
@@ -205,6 +231,71 @@ def build_combined_metadata_flat(metadata: dict) -> dict:
         "Final_L_AXIS": _safe_get(final, "left", "axis"),
         "Final_L_ADD": _safe_get(final, "left", "add"),
         "Phases_Completed": "; ".join(metadata.get("phases_completed", [])),
+        # ── Patient Input ──
+        "PI_Age": pi.get("age", ""),
+        "PI_Occupation": pi.get("occupation", ""),
+        "PI_Screen_Time_Hours": pi.get("screen_time_hours", ""),
+        "PI_Driving_Hours": pi.get("driving_hours", ""),
+        "PI_Primary_Reason": pi.get("primary_reason", ""),
+        "PI_Symptoms": pi.get("symptoms_text", ""),
+        "PI_Satisfaction": pi.get("satisfaction_with_current_rx", ""),
+        "PI_Wear_Type": pi.get("wear_type", ""),
+        "PI_Distance_Target": pi.get("distance_target_preference", ""),
+        "PI_Priority": pi.get("priority", ""),
+        "PI_Near_Priority": pi.get("near_priority_declared", ""),
+        "PI_Last_Test_Months": pi.get("last_eye_test_months_ago", ""),
+        "PI_Rx_Change_Large": pi.get("rx_change_was_large", ""),
+        "PI_Fluctuating_Vision": pi.get("fluctuating_vision_reported", ""),
+        "PI_Diabetes": pi.get("diabetes", ""),
+        "PI_Prior_Surgery": pi.get("prior_eye_surgery", ""),
+        "PI_Keratoconus": pi.get("keratoconus", ""),
+        "PI_Amblyopia": pi.get("amblyopia", ""),
+        "PI_Infection": pi.get("infection", ""),
+        "PI_Optom_Review": pi.get("optom_review_flag", ""),
+        # ── Derived Variables ──
+        "DV_Age_Bucket": dv.get("dv_age_bucket", ""),
+        "DV_Distance_Priority": dv.get("dv_distance_priority", ""),
+        "DV_Near_Priority": dv.get("dv_near_priority", ""),
+        "DV_Symptom_Risk": dv.get("dv_symptom_risk_level", ""),
+        "DV_Medical_Risk": dv.get("dv_medical_risk_level", ""),
+        "DV_Stability": dv.get("dv_stability_level", ""),
+        "DV_Mismatch_RE": dv.get("dv_ar_lenso_mismatch_level_RE", ""),
+        "DV_Mismatch_LE": dv.get("dv_ar_lenso_mismatch_level_LE", ""),
+        "DV_Start_Source_Policy": dv.get("dv_start_source_policy", ""),
+        "DV_Start_RE_SPH": dv.get("dv_start_rx_RE_sph", ""),
+        "DV_Start_RE_CYL": dv.get("dv_start_rx_RE_cyl", ""),
+        "DV_Start_RE_AXIS": dv.get("dv_start_rx_RE_axis", ""),
+        "DV_Start_LE_SPH": dv.get("dv_start_rx_LE_sph", ""),
+        "DV_Start_LE_CYL": dv.get("dv_start_rx_LE_cyl", ""),
+        "DV_Start_LE_AXIS": dv.get("dv_start_rx_LE_axis", ""),
+        "DV_Add_Expected": dv.get("dv_add_expected", ""),
+        "DV_Target_VA": dv.get("dv_target_distance_va", ""),
+        "DV_Endpoint_Bias": dv.get("dv_endpoint_bias_policy", ""),
+        "DV_Step_Size_Policy": dv.get("dv_step_size_policy", ""),
+        "DV_Max_Delta_Start_SPH": dv.get("dv_max_delta_from_start_sph", ""),
+        "DV_Max_Delta_AR_SPH": dv.get("dv_max_delta_from_ar_sph", ""),
+        "DV_Axis_Tolerance": dv.get("dv_axis_tolerance_deg", ""),
+        "DV_Cyl_Tolerance": dv.get("dv_cyl_tolerance_D", ""),
+        "DV_Requires_Optom_Review": dv.get("dv_requires_optom_review", ""),
+        "DV_Anomaly_Watch": dv.get("dv_anomaly_watch", ""),
+        "DV_Convergence_Time": dv.get("dv_expected_convergence_time", ""),
+        "DV_Branching_Guardrails": dv.get("dv_branching_guardrails", ""),
+        "DV_Confidence_Req": dv.get("dv_confidence_requirement", ""),
+        "DV_Fogging_Policy": dv.get("dv_fogging_policy", ""),
+        "DV_Fogging_Amount": dv.get("dv_fogging_amount_D", ""),
+        "DV_Fogging_Clearance": dv.get("dv_fogging_clearance_mode", ""),
+        "DV_Fogging_Confirm": dv.get("dv_fogging_required_confirmation", ""),
+        "DV_Axis_Step_Policy": dv.get("dv_axis_step_policy", ""),
+        "DV_Duochrome_Max_Flips": dv.get("dv_duochrome_max_flips", ""),
+        "DV_Near_Test_Required": dv.get("dv_near_test_required", ""),
+        "DV_Accommodation_Level": dv.get("dv_accommodation_level", ""),
+        "DV_Fogging_Required": dv.get("dv_fogging_required", ""),
+        "DV_Fogging_Stop_At_Target": dv.get("dv_fogging_stop_at_target_va", ""),
+        "DV_JCC_Axis_Same_Req": dv.get("dv_jcc_axis_same_required", ""),
+        "DV_JCC_Axis_Max_Flips": dv.get("dv_jcc_axis_max_flips", ""),
+        "DV_Near_Binoc_Step": dv.get("dv_near_binoc_step_D", ""),
+        "DV_Near_Binoc_Max_Plus": dv.get("dv_near_binoc_max_plus_steps", ""),
+        "DV_Near_Binoc_Max_Minus": dv.get("dv_near_binoc_max_minus_steps", ""),
     }
 
 
@@ -232,6 +323,22 @@ def append_to_combined_metadata(metadata: dict, combined_path: Path) -> None:
         writer.writerow(flat)
 
 
+def _serialize_patient_input(patient_input) -> dict:
+    """Convert PatientInput dataclass to a JSON-safe dict."""
+    if patient_input is None:
+        return {}
+    d = asdict(patient_input)
+    # EyePrescription sub-objects are already dicts via asdict
+    return d
+
+
+def _serialize_derived_variables(dv) -> dict:
+    """Convert DerivedVariables dataclass to a JSON-safe dict."""
+    if dv is None:
+        return {}
+    return asdict(dv)
+
+
 def build_session_metadata(
     session_id: str,
     phoropter_id: str,
@@ -251,6 +358,9 @@ def build_session_metadata(
     customer_age: str = "",
     customer_gender: str = "",
     qualitative_feedback: str = "",
+    patient_input=None,
+    derived_variables=None,
+    calibration_snapshot: Optional[list] = None,
 ) -> dict:
     duration = (session_end_time - session_start_time).total_seconds()
     manual_count = sum(1 for r in rows if r.get("interaction_type") == "Manual")
@@ -291,4 +401,7 @@ def build_session_metadata(
             "unable_to_read_count": unable_to_read_count,
             "duration_per_phase": duration_per_phase or {},
         },
+        "calibration": calibration_snapshot or [],
+        "patient_input": _serialize_patient_input(patient_input),
+        "derived_variables": _serialize_derived_variables(derived_variables),
     }

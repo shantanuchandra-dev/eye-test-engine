@@ -26,6 +26,7 @@ from flask_cors import CORS
 from session_orchestrator import SessionOrchestrator
 
 # ── IO imports ──
+from ete_io.ist_time import ist_now
 from ete_io.outputs import (
     build_session_metadata,
     session_csv_string,
@@ -553,7 +554,7 @@ def session_end(session_id):
 
     data = _request_payload()
     orch = sessions[session_id]
-    end_time = datetime.now()
+    end_time = ist_now()
 
     # Build metadata
     metadata = build_session_metadata(
@@ -574,6 +575,9 @@ def session_end(session_id):
         customer_age=data.get("customer_age", ""),
         customer_gender=data.get("customer_gender", ""),
         qualitative_feedback=data.get("qualitative_feedback", ""),
+        patient_input=orch.patient_input,
+        derived_variables=orch.derived_variables,
+        calibration_snapshot=orch.calibration.get_snapshot(),
     )
 
     # Enrich metadata with voice/language stats (matching FSMv3.1_R2 summary.json)

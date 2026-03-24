@@ -1845,19 +1845,25 @@ async function loadDvSummary() {
       'Risk Assessment': ['dv_symptom_risk_level', 'dv_medical_risk_level', 'dv_stability_level', 'dv_anomaly_watch', 'dv_requires_optom_review'],
       'AR/Lenso': ['dv_ar_lenso_mismatch_level_RE', 'dv_ar_lenso_mismatch_level_LE', 'dv_start_source_policy'],
       'Starting Rx': ['dv_start_rx_RE_sph', 'dv_start_rx_RE_cyl', 'dv_start_rx_RE_axis', 'dv_start_rx_LE_sph', 'dv_start_rx_LE_cyl', 'dv_start_rx_LE_axis'],
-      'Test Config': ['dv_target_distance_va', 'dv_endpoint_bias_policy', 'dv_step_size_policy', 'dv_confidence_requirement', 'dv_expected_convergence_time'],
-      'Fogging': ['dv_fogging_policy', 'dv_fogging_amount_D', 'dv_fogging_clearance_mode', 'dv_fogging_required'],
-      'Near Vision': ['dv_add_expected', 'dv_near_test_required'],
-      'Safety': ['dv_max_delta_from_start_sph', 'dv_max_delta_from_ar_sph', 'dv_axis_tolerance_deg', 'dv_cyl_tolerance_D'],
+      'Test Config': ['dv_target_distance_va', 'dv_endpoint_bias_policy', 'dv_step_size_policy', 'dv_confidence_requirement', 'dv_expected_convergence_time', 'dv_branching_guardrails'],
+      'Fogging': ['dv_fogging_policy', 'dv_fogging_amount_D', 'dv_fogging_clearance_mode', 'dv_fogging_required_confirmation', 'dv_fogging_required', 'dv_fogging_stop_at_target_va', 'dv_accommodation_level'],
+      'Axis / Cylinder': ['dv_axis_step_policy', 'dv_axis_tolerance_deg', 'dv_cyl_tolerance_D', 'dv_jcc_axis_same_required', 'dv_jcc_axis_max_flips'],
+      'Duochrome': ['dv_duochrome_max_flips'],
+      'Near Vision': ['dv_add_expected', 'dv_near_test_required', 'dv_near_binoc_step_D', 'dv_near_binoc_max_plus_steps', 'dv_near_binoc_max_minus_steps'],
+      'Safety / Escalation': ['dv_max_delta_from_start_sph', 'dv_max_delta_from_ar_sph'],
     };
+    // Collect all keys already listed in categories
+    const listed = new Set(Object.values(cats).flat());
+    // Any DV keys not in a category go into "Other"
+    const otherKeys = Object.keys(dv).filter(k => k.startsWith('dv_') && !listed.has(k));
+    if (otherKeys.length) cats['Other'] = otherKeys;
     let html = '';
+    const fmt = (v) => v === true ? 'Yes' : v === false ? 'No' : (v ?? '—');
     for (const [cat, keys] of Object.entries(cats)) {
       html += `<div style="font-weight:700;color:var(--accent);margin-top:10px;font-size:0.8rem">${cat}</div>`;
       for (const k of keys) {
         const v = dv[k];
-        if (v !== undefined && v !== null) {
-          html += `<div><span style="color:var(--ink-muted)">${k.replace(/^dv_/,'').replace(/_/g,' ')}:</span> <strong>${v}</strong></div>`;
-        }
+        html += `<div><span style="color:var(--ink-muted)">${k.replace(/^dv_/,'').replace(/_/g,' ')}:</span> <strong>${fmt(v)}</strong></div>`;
       }
     }
     content.innerHTML = html || 'No DV data.';
