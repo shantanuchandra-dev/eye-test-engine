@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
-from flask import Flask, jsonify, redirect, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 
 from session_orchestrator import SessionOrchestrator
@@ -57,7 +57,7 @@ BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:5050")
 CALIBRATION_PATH = os.environ.get("CALIBRATION_PATH", "config/calibration.csv")
 
 # ── Log paths ──
-LOG_BASE = Path(os.environ.get("LOG_DIR", "/tmp/logs"))
+LOG_BASE = Path(os.environ.get("LOG_DIR", "logs"))
 SESSIONS_DIR = LOG_BASE / "sessions"
 COMBINED_LOG_PATH = LOG_BASE / "combined_log.csv"
 COMBINED_METADATA_PATH = LOG_BASE / "combined_metadata.csv"
@@ -114,7 +114,7 @@ def _proxy_request(method: str, path: str, body: Optional[dict] = None) -> tuple
 
 @app.route("/")
 def serve_index():
-    return redirect("/intake")
+        return send_from_directory("frontend", "index.html")
 
 
 @app.route("/intake")
