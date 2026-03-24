@@ -1344,13 +1344,36 @@ function showTerminal(data) {
   card.classList.add('active');
 
   if (data.state === 'END') {
+    const rx = data.prescription || {};
+    const r = rx.right || {};
+    const l = rx.left || {};
+    const fmt = (v) => v != null ? (v >= 0 ? '+' : '') + parseFloat(v).toFixed(2) : '—';
+    const fmtRx = (eye) => `${fmt(eye.sph)} / ${fmt(eye.cyl)} x ${Math.round(eye.axis||180)}${eye.add ? ` ADD ${fmt(eye.add)}` : ''}`;
+
     document.getElementById('terminalIcon').textContent = '✅';
-    document.getElementById('terminalTitle').textContent = 'Test Complete';
-    document.getElementById('terminalSubtitle').textContent = 'Review the final prescription and sign off.';
+    document.getElementById('terminalTitle').textContent = 'Congratulations! Your eye test is complete.';
+    document.getElementById('terminalSubtitle').innerHTML =
+      `<div style="margin-bottom:12px">Here is your final prescription:</div>` +
+      `<div style="display:flex;gap:24px;justify-content:center;margin-bottom:16px;">` +
+        `<div style="text-align:center"><div style="font-size:0.75rem;color:var(--re-color);font-weight:700;margin-bottom:4px;">RIGHT EYE (RE)</div><div style="font:600 1.1rem var(--font-mono)">${fmtRx(r)}</div></div>` +
+        `<div style="text-align:center"><div style="font-size:0.75rem;color:var(--le-color);font-weight:700;margin-bottom:4px;">LEFT EYE (LE)</div><div style="font:600 1.1rem var(--font-mono)">${fmtRx(l)}</div></div>` +
+      `</div>` +
+      `<div style="font-size:0.85rem;color:var(--ink-secondary)">Please review and sign off below.</div>`;
+
+    // Speak the final prescription
+    const sph = (v) => parseFloat(v||0).toFixed(2);
+    const ax = (v) => Math.round(v||180);
+    const speechText = sessionLanguage === 'hi'
+      ? `बधाई हो! आपका आई टेस्ट पूरा हो गया है। दाईं आँख का पावर: sphere ${sph(r.sph)}, cylinder ${sph(r.cyl)}, axis ${ax(r.axis)}। बाईं आँख का पावर: sphere ${sph(l.sph)}, cylinder ${sph(l.cyl)}, axis ${ax(l.axis)}।`
+      : `Congratulations! Your eye test is complete. Your right eye power is: sphere ${sph(r.sph)}, cylinder ${sph(r.cyl)}, axis ${ax(r.axis)}. Your left eye power is: sphere ${sph(l.sph)}, cylinder ${sph(l.cyl)}, axis ${ax(l.axis)}.`;
+    speakQuestion(speechText);
   } else {
     document.getElementById('terminalIcon').textContent = '⚠️';
     document.getElementById('terminalTitle').textContent = 'Escalation Required';
-    document.getElementById('terminalSubtitle').textContent = 'The test requires optometrist review.';
+    document.getElementById('terminalSubtitle').textContent = 'This test requires optometrist review. Please consult with a qualified optometrist.';
+    speakQuestion(sessionLanguage === 'hi'
+      ? 'इस टेस्ट को ऑप्टोमेट्रिस्ट की समीक्षा की आवश्यकता है।'
+      : 'This test requires optometrist review.');
   }
 }
 
