@@ -1443,13 +1443,10 @@ function showTerminal(data) {
       `</div>` +
       `<div style="font-size:0.85rem;color:var(--ink-secondary)">Please review and sign off below.</div>`;
 
-    // Speak the final prescription
-    const sph = (v) => parseFloat(v||0).toFixed(2);
-    const ax = (v) => Math.round(v||180);
-    const speechText = sessionLanguage === 'hi'
-      ? `बधाई हो! आपका आई टेस्ट पूरा हो गया है। दाईं आँख का पावर: sphere ${sph(r.sph)}, cylinder ${sph(r.cyl)}, axis ${ax(r.axis)}। बाईं आँख का पावर: sphere ${sph(l.sph)}, cylinder ${sph(l.cyl)}, axis ${ax(l.axis)}।`
-      : `Congratulations! Your eye test is complete. Your right eye power is: sphere ${sph(r.sph)}, cylinder ${sph(r.cyl)}, axis ${ax(r.axis)}. Your left eye power is: sphere ${sph(l.sph)}, cylinder ${sph(l.cyl)}, axis ${ax(l.axis)}.`;
-    speakQuestion(speechText);
+    // Speak congratulations (no power details)
+    speakQuestion(sessionLanguage === 'hi'
+      ? 'बधाई हो! आपका आई टेस्ट पूरा हो गया है। धन्यवाद।'
+      : 'Congratulations! Your eye test is complete. Thank you.');
   } else {
     document.getElementById('terminalIcon').textContent = '⚠️';
     document.getElementById('terminalTitle').textContent = 'Escalation Required';
