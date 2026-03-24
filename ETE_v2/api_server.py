@@ -33,6 +33,7 @@ from ete_io.outputs import (
     session_csv_string,
     write_session_csv,
     write_session_metadata,
+    write_voice_utterances_csv,
     append_to_combined_log,
     append_to_combined_metadata,
 )
@@ -494,11 +495,14 @@ def session_respond(session_id):
         return jsonify({"error": "Missing response value"}), 400
 
     voice_meta = data.get("voice_meta")
+    input_method = data.get("input_method", "Button")
     # Store language in session state
     language = data.get("language")
     if language:
         sessions[session_id].session_language = language
-    result = sessions[session_id].process_response(response_value, voice_meta=voice_meta)
+    result = sessions[session_id].process_response(
+        response_value, voice_meta=voice_meta, input_method=input_method
+    )
     return jsonify(result)
 
 
@@ -657,6 +661,14 @@ def session_end(session_id):
         write_session_metadata(metadata, meta_path)
         append_to_combined_log(orch.session_history, session_id, COMBINED_LOG_PATH)
         append_to_combined_metadata(metadata, COMBINED_METADATA_PATH)
+        # Voice utterance training CSV
+        voice_csv_path = SESSIONS_DIR / f"{session_id}_voice_utterances.csv"
+        write_voice_utterances_csv(
+            orch.session_history,
+            getattr(orch, "failed_voice_attempts", []),
+            session_id,
+            voice_csv_path,
+        )
 
     combined_log_for_remote: Optional[str] = None
     if not remote_only and COMBINED_LOG_PATH.exists():
