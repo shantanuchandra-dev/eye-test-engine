@@ -1101,8 +1101,8 @@ COMPACT_LOCALIZED_VOICE_PROMPTS = {
     },
     "duochrome_4way": {
         "en": {
-            "initial": "Red-green chart. Say red, green, same, or repeat.",
-            "retry": "Red-green chart. Say red, green, same, or repeat.",
+            "initial": "On which background do the letters appear darker or sharper? Red, Green or are both the same?",
+            "retry": "On which background do the letters appear darker or sharper? Red, Green or are both the same?",
         },
         "hi": {
             "initial": "लाल-हरा chart। लाल, हरा, समान, या फिर से कहिए।",
@@ -1111,8 +1111,8 @@ COMPACT_LOCALIZED_VOICE_PROMPTS = {
     },
     "distance_bino_4way": {
         "en": {
-            "initial": "Top-bottom balance chart. Say top, bottom, same, or repeat.",
-            "retry": "Top-bottom balance chart. Say top, bottom, same, or repeat.",
+            "initial": "Which line looks clearer? Top, Bottom, or are they Similar?",
+            "retry": "Which line looks clearer? Top, Bottom, or are they Similar?",
         },
         "hi": {
             "initial": "ऊपर-नीचे balance chart। ऊपर, नीचे, समान, या फिर से कहिए।",

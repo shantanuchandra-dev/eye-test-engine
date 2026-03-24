@@ -133,6 +133,7 @@ class DerivedVariablesEngine:
             near_priority=near_priority,
             add_expected=add_expected,
             age_bucket=age_bucket,
+            primary_reason=patient.primary_reason or "",
         )
 
         # FSM v2.3 additions
@@ -669,12 +670,16 @@ class DerivedVariablesEngine:
         near_priority: str,
         add_expected: str,
         age_bucket: str,
+        primary_reason: str,
     ) -> bool:
         allow_possible = bool(self.cal.get("trigger_near_if_dv_add_expected_possible", True))
         allow_likely = bool(self.cal.get("trigger_near_if_dv_add_expected_likely", True))
+        allow_force = bool(self.cal.get("allow_high_near_priority_to_force_near", False))
 
         return (
             (add_expected == "Likely" and allow_likely)
             or (add_expected == "Possible" and near_priority == "High" and allow_possible)
             or (age_bucket == "Presbyope" and near_priority == "High")
+            or (near_priority == "High" and allow_force)
+            or ("near" in primary_reason.lower())
         )
