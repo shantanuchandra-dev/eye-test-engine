@@ -416,6 +416,7 @@ async function restoreSession() {
       // Auto-resume: start immediately, enable TTS via a one-time user interaction listener
       await handleSessionUpdate(data);
       document.getElementById('endBtn').style.display = '';
+      updatePhoropBtn();
       startHeartbeat();
       const convEl = document.getElementById('conversationLog');
       if ((!convEl || !convEl.innerHTML.trim()) && data.question && !data.is_terminal) {
@@ -484,6 +485,7 @@ function selectLanguage(lang, pendingData) {
   // Now show the actual first question
   handleSessionUpdate(pendingData);
   document.getElementById('endBtn').style.display = '';
+  updatePhoropBtn();
   startHeartbeat();
   if (pendingData.question && !pendingData.is_terminal) {
     addToConversation('optometrist', pendingData.question, null, `${pendingData.state}`);
@@ -491,16 +493,23 @@ function selectLanguage(lang, pendingData) {
 }
 
 // ── Heartbeat ──
+function getSessionBrainId() {
+  return sessionStorage.getItem('acquired_brain_id')
+    || sessionStorage.getItem('operator_name')
+    || 'brain_01';
+}
+
 function startHeartbeat() {
   const phoropterId = sessionStorage.getItem('phoropter_id');
   if (!phoropterId) return;
   if (heartbeatInterval) clearInterval(heartbeatInterval);
   heartbeatInterval = setInterval(async () => {
     try {
+      const brainId = getSessionBrainId();
       await fetch(`${API}/api/devices/${phoropterId}/heartbeat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ brain_id: 'ete_v2' }),
+        body: JSON.stringify({ brain_id: brainId }),
       });
     } catch (e) { /* ignore */ }
   }, 15000);
@@ -1775,11 +1784,48 @@ async function discardSession() {
   cleanup();
 }
 
-function cleanup() {
+async function releaseDevice() {
+  const deviceId = sessionStorage.getItem('acquired_device_id');
+  if (!deviceId) return;
+  const body = JSON.stringify({ brain_id: getSessionBrainId() });
+  try {
+    // keepalive: true ensures the request completes even if the page navigates away
+    await fetch(`${API}/api/devices/${deviceId}/release`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+      keepalive: true,
+    });
+    console.log(`[Device] Released: ${deviceId}`);
+  } catch (e) {
+    // Fallback: sendBeacon (fire-and-forget, survives unload)
+    try {
+      navigator.sendBeacon(`${API}/api/devices/${deviceId}/release`, body);
+      console.log(`[Device] Released via beacon: ${deviceId}`);
+    } catch (_) {
+      console.warn('[Device] Release failed:', e);
+    }
+  }
+}
+
+// Also release on page unload as a safety net
+window.addEventListener('pagehide', () => {
+  const deviceId = sessionStorage.getItem('acquired_device_id');
+  if (!deviceId) return;
+  try {
+    navigator.sendBeacon(`${API}/api/devices/${deviceId}/release`,
+      JSON.stringify({ brain_id: getSessionBrainId() }));
+  } catch (_) {}
+});
+
+async function cleanup() {
   if (heartbeatInterval) clearInterval(heartbeatInterval);
+  await releaseDevice();
   sessionStorage.removeItem('session_id');
   sessionStorage.removeItem('session_language');
   sessionStorage.removeItem('cached_state');
+  sessionStorage.removeItem('acquired_device_id');
+  sessionStorage.removeItem('acquired_brain_id');
   window.location.href = '/intake';
 }
 
@@ -2035,13 +2081,22 @@ function toggleTTS() {
 // ── Phoropter auto-dispatch toggle ──
 let phoropterEnabled = true;
 
+function updatePhoropBtn() {
+  const btn = document.getElementById('phoropBtn');
+  if (!btn) return;
+  const deviceId = sessionStorage.getItem('acquired_device_id');
+  if (deviceId) {
+    btn.textContent = phoropterEnabled ? `Device: ${deviceId}` : `Device: ${deviceId} (OFF)`;
+    btn.style.background = phoropterEnabled ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.2)';
+  } else {
+    btn.textContent = phoropterEnabled ? 'Device: Test' : 'Device: OFF';
+    btn.style.background = phoropterEnabled ? 'rgba(34,197,94,0.2)' : '';
+  }
+}
+
 async function togglePhoropter() {
   phoropterEnabled = !phoropterEnabled;
-  const btn = document.getElementById('phoropBtn');
-  if (btn) {
-    btn.textContent = `Phoropter: ${phoropterEnabled ? 'ON' : 'OFF'}`;
-    btn.style.background = phoropterEnabled ? 'rgba(34,197,94,0.3)' : '';
-  }
+  updatePhoropBtn();
   // Tell backend to enable/disable auto-dispatch
   if (sessionId) {
     try {

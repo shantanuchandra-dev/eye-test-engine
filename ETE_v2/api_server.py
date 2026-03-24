@@ -96,6 +96,7 @@ def _proxy_request(method: str, path: str, body: Optional[dict] = None) -> tuple
         if method == "GET":
             resp = req.get(url, timeout=10)
         elif method == "POST":
+            print(f"[proxy → lenskart] POST {url}  body={body}")
             resp = req.post(url, json=body, timeout=15)
         else:
             return jsonify({"error": f"Unsupported method: {method}"}), 400
@@ -105,8 +106,10 @@ def _proxy_request(method: str, path: str, body: Optional[dict] = None) -> tuple
         except Exception:
             data = resp.text
 
+        print(f"[proxy ← lenskart] {resp.status_code}  {data}")
         return jsonify(data), resp.status_code
     except req.exceptions.RequestException as e:
+        print(f"[proxy error] {method} {url}  error={e}")
         return jsonify({"error": str(e)}), 502
 
 
@@ -196,6 +199,12 @@ def list_devices():
     return _proxy_request("GET", path)
 
 
+@app.route("/api/devices/available")
+def list_available_devices():
+    """Return only devices that are free to acquire."""
+    return _proxy_request("GET", "/devices/available")
+
+
 @app.route("/api/devices/<device_id>")
 def get_device(device_id):
     return _proxy_request("GET", f"/devices/{device_id}")
@@ -203,8 +212,25 @@ def get_device(device_id):
 
 @app.route("/api/devices/<device_id>/acquire", methods=["POST"])
 def acquire_device(device_id):
-    body = _request_payload()
-    return _proxy_request("POST", f"/devices/{device_id}/acquire", body)
+    # Read body robustly — try every possible source so silent failures are visible
+    body = {}
+    if request.is_json:
+        body = request.get_json(force=True, silent=True) or {}
+    if not body:
+        try:
+            body = json.loads(request.data.decode("utf-8"))
+        except Exception:
+            body = {}
+
+    # Ensure the two fields the Lenskart API requires are always present
+    brain_id    = body.get("brain_id", "brain_01")
+    name        = body.get("name") or body.get("operator_name", "")
+
+    payload = {"brain_id": brain_id, "name": name}
+    app.logger.info(f"[acquire] device={device_id}  sending → {payload}")
+    print(f"[acquire] device={device_id}  raw_body={body}  sending → {payload}")
+
+    return _proxy_request("POST", f"/devices/{device_id}/acquire", payload)
 
 
 @app.route("/api/devices/<device_id>/release", methods=["POST"])

@@ -145,7 +145,7 @@ FSM_AUDIO_RESPONSE_LIBRARY_V1 = {
                     "context_only": ["yes", "yeah", "yep", "okay", "ok", "good", "fine", "perfect"],
                 },
                 "BLURRY": {
-                    "exact": ["blur", "blurry", "unclear", "hazy", "fuzzy"],
+                    "exact": ["blur", "blurry", "unclear", "hazy", "fuzzy", "not clear"],
                     "phrases": [
                         "it is blurry",
                         "it's blurry",
@@ -316,7 +316,7 @@ FSM_AUDIO_RESPONSE_LIBRARY_V1 = {
                     "fuzzy": ["to", "too", "tu", "do"],
                 },
                 "SAME": {
-                    "exact": ["same", "equal"],
+                    "exact": ["same", "equal", "similar"],
                     "phrases": [
                         "both same",
                         "both are same",
@@ -421,7 +421,7 @@ FSM_AUDIO_RESPONSE_LIBRARY_V1 = {
                     ],
                 },
                 "SAME": {
-                    "exact": ["same", "equal"],
+                    "exact": ["same", "equal", "similar"],
                     "phrases": [
                         "both same",
                         "both equal",
@@ -487,7 +487,7 @@ FSM_AUDIO_RESPONSE_LIBRARY_V1 = {
                     ],
                 },
                 "SAME": {
-                    "exact": ["same", "equal"],
+                    "exact": ["same", "equal", "similar"],
                     "phrases": [
                         "both same",
                         "both equal",
@@ -542,9 +542,11 @@ FSM_AUDIO_RESPONSE_LIBRARY_V1 = {
                     "fuzzy": ["cleer", "clr", "clar", "cler", "clir", "klear", "kleer"],
                 },
                 "BLURRY": {
-                    "exact": ["blur", "blurry", "unclear", "fuzzy", "hazy"],
+                    "exact": ["blur", "blurry", "unclear", "fuzzy", "hazy", "not clear"],
                     "phrases": [
                         "not clear",
+                        "not that clear",
+                        "not very clear",
                         "slightly blurry",
                         "hard to read",
                         "difficult to read",
@@ -1134,11 +1136,13 @@ COMPACT_MATCH_ALIASES = {
             "fuzzy": ["bloody clear", "cleer", "clar", "cler", "clir", "klear", "kleer", "saaf", "saf", "theek", "thik", "पड़बारा हूं", "पढ़वाराएं", "here", "hear", "cheers", "cheer"],
         },
         "BLURRY": {
-            "exact": ["blur", "blurry", "unclear", "hazy", "fuzzy", "bloody", "धुंधला", "ब्लर"],
+            "exact": ["blur", "blurry", "unclear", "hazy", "fuzzy", "bloody", "धुंधला", "ब्लर", "not clear"],
             "phrases": [
-                "it is blurry", "looks blurry", "slightly blurry", "not clear", "hard to read", "difficult to read",
+                "it is blurry", "looks blurry", "slightly blurry", "not clear", "not that clear", "not very clear",
+                "its not clear", "it is not clear", "not so clear", "still not clear", "not sharp", "not readable",
+                "hard to read", "difficult to read", "nahi clear", "clear nahi",
                 "धुंधला है", "ब्लर है", "थोड़ा blur है", "साफ नहीं",
-                "not comfortable", "eye strain", "still blurry",
+                "not comfortable", "eye strain", "still blurry", "not good", "not proper",
             ],
             "fuzzy": ["blurr", "blury", "blr", "bluddy", "bladi", "dhundla", "dhundhla", "bilari", "blari", "blairy", "larry"],
         },
@@ -2109,7 +2113,7 @@ def _comparison_token_label(normalized_text: str) -> Optional[str]:
     tokens = set(normalized_text.split())
     one_terms = {"one", "first", "ek", "एक", "pehla", "पहला"}
     two_terms = {"two", "second", "do", "to", "too", "tu", "दो", "dusra", "दूसरा"}
-    same_terms = {"same", "equal", "barabar", "बराबर"}
+    same_terms = {"same", "equal", "similar", "barabar", "बराबर"}
 
     has_one = bool(tokens & one_terms)
     has_two = bool(tokens & two_terms)
@@ -2128,7 +2132,7 @@ def _compact_comparison_token_label(normalized_text: str) -> Optional[str]:
     tokens = set(normalized_text.split())
     one_terms = {"one", "first", "ek", "एक", "pehla", "पहला"}
     two_terms = {"two", "second", "do", "to", "too", "tu", "दो", "dusra", "दूसरा"}
-    same_terms = {"same", "equal", "barabar", "बराबर"}
+    same_terms = {"same", "equal", "similar", "barabar", "बराबर"}
     repeat_terms = {"repeat", "again", "dubara", "दोबारा"}
 
     if tokens & repeat_terms:
@@ -2145,6 +2149,11 @@ def _compact_comparison_token_label(normalized_text: str) -> Optional[str]:
 def _compact_comparison_intent_match(normalized_text: str) -> Optional[str]:
     if _compact_repeat_intent(normalized_text):
         return "REPEAT"
+
+    # Check for negated comparison intent (e.g., "not same" → CANT_TELL)
+    negated = _detect_negated_intent(normalized_text, _COMPARISON_NEGATION_MAP)
+    if negated is not None:
+        return negated
 
     same_patterns = [
         r"\babout the same\b",
@@ -2174,7 +2183,7 @@ def _compact_comparison_intent_match(normalized_text: str) -> Optional[str]:
 
 def _compact_direction_token_label(normalized_text: str, *, family: str) -> Optional[str]:
     tokens = set(normalized_text.split())
-    same_terms = {"same", "equal", "barabar", "बराबर"}
+    same_terms = {"same", "equal", "similar", "barabar", "बराबर"}
     repeat_terms = {"repeat", "again", "dubara", "दोबारा"}
     if tokens & repeat_terms:
         return "REPEAT"
@@ -2194,7 +2203,47 @@ def _compact_direction_token_label(normalized_text: str, *, family: str) -> Opti
     return None
 
 
+_NEGATION_PREFIXES = re.compile(
+    r"\b(?:not|no|nahi|nhi|nahin|isn'?t|don'?t|doesn'?t|cant|can'?t|cannot|without|hardly|barely)\b"
+)
+
+# Negation flips: if "not X" detected, return the opposite intent
+_CLARITY_NEGATION_MAP = {
+    "clear": "BLURRY", "sharp": "BLURRY", "readable": "BLURRY", "visible": "BLURRY",
+    "good": "BLURRY", "fine": "BLURRY", "proper": "BLURRY", "crisp": "BLURRY",
+    "blurry": "CLEAR", "blur": "CLEAR", "blurred": "CLEAR", "hazy": "CLEAR",
+    "fuzzy": "CLEAR", "unclear": "CLEAR",
+    "saaf": "BLURRY", "theek": "BLURRY", "sahi": "BLURRY",
+    "dhundla": "CLEAR", "dhundhla": "CLEAR",
+}
+
+_COMPARISON_NEGATION_MAP = {
+    "same": "CANT_TELL", "equal": "CANT_TELL", "similar": "CANT_TELL",
+    "different": "SAME",
+}
+
+
+def _detect_negated_intent(normalized_text: str, intent_map: dict) -> Optional[str]:
+    """If the text contains 'not <keyword>', return the flipped intent."""
+    if not _NEGATION_PREFIXES.search(normalized_text):
+        return None
+    tokens = normalized_text.split()
+    for i, tok in enumerate(tokens):
+        if _NEGATION_PREFIXES.fullmatch(tok):
+            # Check the next 1-2 tokens for a keyword
+            for j in range(1, min(3, len(tokens) - i)):
+                candidate = tokens[i + j]
+                if candidate in intent_map:
+                    return intent_map[candidate]
+    return None
+
+
 def _compact_clarity_intent_match(normalized_text: str) -> Optional[str]:
+    # Check for negated intent first (e.g., "not blurry" → CLEAR, "not clear" → BLURRY)
+    negated = _detect_negated_intent(normalized_text, _CLARITY_NEGATION_MAP)
+    if negated is not None:
+        return negated
+
     tokens = normalized_text.split()
     token_set = set(tokens)
     short_utterance = len(tokens) <= 2
@@ -2210,9 +2259,16 @@ def _compact_clarity_intent_match(normalized_text: str) -> Optional[str]:
         r"\bunclear\b",
         r"\bhazy\b",
         r"\bfuzzy\b",
-        r"\bnot clear\b",
+        r"\bnot\s+(?:that\s+|very\s+|so\s+|fully\s+)?clear\b",
+        r"\bnot\s+(?:that\s+|very\s+)?sharp\b",
+        r"\bnot\s+(?:that\s+|very\s+)?readable\b",
+        r"\bnot\s+(?:that\s+|fully\s+)?visible\b",
+        r"\bnot\s+good\b",
+        r"\bnot\s+proper\b",
         r"\bhard to read\b",
         r"\bdifficult to read\b",
+        r"\bnahi\s+clear\b",
+        r"\bclear nahi\b",
         r"धुंध",
         r"ब्लर",
         r"मंग",
