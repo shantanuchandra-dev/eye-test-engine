@@ -1115,6 +1115,7 @@ async function startWhisperCapture(state, options, step) {
           response_attempt_count: voiceAttemptCount + 1,
           stimulus_letters: getCurrentStimulusLetters(),
           session_language: sessionLanguage,
+          audio_base64: audioBase64,
         };
         voiceSubmitting = false;
         await submitResponse(result.response_value, voiceMeta);
@@ -1192,7 +1193,10 @@ function getCurrentStimulusLetters() {
   return letters.map(line => line.join(' ')).join('\n');
 }
 
+let _currentVoiceAlternatives = []; // Stored for inclusion in voiceMeta
+
 async function matchVoiceResponseWithAlternatives(primary, alternatives, state, options) {
+  _currentVoiceAlternatives = alternatives || [];
   // Special handling for language selection
   if (state === 'LANG_SELECT') {
     const t = primary.toLowerCase();
@@ -1302,6 +1306,7 @@ async function matchVoiceResponse(transcript, state, options) {
         matched = result.response_value;
         voiceMeta = {
           transcript: transcript,
+          alternatives: _currentVoiceAlternatives,
           match_confidence: result.confidence || 0.8,
           match_method: result.method || 'server_side',
           canonical_label: result.canonical_label || matched,
@@ -1523,6 +1528,9 @@ function updatePhaseProgress(activeState) {
   });
 }
 
+// ── Input method tracking ──
+let _lastInputMethod = 'Button'; // Default; overridden by keyboard/gamepad/voice paths
+
 // ── Submit response ──
 async function submitResponse(responseValue, voiceMeta) {
   if (!sessionId) return;
@@ -1549,7 +1557,12 @@ async function submitResponse(responseValue, voiceMeta) {
     const resp = await fetch(`${API}/api/session/${sessionId}/respond`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ response: responseValue, voice_meta: voiceMeta || null, language: sessionLanguage }),
+      body: JSON.stringify({
+        response: responseValue,
+        voice_meta: voiceMeta || null,
+        input_method: voiceMeta ? (voiceMeta.input_mode === 'voice_browser_speech_recognition' ? 'Voice_Browser' : 'Voice_Whisper') : _lastInputMethod,
+        language: sessionLanguage,
+      }),
     });
     const data = await resp.json();
 
@@ -1579,6 +1592,7 @@ async function submitResponse(responseValue, voiceMeta) {
     alert('Error: ' + e.message);
   } finally {
     showLoading(false);
+    _lastInputMethod = 'Button'; // Reset to default after each submission
   }
 }
 
@@ -1591,6 +1605,7 @@ function handleKeyboard(e) {
     const btns = document.querySelectorAll('#optionsGrid .option-btn');
     if (btns[idx]) {
       e.preventDefault();
+      _lastInputMethod = 'Keyboard';
       btns[idx].click();
     }
   }
@@ -1650,11 +1665,9 @@ function startGamepadPoll() {
 
 function handleGamepadOption(optionIdx) {
   if (!_inputEnabled || _flipState === 'flip1' || speechSynthesis.speaking) return;
-  // Get non-REPEAT option buttons from DOM
   const allBtns = document.querySelectorAll('#optionsGrid .option-btn');
   const nonRepeatBtns = [];
   for (const btn of allBtns) {
-    // Check if this button's response value is REPEAT
     const text = btn.textContent.trim().toUpperCase();
     if (!text.startsWith('REPEAT') && !text.startsWith('फिर से')) {
       nonRepeatBtns.push(btn);
@@ -1662,19 +1675,20 @@ function handleGamepadOption(optionIdx) {
   }
   if (optionIdx < nonRepeatBtns.length && !nonRepeatBtns[optionIdx].disabled) {
     console.log(`[Gamepad] Button ${optionIdx} → "${nonRepeatBtns[optionIdx].textContent.trim()}"`);
+    _lastInputMethod = 'Gamepad';
     nonRepeatBtns[optionIdx].click();
   }
 }
 
 function handleGamepadRepeat() {
   if (!_inputEnabled || _flipState === 'flip1' || speechSynthesis.speaking) return;
-  // Find the REPEAT button in the DOM
   const allBtns = document.querySelectorAll('#optionsGrid .option-btn');
   for (const btn of allBtns) {
     const text = btn.textContent.trim().toUpperCase();
     if (text.startsWith('REPEAT') || text.startsWith('फिर से')) {
       if (!btn.disabled) {
         console.log('[Gamepad] Y → REPEAT');
+        _lastInputMethod = 'Gamepad';
         btn.click();
       }
       return;

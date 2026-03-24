@@ -10,11 +10,12 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 
-# 19-column schema matching v1
+# Session CSV schema (23 columns)
 SESSION_CSV_FIELDS = [
     "Row_Number",
     "Timestamp",
     "Manual_or_QnA",
+    "Input_Method",
     "R_SPH",
     "R_CYL",
     "R_AXIS",
@@ -31,6 +32,9 @@ SESSION_CSV_FIELDS = [
     "Phase_ID",
     "Optometrist_Question",
     "Patient_Answer_Intent",
+    "Voice_Transcript",
+    "Voice_Alternatives",
+    "Voice_Confidence",
 ]
 
 
@@ -44,6 +48,7 @@ def _row_to_dict(row: dict) -> dict:
         "Row_Number": row.get("row_number", ""),
         "Timestamp": row.get("timestamp", ""),
         "Manual_or_QnA": row.get("interaction_type", "QnA"),
+        "Input_Method": row.get("input_method", ""),
         "R_SPH": row.get("re_sph", ""),
         "R_CYL": row.get("re_cyl", ""),
         "R_AXIS": row.get("re_axis", ""),
@@ -60,6 +65,9 @@ def _row_to_dict(row: dict) -> dict:
         "Phase_ID": row.get("state", ""),
         "Optometrist_Question": row.get("question", ""),
         "Patient_Answer_Intent": row.get("response_value", ""),
+        "Voice_Transcript": row.get("transcript", ""),
+        "Voice_Alternatives": row.get("alternatives", ""),
+        "Voice_Confidence": row.get("match_confidence", ""),
     }
 
 
@@ -85,6 +93,100 @@ def write_session_csv(rows: List[dict], output_path: Path) -> None:
         writer.writeheader()
         for row in rows:
             writer.writerow(_row_to_dict(row))
+
+
+VOICE_UTTERANCE_FIELDS = [
+    "Timestamp",
+    "Session_ID",
+    "Step",
+    "State",
+    "Phase_Name",
+    "Transcript",
+    "Alternatives",
+    "Intent_Matched",
+    "Canonical_Label",
+    "Confidence",
+    "Match_Method",
+    "Input_Method",
+    "Language",
+    "Stimulus_Letters",
+    "Audio_File",
+    "Accepted",
+]
+
+
+def write_voice_utterances_csv(
+    session_history: List[dict],
+    failed_voice_attempts: List[dict],
+    session_id: str,
+    output_path: Path,
+) -> None:
+    """Write a per-session voice utterance CSV for training data.
+
+    Includes both successful voice matches (from session_history) and
+    failed attempts, sorted by timestamp for chronological ordering.
+    """
+    utterances = []
+
+    # Successful voice interactions from session history
+    for row in session_history:
+        im = row.get("input_method", "")
+        if not im.startswith("Voice"):
+            continue
+        utterances.append({
+            "Timestamp": row.get("timestamp", ""),
+            "Session_ID": session_id,
+            "Step": row.get("row_number", ""),
+            "State": row.get("state", ""),
+            "Phase_Name": row.get("phase_name", ""),
+            "Transcript": row.get("transcript", ""),
+            "Alternatives": row.get("alternatives", ""),
+            "Intent_Matched": row.get("response_value", ""),
+            "Canonical_Label": row.get("canonical_label", ""),
+            "Confidence": row.get("match_confidence", ""),
+            "Match_Method": row.get("match_method", ""),
+            "Input_Method": im,
+            "Language": row.get("session_language", ""),
+            "Stimulus_Letters": row.get("stimulus_letters", ""),
+            "Audio_File": row.get("audio_file", ""),
+            "Accepted": "true",
+        })
+
+    # Failed voice attempts
+    for att in (failed_voice_attempts or []):
+        alts = att.get("alternatives", [])
+        if isinstance(alts, list):
+            alts = "; ".join(str(a) for a in alts)
+        utterances.append({
+            "Timestamp": att.get("timestamp", ""),
+            "Session_ID": session_id,
+            "Step": att.get("step", ""),
+            "State": att.get("state", ""),
+            "Phase_Name": att.get("phase_name", ""),
+            "Transcript": att.get("transcript", ""),
+            "Alternatives": alts,
+            "Intent_Matched": "",
+            "Canonical_Label": "",
+            "Confidence": "",
+            "Match_Method": "",
+            "Input_Method": f"Voice_{att.get('backend', 'Browser')}".replace("voice_", ""),
+            "Language": att.get("language", ""),
+            "Stimulus_Letters": "",
+            "Audio_File": "",
+            "Accepted": "false",
+        })
+
+    if not utterances:
+        return
+
+    # Sort by timestamp for chronological order
+    utterances.sort(key=lambda u: u.get("Timestamp", ""))
+
+    _ensure_dir(output_path)
+    with output_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=VOICE_UTTERANCE_FIELDS)
+        writer.writeheader()
+        writer.writerows(utterances)
 
 
 def write_session_metadata(metadata: dict, output_path: Path) -> None:

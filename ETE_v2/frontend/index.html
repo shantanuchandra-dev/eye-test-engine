@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ETE v2 — Eye Test Session</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -50,9 +51,9 @@ body {
   position: sticky; top: 0; z-index: 100;
   background: var(--ink);
   color: white;
-  padding: 0 1.5rem;
-  height: 50px;
-  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 1.5rem;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: 6px;
   box-shadow: 0 2px 12px rgba(0,0,0,0.2);
 }
 .topbar-left { display: flex; align-items: center; gap: 16px; }
@@ -69,7 +70,7 @@ body {
 .topbar-phase.end { background: var(--warning); }
 .topbar-phase.escalate { background: var(--danger); }
 
-.topbar-right { display: flex; align-items: center; gap: 8px; }
+.topbar-right { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .topbar-info { font-size: 0.78rem; color: rgba(255,255,255,0.7); }
 .topbar-btn {
   background: rgba(255,255,255,0.1);
@@ -78,6 +79,7 @@ body {
   border-radius: var(--radius-sm);
   font: 500 0.78rem var(--font-body);
   cursor: pointer; transition: all 0.15s;
+  white-space: nowrap;
 }
 .topbar-btn:hover { background: rgba(255,255,255,0.18); }
 .topbar-select {
@@ -92,6 +94,7 @@ body {
   background-repeat: no-repeat;
   background-position: right 6px center;
   padding-right: 20px;
+  white-space: nowrap;
 }
 .topbar-select option { color: #0f172a; background: white; }
 .topbar-btn.danger { border-color: rgba(220,38,38,0.5); }
@@ -102,7 +105,8 @@ body {
   display: grid;
   grid-template-columns: 1fr 360px;
   gap: 0;
-  min-height: calc(100vh - 50px);
+  min-height: 0;
+  flex: 1;
 }
 
 /* ── Center: Question Panel ── */
@@ -358,7 +362,9 @@ body {
   border-left: 1px solid var(--border);
   overflow: hidden;
   display: flex; flex-direction: column;
-  height: calc(100vh - 50px);
+  position: sticky; top: 0;
+  height: 100vh;
+  max-height: 100vh;
 }
 
 .sidebar-section {
@@ -753,9 +759,8 @@ body {
   .question-card { padding: 1.5rem; max-width: 100%; }
   .question-text { font-size: 1.1rem; }
 
-  /* Topbar: allow wrapping */
-  .topbar { padding: 0 1rem; gap: 8px; flex-wrap: wrap; height: auto; min-height: 50px; }
-  .topbar-right { flex-wrap: wrap; gap: 6px; }
+  /* Topbar: tighter on iPad */
+  .topbar { padding: 5px 1rem; }
   .topbar-btn { padding: 4px 10px; font-size: 0.72rem; }
   .topbar-select { font-size: 0.72rem; padding: 4px 18px 4px 6px; }
 

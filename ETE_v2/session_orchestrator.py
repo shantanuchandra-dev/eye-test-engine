@@ -243,7 +243,8 @@ class SessionOrchestrator:
 
         return self._build_response()
 
-    def process_response(self, response_value: str, voice_meta: Optional[Dict] = None) -> dict:
+    def process_response(self, response_value: str, voice_meta: Optional[Dict] = None,
+                         input_method: str = "Button") -> dict:
         """Process a patient response and advance the FSM.
 
         Returns:
@@ -290,7 +291,7 @@ class SessionOrchestrator:
         )
 
         # Record the finalized row
-        self._record_row(finalized, voice_meta=voice_meta)
+        self._record_row(finalized, voice_meta=voice_meta, input_method=input_method)
 
         # ── STEP 1: Send RESPONSE commands for the PREVIOUS state ──
         # (JCC handle/increase/decrease, duochrome increase/decrease)
@@ -381,7 +382,8 @@ class SessionOrchestrator:
         self._update_phoropter_prev_state()
 
         # Record manual adjustment
-        self._record_row(self.current_row, interaction_type="Manual")
+        self._record_row(self.current_row, interaction_type="Manual",
+                         input_method="Manual_Adjustment")
         self._log_conversation("system", f"Manual power sync: {power_data}")
 
         return self._build_response()
@@ -522,10 +524,11 @@ class SessionOrchestrator:
         return response
 
     def _record_row(self, row: FSMRuntimeRow, interaction_type: str = "QnA",
-                    voice_meta: Optional[Dict] = None) -> None:
+                    voice_meta: Optional[Dict] = None,
+                    input_method: str = "Button") -> None:
         """Record a finalized FSM row to session history.
 
-        Captures the full FSMRuntimeRow fields + voice metadata.
+        Captures the full FSMRuntimeRow fields + voice metadata + input method.
         """
         # Full FSMRuntimeRow dump
         record = asdict(row)
@@ -534,6 +537,7 @@ class SessionOrchestrator:
         record["row_number"] = len(self.session_history) + 1
         record["timestamp"] = ist_now().isoformat()
         record["interaction_type"] = interaction_type
+        record["input_method"] = input_method
         record["prompt_instance_id"] = self.prompt_instance_id
         record["session_language"] = self.session_language
         record["occluder_state"] = STATE_AUX_LENS_MAP.get(row.state, "BINO")
@@ -546,9 +550,37 @@ class SessionOrchestrator:
 
         # Voice metadata (if provided)
         if voice_meta:
+            # Save audio blob to disk if present
+            audio_b64 = voice_meta.pop("audio_base64", None)
+            if audio_b64:
+                audio_file = self._save_audio_blob(
+                    audio_b64, record["row_number"], record["timestamp"]
+                )
+                voice_meta["audio_file"] = audio_file
+            # Serialize alternatives list to semicolon-separated string
+            alts = voice_meta.get("alternatives")
+            if isinstance(alts, list):
+                voice_meta["alternatives"] = "; ".join(str(a) for a in alts)
             record.update(voice_meta)
 
         self.session_history.append(record)
+
+    def _save_audio_blob(self, audio_base64: str, step: int, timestamp: str) -> str:
+        """Decode base64 audio and save to disk. Returns the filename."""
+        import base64
+        audio_dir = Path("logs/sessions/audio")
+        audio_dir.mkdir(parents=True, exist_ok=True)
+        # Clean timestamp for filename
+        ts_clean = timestamp.replace(":", "").replace("-", "").replace("T", "_").split(".")[0]
+        filename = f"{self.session_id}_step{step}_{ts_clean}.webm"
+        filepath = audio_dir / filename
+        try:
+            raw = base64.b64decode(audio_base64)
+            filepath.write_bytes(raw)
+        except Exception as e:
+            self._log_conversation("system", f"Audio save failed: {e}")
+            return ""
+        return filename
 
     def _update_phoropter_prev_state(self) -> None:
         """Update prev-state tracking from current row."""
