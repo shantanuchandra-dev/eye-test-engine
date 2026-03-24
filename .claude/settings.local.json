@@ -91,7 +91,21 @@
       "Bash(railway domain:*)",
       "Bash(railway variables:*)",
       "Bash(railway up:*)",
-      "Bash(railway logs:*)"
+      "Bash(railway logs:*)",
+      "Bash(git checkout:*)",
+      "Bash(git merge:*)",
+      "Bash(git stash:*)",
+      "Bash(railway list:*)",
+      "Bash(railway link:*)",
+      "Bash(railway service:*)",
+      "Bash(railway redeploy:*)",
+      "Bash(lsof -ti:5050)",
+      "Bash(lsof -i:8766)",
+      "Bash(ln -s /Users/shantanuchandra/Downloads/eye_test_engine_Claude/FSMv3.1_R2/models/whisper-large-v3-turbo-ct2 /Users/shantanuchandra/Downloads/eye_test_engine_Claude/ETE_v2/models/whisper-large-v3-turbo-ct2)",
+      "Skill(update-config)",
+      "Bash(python:*)",
+      "Bash(/Users/shantanuchandra/Downloads/eye_test_engine_Claude/ETE_v2/frontend/favicon.svg:*)"
     ]
-  }
+  },
+  "syntaxHighlightingDisabled": true
 }

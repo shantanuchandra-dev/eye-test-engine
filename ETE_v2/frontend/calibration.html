@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ETE v2 — Calibration Editor</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Anybody:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0c0e14;
+  --bg-raised: #12151e;
+  --bg-card: #171b27;
+  --bg-input: #0e1019;
+  --ink: #e2e8f0;
+  --ink-dim: #8892a8;
+  --ink-ghost: #4a5268;
+  --border: #232838;
+  --border-hover: #2e3548;
+  --accent: #38bdf8;
+  --accent-dim: rgba(56,189,248,0.12);
+  --accent-glow: 0 0 20px rgba(56,189,248,0.15);
+  --amber: #f59e0b;
+  --amber-dim: rgba(245,158,11,0.1);
+  --amber-glow: 0 0 12px rgba(245,158,11,0.2);
+  --green: #34d399;
+  --green-dim: rgba(52,211,153,0.08);
+  --red: #f87171;
+  --red-dim: rgba(248,113,113,0.08);
+  --font: 'Anybody', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', monospace;
+  --radius: 8px;
+}
+
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+html { font-size: 14px; }
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--ink);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Topbar ── */
+.topbar {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+  padding: 0 1.5rem;
+  height: 52px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.topbar-left { display: flex; align-items: center; gap: 12px; }
+.topbar-brand {
+  font: 600 0.85rem var(--mono);
+  color: var(--accent);
+  letter-spacing: 0.04em;
+}
+.topbar-sep { width: 1px; height: 20px; background: var(--border); }
+.topbar-title {
+  font: 300 0.95rem var(--font);
+  color: var(--ink);
+  letter-spacing: 0.02em;
+}
+.topbar-version {
+  font: 400 0.68rem var(--mono);
+  color: var(--ink-ghost);
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.topbar-right { display: flex; align-items: center; gap: 10px; }
+.topbar-link {
+  color: var(--ink-dim);
+  text-decoration: none;
+  font: 400 0.78rem var(--font);
+  padding: 6px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  transition: all 0.2s;
+}
+.topbar-link:hover { color: var(--ink); border-color: var(--border-hover); background: rgba(255,255,255,0.03); }
+
+/* ── Gate ── */
+.gate {
+  min-height: calc(100vh - 52px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 2rem;
+  background:
+    radial-gradient(ellipse 600px 400px at 50% 40%, rgba(56,189,248,0.04), transparent),
+    var(--bg);
+}
+.gate-card {
+  text-align: center;
+  max-width: 360px;
+  width: 100%;
+}
+.gate-ring {
+  width: 72px; height: 72px;
+  margin: 0 auto 1.5rem;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  position: relative;
+  animation: ringPulse 3s ease-in-out infinite;
+}
+@keyframes ringPulse {
+  0%, 100% { border-color: var(--border); box-shadow: none; }
+  50% { border-color: rgba(56,189,248,0.3); box-shadow: var(--accent-glow); }
+}
+.gate-ring svg { width: 28px; height: 28px; color: var(--ink-dim); }
+.gate-heading {
+  font: 500 1.2rem var(--font);
+  color: var(--ink);
+  margin-bottom: 0.5rem;
+  letter-spacing: 0.01em;
+}
+.gate-sub {
+  font: 300 0.82rem var(--font);
+  color: var(--ink-ghost);
+  margin-bottom: 2rem;
+  line-height: 1.5;
+}
+.gate-form { display: flex; gap: 8px; }
+.gate-input {
+  flex: 1;
+  padding: 11px 14px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--ink);
+  font: 400 0.85rem var(--mono);
+  outline: none;
+  letter-spacing: 0.08em;
+  transition: all 0.2s;
+}
+.gate-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+.gate-input::placeholder { color: var(--ink-ghost); letter-spacing: 0.02em; font-family: var(--font); }
+.gate-submit {
+  padding: 11px 22px;
+  background: var(--accent);
+  color: var(--bg);
+  border: none;
+  border-radius: var(--radius);
+  font: 600 0.82rem var(--font);
+  cursor: pointer;
+  letter-spacing: 0.03em;
+  transition: all 0.2s;
+}
+.gate-submit:hover { filter: brightness(1.1); transform: translateY(-1px); }
+.gate-error {
+  font: 400 0.75rem var(--font);
+  color: var(--red);
+  margin-top: 12px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.gate-error.show { opacity: 1; }
+
+/* ── Editor Shell ── */
+.editor {
+  display: none;
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 1.2rem 1.5rem 5.5rem;
+}
+
+/* ── Toolbar ── */
+.toolbar {
+  display: flex; align-items: center; gap: 12px;
+  margin-bottom: 16px;
+}
+.search-wrap {
+  flex: 1;
+  position: relative;
+}
+.search-icon {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  width: 16px; height: 16px; color: var(--ink-ghost);
+  pointer-events: none;
+}
+.search {
+  width: 100%;
+  padding: 9px 12px 9px 38px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--ink);
+  font: 400 0.82rem var(--font);
+  outline: none;
+  transition: all 0.2s;
+}
+.search:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-dim); }
+.search::placeholder { color: var(--ink-ghost); }
+.stat-chip {
+  font: 500 0.72rem var(--mono);
+  color: var(--ink-dim);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  padding: 7px 12px;
+  border-radius: var(--radius);
+  white-space: nowrap;
+}
+.stat-chip strong { color: var(--accent); font-weight: 600; }
+
+/* ── Section ── */
+.section {
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+.section:hover { border-color: var(--border-hover); }
+.section-head {
+  padding: 10px 16px;
+  display: flex; align-items: center; justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+}
+.section-head:hover { background: rgba(255,255,255,0.015); }
+.section-left { display: flex; align-items: center; gap: 10px; }
+.section-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.6;
+}
+.section-label {
+  font: 500 0.78rem var(--mono);
+  color: var(--ink);
+  letter-spacing: 0.04em;
+}
+.section-n {
+  font: 400 0.68rem var(--mono);
+  color: var(--ink-ghost);
+}
+.section-arrow {
+  width: 14px; height: 14px;
+  color: var(--ink-ghost);
+  transition: transform 0.25s ease;
+}
+.section.shut .section-arrow { transform: rotate(-90deg); }
+.section-body {
+  border-top: 1px solid var(--border);
+  overflow: hidden;
+  max-height: 3000px;
+  transition: max-height 0.4s ease, opacity 0.3s ease;
+  opacity: 1;
+}
+.section.shut .section-body { max-height: 0; opacity: 0; border-top-color: transparent; }
+
+/* ── Param Row ── */
+.p-row {
+  padding: 8px 16px;
+  display: grid;
+  grid-template-columns: 1fr 110px 52px;
+  gap: 8px;
+  align-items: start;
+  transition: background 0.15s;
+  position: relative;
+}
+.p-row + .p-row { border-top: 1px solid rgba(255,255,255,0.025); }
+.p-row:hover { background: rgba(255,255,255,0.015); }
+.p-key {
+  font: 400 0.78rem var(--font);
+  color: var(--ink);
+  line-height: 1.5;
+}
+.p-explain {
+  font: 300 0.66rem var(--font);
+  color: var(--ink-ghost);
+  line-height: 1.45;
+  margin-top: 1px;
+}
+.p-input {
+  padding: 5px 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--ink);
+  font: 500 0.78rem var(--mono);
+  text-align: right;
+  width: 100%;
+  outline: none;
+  transition: all 0.2s;
+}
+.p-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+  background: rgba(56,189,248,0.04);
+}
+.p-input.dirty {
+  border-color: var(--amber);
+  background: var(--amber-dim);
+  box-shadow: 0 0 8px rgba(245,158,11,0.1);
+  color: var(--amber);
+}
+.p-unit {
+  font: 400 0.66rem var(--mono);
+  color: var(--ink-ghost);
+  text-align: center;
+  padding-top: 7px;
+  white-space: nowrap;
+}
+
+/* ── Save Bar ── */
+.save-bar {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  background: var(--bg-raised);
+  border-top: 1px solid var(--border);
+  padding: 10px 1.5rem;
+  display: flex; align-items: center; justify-content: center; gap: 14px;
+  z-index: 50;
+  transform: translateY(100%);
+  transition: transform 0.3s ease;
+}
+.save-bar.up { transform: translateY(0); }
+.save-count {
+  font: 500 0.75rem var(--mono);
+  color: var(--amber);
+  background: var(--amber-dim);
+  padding: 5px 14px;
+  border-radius: 20px;
+  border: 1px solid rgba(245,158,11,0.15);
+}
+.save-btn {
+  padding: 8px 28px;
+  background: var(--accent);
+  color: var(--bg);
+  border: none;
+  border-radius: var(--radius);
+  font: 600 0.82rem var(--font);
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  transition: all 0.2s;
+}
+.save-btn:hover { filter: brightness(1.1); transform: translateY(-1px); }
+.save-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; filter: none; }
+.reset-btn {
+  padding: 8px 16px;
+  background: transparent;
+  color: var(--ink-dim);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font: 400 0.78rem var(--font);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.reset-btn:hover { color: var(--red); border-color: rgba(248,113,113,0.3); background: var(--red-dim); }
+
+/* ── Toast ── */
+.toast {
+  position: fixed; top: 64px; right: 20px;
+  padding: 10px 18px;
+  border-radius: var(--radius);
+  font: 500 0.78rem var(--font);
+  z-index: 200;
+  transform: translateX(calc(100% + 30px));
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+  backdrop-filter: blur(12px);
+}
+.toast.vis { transform: translateX(0); }
+.toast.ok { background: var(--green-dim); color: var(--green); border: 1px solid rgba(52,211,153,0.2); }
+.toast.err { background: var(--red-dim); color: var(--red); border: 1px solid rgba(248,113,113,0.2); }
+
+/* ── Stagger entrance ── */
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.section { animation: fadeSlideUp 0.4s ease both; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <span class="topbar-brand">ETE v2</span>
+    <div class="topbar-sep"></div>
+    <span class="topbar-title">Calibration</span>
+    <span class="topbar-version" id="versionBadge">—</span>
+  </div>
+  <div class="topbar-right">
+    <a class="topbar-link" href="/">Back to App</a>
+  </div>
+</div>
+
+<!-- Gate -->
+<div class="gate" id="gate">
+  <div class="gate-card">
+    <div class="gate-ring">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>
+      </svg>
+    </div>
+    <div class="gate-heading">Calibration Editor</div>
+    <div class="gate-sub">Modify global FSM parameters. Changes take effect on the next eye test session.</div>
+    <div class="gate-form">
+      <input type="password" class="gate-input" id="pw" placeholder="Password" autofocus>
+      <button class="gate-submit" onclick="unlock()">Unlock</button>
+    </div>
+    <div class="gate-error" id="gateErr">Incorrect password</div>
+  </div>
+</div>
+
+<!-- Editor -->
+<div class="editor" id="editor">
+  <div class="toolbar">
+    <div class="search-wrap">
+      <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      <input type="text" class="search" id="searchInput" placeholder="Search parameters...">
+    </div>
+    <div class="stat-chip" id="statChip">—</div>
+  </div>
+  <div id="sections"></div>
+</div>
+
+<!-- Save Bar -->
+<div class="save-bar" id="saveBar">
+  <span class="save-count" id="saveCount">0 changed</span>
+  <button class="reset-btn" onclick="resetAll()">Discard</button>
+  <button class="save-btn" id="saveBtn" onclick="save()">Save to Disk</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = '';
+const PW = 'SidShan';
+const UKEY = 'cal_unlock_until';
+
+let data = [];
+let dirty = {};
+
+// ── Gate ──
+document.getElementById('pw').addEventListener('keydown', e => { if (e.key === 'Enter') unlock(); });
+
+function unlock() {
+  const v = document.getElementById('pw').value;
+  if (v !== PW) {
+    document.getElementById('gateErr').classList.add('show');
+    document.getElementById('pw').value = '';
+    document.getElementById('pw').focus();
+    setTimeout(() => document.getElementById('gateErr').classList.remove('show'), 2000);
+    return;
+  }
+  localStorage.setItem(UKEY, String(Date.now() + 86400000));
+  enter();
+}
+
+function enter() {
+  document.getElementById('gate').style.display = 'none';
+  document.getElementById('editor').style.display = 'block';
+  load();
+}
+
+(function autoUnlock() {
+  if (Date.now() < parseInt(localStorage.getItem(UKEY) || '0')) enter();
+  else document.getElementById('gate').style.display = 'flex';
+})();
+
+// ── Load ──
+async function load() {
+  try {
+    const r = await fetch(`${API}/api/calibration`);
+    data = await r.json();
+    if (data.error) { toast(data.error, 'err'); return; }
+    dirty = {};
+    updateBar();
+
+    // Version badge
+    const sys = data.find(d => d.parameter_key === 'active_profile');
+    document.getElementById('versionBadge').textContent = sys ? sys.value : '—';
+
+    render();
+  } catch (e) { toast('Load failed: ' + e.message, 'err'); }
+}
+
+function render() {
+  const ordered = []; const map = {};
+  for (const row of data) {
+    const s = row.section || '?';
+    if (!map[s]) { map[s] = []; ordered.push(s); }
+    map[s].push(row);
+  }
+
+  document.getElementById('statChip').innerHTML =
+    `<strong>${data.length}</strong> params &middot; <strong>${ordered.length}</strong> sections`;
+
+  const c = document.getElementById('sections');
+  c.innerHTML = '';
+
+  ordered.forEach((sec, i) => {
+    const params = map[sec];
+    const el = document.createElement('div');
+    el.className = 'section';
+    el.dataset.sec = sec;
+    el.style.animationDelay = `${i * 0.04}s`;
+    el.innerHTML = `
+      <div class="section-head" onclick="this.parentElement.classList.toggle('shut')">
+        <div class="section-left">
+          <div class="section-dot"></div>
+          <span class="section-label">${sec}</span>
+          <span class="section-n">${params.length}</span>
+        </div>
+        <svg class="section-arrow" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="section-body">${params.map(pHTML).join('')}</div>`;
+    c.appendChild(el);
+  });
+}
+
+function pHTML(p) {
+  const v = dirty.hasOwnProperty(p.parameter_key) ? dirty[p.parameter_key] : p.value;
+  const cls = dirty.hasOwnProperty(p.parameter_key) ? ' dirty' : '';
+  return `<div class="p-row" data-k="${p.parameter_key}">
+    <div><div class="p-key">${p.parameter_key.replace(/_/g, ' ')}</div>${p.parameter_explanation ? `<div class="p-explain">${p.parameter_explanation}</div>` : ''}</div>
+    <input class="p-input${cls}" type="text" value="${esc(v)}" data-k="${p.parameter_key}" data-o="${esc(p.value)}" oninput="chg(this)">
+    <div class="p-unit">${p.unit_or_type || ''}</div>
+  </div>`;
+}
+
+function esc(s) { return (s||'').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+
+// ── Edit tracking ──
+function chg(el) {
+  const k = el.dataset.k, o = el.dataset.o;
+  if (el.value !== o) { dirty[k] = el.value; el.classList.add('dirty'); }
+  else { delete dirty[k]; el.classList.remove('dirty'); }
+  updateBar();
+}
+
+function updateBar() {
+  const n = Object.keys(dirty).length;
+  const bar = document.getElementById('saveBar');
+  if (n) { bar.classList.add('up'); document.getElementById('saveCount').textContent = `${n} changed`; }
+  else bar.classList.remove('up');
+}
+
+function resetAll() {
+  dirty = {};
+  document.querySelectorAll('.p-input.dirty').forEach(el => {
+    el.value = el.dataset.o;
+    el.classList.remove('dirty');
+  });
+  updateBar();
+}
+
+// ── Search ──
+document.getElementById('searchInput').addEventListener('input', function() {
+  const q = this.value.toLowerCase().trim();
+  document.querySelectorAll('.p-row').forEach(r => {
+    const match = !q || r.dataset.k.includes(q) || (r.querySelector('.p-explain')?.textContent||'').toLowerCase().includes(q);
+    r.style.display = match ? '' : 'none';
+  });
+  document.querySelectorAll('.section').forEach(s => {
+    const vis = [...s.querySelectorAll('.p-row')].some(r => r.style.display !== 'none');
+    s.style.display = vis ? '' : 'none';
+    if (q && vis) s.classList.remove('shut');
+  });
+});
+
+// ── Save ──
+async function save() {
+  const btn = document.getElementById('saveBtn');
+  btn.disabled = true; btn.textContent = 'Saving...';
+  try {
+    const r = await fetch(`${API}/api/calibration`, {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ password: PW, parameters: dirty }),
+    });
+    const res = await r.json();
+    if (!r.ok) { toast(res.error || 'Failed', 'err'); return; }
+    toast(`${res.updated_count} parameter${res.updated_count!==1?'s':''} saved`, 'ok');
+    await load();
+  } catch (e) { toast(e.message, 'err'); }
+  finally { btn.disabled = false; btn.textContent = 'Save to Disk'; }
+}
+
+// ── Toast ──
+function toast(msg, type) {
+  const t = document.getElementById('toast');
+  t.className = `toast ${type}`;
+  t.textContent = msg;
+  requestAnimationFrame(() => t.classList.add('vis'));
+  setTimeout(() => t.classList.remove('vis'), 3000);
+}
+</script>
+</body>
+</html>

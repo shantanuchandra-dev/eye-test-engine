@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ETE v2 — Patient Intake</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ink: #0f172a;
+  --ink-secondary: #475569;
+  --ink-muted: #94a3b8;
+  --surface: #f8fafc;
+  --surface-card: #ffffff;
+  --surface-hover: #f1f5f9;
+  --border: #e2e8f0;
+  --border-focus: #3b82f6;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-glow: rgba(37,99,235,0.12);
+  --success: #059669;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --re-color: #2563eb;
+  --le-color: #7c3aed;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --shadow-sm: 0 1px 2px rgba(15,23,42,0.06);
+  --shadow-md: 0 4px 12px rgba(15,23,42,0.08);
+  --shadow-lg: 0 8px 30px rgba(15,23,42,0.12);
+  --font-body: 'DM Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', monospace;
+}
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+html { font-size: 15px; scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font-body);
+  background: var(--surface);
+  color: var(--ink);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Topbar ── */
+.topbar {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--ink);
+  color: white;
+  padding: 0 2rem;
+  height: 56px;
+  display: flex; align-items: center; justify-content: space-between;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+}
+.topbar-brand {
+  display: flex; align-items: center; gap: 10px;
+  font-weight: 600; font-size: 1.05rem; letter-spacing: -0.02em;
+}
+.topbar-brand svg { opacity: 0.9; }
+.topbar-actions { display: flex; gap: 8px; }
+.topbar-btn {
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.15);
+  color: white; padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  font: 500 0.8rem var(--font-body);
+  cursor: pointer; transition: all 0.15s;
+}
+.topbar-btn:hover { background: rgba(255,255,255,0.18); }
+.topbar-btn.primary {
+  background: var(--accent); border-color: var(--accent);
+}
+.topbar-btn.primary:hover { background: var(--accent-hover); }
+
+/* ── Layout ── */
+.page { max-width: 860px; margin: 0 auto; padding: 1.5rem 1.5rem 4rem; }
+
+.page-header {
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.page-header h1 {
+  font-size: 1.6rem; font-weight: 700; letter-spacing: -0.03em;
+  color: var(--ink);
+}
+.page-header p {
+  color: var(--ink-secondary); font-size: 0.9rem; margin-top: 4px;
+}
+
+/* ── Accordion ── */
+.accordion { display: flex; flex-direction: column; gap: 8px; }
+
+.section {
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  transition: box-shadow 0.2s;
+}
+.section:has(.section-toggle:checked) {
+  box-shadow: var(--shadow-md);
+  border-color: #cbd5e1;
+}
+
+.section-toggle { display: none; }
+
+.section-header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 20px;
+  cursor: pointer; user-select: none;
+  transition: background 0.15s;
+}
+.section-header:hover { background: var(--surface-hover); }
+
+.section-number {
+  width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--ink);
+  color: white; font-weight: 600; font-size: 0.75rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.section:has(.section-toggle:checked) .section-number {
+  background: var(--accent);
+}
+
+.section-title {
+  flex: 1;
+  font-weight: 600; font-size: 0.95rem; letter-spacing: -0.01em;
+}
+.section-subtitle {
+  color: var(--ink-muted); font-size: 0.8rem; font-weight: 400;
+}
+
+.section-chevron {
+  width: 20px; height: 20px;
+  transition: transform 0.25s ease;
+  color: var(--ink-muted);
+}
+.section:has(.section-toggle:checked) .section-chevron {
+  transform: rotate(180deg);
+}
+
+.section-body {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.35s cubic-bezier(0.4,0,0.2,1);
+}
+.section:has(.section-toggle:checked) .section-body {
+  max-height: 2000px;
+}
+
+.section-content {
+  padding: 4px 20px 20px;
+}
+
+/* ── Form elements ── */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+.form-grid.cols-2 { grid-template-columns: 1fr 1fr; }
+.form-grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+.form-grid.cols-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+.form-group.full { grid-column: 1 / -1; }
+
+.form-group { display: flex; flex-direction: column; gap: 5px; }
+.form-label {
+  font-size: 0.78rem; font-weight: 600; color: var(--ink-secondary);
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+
+.form-input, .form-select {
+  height: 40px; padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font: 400 0.9rem var(--font-body);
+  color: var(--ink);
+  background: white;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  outline: none;
+}
+.form-input:focus, .form-select:focus {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.form-input::placeholder { color: var(--ink-muted); }
+
+/* ── Radio / Checkbox groups ── */
+.option-group {
+  display: flex; flex-wrap: wrap; gap: 6px;
+}
+.option-pill {
+  position: relative;
+}
+.option-pill input { position: absolute; opacity: 0; pointer-events: none; }
+.option-pill label {
+  display: inline-block;
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  font-size: 0.82rem; font-weight: 500;
+  color: var(--ink-secondary);
+  cursor: pointer; transition: all 0.15s;
+  white-space: nowrap;
+}
+.option-pill label:hover {
+  border-color: #94a3b8; background: var(--surface-hover);
+}
+.option-pill input:checked + label {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.check-group { display: flex; flex-direction: column; gap: 8px; }
+.check-item {
+  display: flex; align-items: center; gap: 8px;
+  cursor: pointer;
+}
+.check-item input[type="checkbox"] {
+  width: 18px; height: 18px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.check-item span {
+  font-size: 0.88rem; color: var(--ink);
+}
+
+/* ── Rx Input (stepper) ── */
+.rx-panel {
+  display: flex; flex-direction: column; gap: 14px;
+}
+.rx-eye-label {
+  font-weight: 700; font-size: 0.82rem;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  display: inline-block; width: fit-content;
+}
+.rx-eye-label.re { background: rgba(37,99,235,0.08); color: var(--re-color); }
+.rx-eye-label.le { background: rgba(124,58,237,0.08); color: var(--le-color); }
+
+.rx-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.stepper-group { display: flex; flex-direction: column; gap: 4px; }
+.stepper-label {
+  font-size: 0.72rem; font-weight: 600; color: var(--ink-muted);
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+.stepper {
+  display: flex; align-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  height: 40px;
+}
+.stepper-btn {
+  width: 36px; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface);
+  border: none; cursor: pointer;
+  font-size: 1.1rem; font-weight: 600;
+  color: var(--ink-secondary);
+  transition: background 0.1s;
+  flex-shrink: 0;
+}
+.stepper-btn:hover { background: #e2e8f0; }
+.stepper-btn:active { background: #cbd5e1; }
+.stepper-val {
+  flex: 1; text-align: center;
+  font: 500 0.92rem var(--font-mono);
+  color: var(--ink);
+  border: none; background: white;
+  outline: none;
+  min-width: 0;
+}
+
+/* ── Submit area ── */
+.submit-area {
+  margin-top: 2rem;
+  display: flex; justify-content: center;
+}
+.submit-btn {
+  height: 52px; padding: 0 48px;
+  background: var(--accent);
+  color: white;
+  border: none; border-radius: var(--radius-md);
+  font: 600 1.05rem var(--font-body);
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 4px 14px rgba(37,99,235,0.3);
+}
+.submit-btn:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(37,99,235,0.35);
+}
+.submit-btn:active { transform: translateY(0); }
+.submit-btn:disabled {
+  opacity: 0.5; cursor: not-allowed; transform: none;
+}
+
+/* ── Divider ── */
+.divider {
+  height: 1px; background: var(--border);
+  margin: 14px 0;
+}
+
+/* ── Responsive: iPad ── */
+@media (max-width: 1024px) {
+  .page { padding: 1rem 1rem 4rem; }
+  .form-grid.cols-3, .form-grid.cols-4 { grid-template-columns: 1fr 1fr; }
+  .section-header { padding: 12px 16px; }
+  .form-input, .form-select { min-height: 44px; }
+  .stepper-btn { width: 44px; min-height: 44px; }
+  .topbar { padding: 0 1rem; }
+}
+
+/* ── Responsive: Phone ── */
+@media (max-width: 640px) {
+  .page { padding: 0.8rem 0.8rem 4rem; }
+  .form-grid.cols-3, .form-grid.cols-4 {
+    grid-template-columns: 1fr 1fr;
+  }
+  .rx-row { grid-template-columns: 1fr 1fr 1fr; }
+}
+
+/* ── Loading overlay ── */
+.loading-overlay {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(15,23,42,0.5);
+  z-index: 200;
+  align-items: center; justify-content: center;
+}
+.loading-overlay.active { display: flex; }
+.loading-spinner {
+  width: 40px; height: 40px;
+  border: 3px solid rgba(255,255,255,0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<!-- Topbar -->
+<div class="topbar">
+  <div class="topbar-brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+    ETE v2 — Patient Intake
+  </div>
+  <div class="topbar-actions">
+    <button class="topbar-btn" onclick="fillDummy()">Fill Dummy</button>
+    <button class="topbar-btn" onclick="clearAll()">Clear All</button>
+  </div>
+</div>
+
+<!-- Page -->
+<div class="page">
+  <div class="page-header">
+    <h1>New Patient Session</h1>
+    <p>Complete the intake form to configure the automated refraction test</p>
+  </div>
+
+  <form id="intakeForm" class="accordion" autocomplete="off">
+
+    <!-- 1. Operator & Device -->
+    <div class="section">
+      <input type="checkbox" class="section-toggle" id="sec1" checked>
+      <label class="section-header" for="sec1">
+        <span class="section-number">1</span>
+        <div><div class="section-title">Operator & Device</div><div class="section-subtitle">Phoropter and operator identification</div></div>
+        <svg class="section-chevron" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"/></svg>
+      </label>
+      <div class="section-body"><div class="section-content">
+        <div class="form-grid cols-2">
+          <div class="form-group">
+            <label class="form-label">Phoropter Device ID</label>
+            <input type="text" class="form-input" id="phoropterId" placeholder="e.g. lkst1782-1" list="deviceList">
+            <datalist id="deviceList"></datalist>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Operator Name</label>
+            <input type="text" class="form-input" id="operatorName" placeholder="Dr. / Optometrist name">
+          </div>
+        </div>
+      </div></div>
+    </div>
+
+    <!-- 2. Demographics -->
+    <div class="section">
+      <input type="checkbox" class="section-toggle" id="sec2" checked>
+      <label class="section-header" for="sec2">
+        <span class="section-number">2</span>
+        <div><div class="section-title">Demographics</div><div class="section-subtitle">Patient age, occupation, visual demands</div></div>
+        <svg class="section-chevron" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"/></svg>
+      </label>
+      <div class="section-body"><div class="section-content">
+        <div class="form-grid cols-4">
+          <div class="form-group">
+            <label class="form-label">Age</label>
+            <input type="number" class="form-input" id="age" min="3" max="120" placeholder="Years">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Occupation</label>
+            <input type="text" class="form-input" id="occupation" placeholder="e.g. Software Engineer">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Screen Time (hrs/day)</label>
+            <input type="number" class="form-input" id="screenTime" min="0" max="24" step="0.5" placeholder="0">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Driving (hrs/day)</label>
+            <input type="number" class="form-input" id="drivingHours" min="0" max="24" step="0.5" placeholder="0">
+          </div>
+        </div>
+      </div></div>
+    </div>
+
+    <!-- 3. Chief Complaint -->
+    <div class="section">
+      <input type="checkbox" class="section-toggle" id="sec3">
+      <label class="section-header" for="sec3">
+        <span class="section-number">3</span>
+        <div><div class="section-title">Chief Complaint</div><div class="section-subtitle">Primary reason and symptoms</div></div>
+        <svg class="section-chevron" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"/></svg>
+      </label>
+      <div class="section-body"><div class="section-content">
+        <div class="form-grid cols-2">
+          <div class="form-group">
+            <label class="form-label">Primary Reason</label>
+            <select class="form-select" id="primaryReason">
+              <option value="Routine check">Routine check</option>
+              <option value="Blurred distance">Blurred distance</option>
+              <option value="Blurred near">Blurred near</option>
+              <option value="Headaches">Headaches</option>
+              <option value="New glasses">New glasses</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Symptoms</label>
+            <div class="check-group">
+              <label class="check-item"><input type="checkbox" id="symptSudden"><span>Sudden vision change</span></label>
+              <label class="check-item"><input type="checkbox" id="symptDouble"><span>Double vision</span></label>
+              <label class="check-item"><input type="checkbox" id="symptGlare"><span>Glare / halos</span></label>
+              <label class="check-item"><input type="checkbox" id="symptNight"><span>Night driving difficulty</span></label>
+              <label class="check-item"><input type="checkbox" id="symptFluct"><span>Fluctuating vision</span></label>
+            </div>
+          </div>
+        </div>
+      </div></div>
+    </div>
+
+    <!-- 4. Current Glasses -->
+    <div class="section">
+      <input type="checkbox" class="section-toggle" id="sec4">
+      <label class="section-header" for="sec4">
+        <span class="section-number">4</span>
+        <div><div class="section-title">Current Glasses</div><div class="section-subtitle">Satisfaction, wear type, priorities</div></div>
+        <svg class="section-chevron" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"/></svg>
+      </label>
+      <div class="section-body"><div class="section-content">
+        <div class="form-group" style="margin-bottom:14px">
+          <label class="form-label">Satisfaction</label>
+          <div class="option-group">
+            <div class="option-pill"><input type="radio" name="satisfaction" id="satSatisfied" value="Satisfied"><label for="satSatisfied">Satisfied</label></div>
+            <div class="option-pill"><input type="radio" name="satisfaction" id="satNot" value="Not satisfied"><label for="satNot">Not satisfied</label></div>
+            <div class="option-pill"><input type="radio" name="satisfaction" id="satNone" value="No current Rx" checked><label for="satNone">No current Rx</label></div>
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom:14px">
+          <label class="form-label">Wear Type</label>
+          <div class="option-group">
+            <div class="option-pill"><input type="radio" name="wearType" id="wearSV" value="Single vision"><label for="wearSV">Single vision</label></div>
+            <div class="option-pill"><input type="radio" name="wearType" id="wearProg" value="Progressive"><label for="wearProg">Progressive</label></div>
+            <div class="option-pill"><input type="radio" name="wearType" id="wearBi" value="Bifocal"><label for="wearBi">Bifocal</label></div>
+            <div class="option-pill"><input type="radio" name="wearType" id="wearNone" value="None" checked><label for="wearNone">None</label></div>
+          </div>
+        </div>
+        <div class="form-grid cols-3">
+          <div class="form-group">
+            <label class="form-label">Distance Target</label>
+            <div class="option-group" style="flex-direction:column">
+              <div class="option-pill"><input type="radio" name="distTarget" id="dt66" value="6/6_target" checked><label for="dt66">6/6 target</label></div>
+              <div class="option-pill"><input type="radio" name="distTarget" id="dt69" value="6/9_acceptable"><label for="dt69">Accept 6/9</label></div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Priority</label>
+            <div class="option-group" style="flex-direction:column">
+              <div class="option-pill"><input type="radio" name="priority" id="prioStd" value="Standard" checked><label for="prioStd">Standard</label></div>
+              <div class="option-pill"><input type="radio" name="priority" id="prioComf" value="Comfort-first"><label for="prioComf">Comfort-first</label></div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Near Priority</label>
+            <div class="option-group" style="flex-direction:column">
+              <div class="option-pill"><input type="radio" name="nearPrio" id="npHigh" value="High"><label for="npHigh">High</label></div>
+              <div class="option-pill"><input type="radio" name="nearPrio" id="npMed" value="Medium" checked><label for="npMed">Medium</label></div>
+              <div class="option-pill"><input type="radio" name="nearPrio" id="npLow" value="Low"><label for="npLow">Low</label></div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+    </div>
+
+    <!-- 5. History -->
+    <div class="section">
+      <input type="checkbox" class="section-toggle" id="sec5">
+      <label class="section-header" for="sec5">
+        <span class="section-number">5</span>
+        <div><div class="section-title">History</div><div class="section-subtitle">Previous eye test and stability</div></div>
+        <svg class="section-chevron" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"/></svg>
+      </label>
+      <div class="section-body"><div class="section-content">
+        <div class="form-grid cols-3">
+          <div class="form-group">
+            <label class="form-label">Last Eye Test (months ago)</label>
+            <input type="number" class="form-input" id="lastTestMonths" min="0" placeholder="e.g. 12">
+          </div>
+          <div class="form-group" style="justify-content:flex-end">
+            <label class="check-item"><input type="checkbox" id="rxChangeLarge"><span>Rx change was large</span></label>
+          </div>
+          <div class="form-group" style="justify-content:flex-end">
+            <label class="check-item"><input type="checkbox" id="fluctuatingVision"><span>Fluctuating vision</span></label>
+          </div>
+        </div>
+      </div></div>
+    </div>
+
+    <!-- 6. Medical -->
+    <div class="section">
+      <input type="checkbox" class="section-toggle" id="sec6">
+      <label class="section-header" for="sec6">
+        <span class="section-number">6</span>
+        <div><div class="section-title">Medical</div><div class="section-subtitle">Medical conditions and flags</div></div>
+        <svg class="section-chevron" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"/></svg>
+      </label>
+      <div class="section-body"><div class="section-content">
+        <div class="form-grid cols-2">
+          <div class="form-group">
+            <label class="form-label">Conditions</label>
+            <div class="check-group">
+              <label class="check-item"><input type="checkbox" id="diabetes"><span>Diabetes</span></label>
+              <label class="check-item"><input type="checkbox" id="keratoconus"><span>Keratoconus</span></label>
+              <label class="check-item"><input type="checkbox" id="amblyopia"><span>Amblyopia</span></label>
+              <label class="check-item"><input type="checkbox" id="infection"><span>Active infection</span></label>
+              <label class="check-item"><input type="checkbox" id="optomReview"><span>Optometrist review flag</span></label>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Prior Eye Surgery</label>
+            <select class="form-select" id="priorSurgery">
+              <option value="None">None</option>
+              <option value="Cataract">Cataract</option>
+              <option value="LASIK">LASIK</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+        </div>
+      </div></div>
+    </div>
+
+    <!-- 7. AR Readings -->
+    <div class="section">
+      <input type="checkbox" class="section-toggle" id="sec7" checked>
+      <label class="section-header" for="sec7">
+        <span class="section-number">7</span>
+        <div><div class="section-title">Auto-Refractor Readings</div><div class="section-subtitle">AR / Objective refraction values</div></div>
+        <svg class="section-chevron" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"/></svg>
+      </label>
+      <div class="section-body"><div class="section-content">
+        <div class="rx-panel">
+          <div class="rx-eye-label re">Right Eye (RE)</div>
+          <div class="rx-row">
+            <div class="stepper-group">
+              <div class="stepper-label">SPH</div>
+              <div class="stepper">
+                <button type="button" class="stepper-btn" onclick="stepVal('arReSph',-0.25)">−</button>
+                <input type="text" class="stepper-val" id="arReSph" value="0.00" data-step="0.25">
+                <button type="button" class="stepper-btn" onclick="stepVal('arReSph',0.25)">+</button>
+              </div>
+            </div>
+            <div class="stepper-group">
+              <div class="stepper-label">CYL</div>
+              <div class="stepper">
+                <button type="button" class="stepper-btn" onclick="stepVal('arReCyl',-0.25)">−</button>
+                <input type="text" class="stepper-val" id="arReCyl" value="0.00" data-step="0.25">
+                <button type="button" class="stepper-btn" onclick="stepVal('arReCyl',0.25)">+</button>
+              </div>
+            </div>
+            <div class="stepper-group">
+              <div class="stepper-label">AXIS</div>
+              <div class="stepper">
+                <button type="button" class="stepper-btn" onclick="stepVal('arReAxis',-1)">−</button>
+                <input type="text" class="stepper-val" id="arReAxis" value="180" data-step="1" data-min="0" data-max="180">
+                <button type="button" class="stepper-btn" onclick="stepVal('arReAxis',1)">+</button>
+              </div>
+            </div>
+          </div>
+          <div class="rx-eye-label le">Left Eye (LE)</div>
+          <div class="rx-row">
+            <div class="stepper-group">
+              <div class="stepper-label">SPH</div>
+              <div class="stepper">
+                <button type="button" class="stepper-btn" onclick="stepVal('arLeSph',-0.25)">−</button>
+                <input type="text" class="stepper-val" id="arLeSph" value="0.00" data-step="0.25">
+                <button type="button" class="stepper-btn" onclick="stepVal('arLeSph',0.25)">+</button>
+              </div>
+            </div>
+            <div class="stepper-group">
+              <div class="stepper-label">CYL</div>
+              <div class="stepper">
+                <button type="button" class="stepper-btn" onclick="stepVal('arLeCyl',-0.25)">−</button>
+                <input type="text" class="stepper-val" id="arLeCyl" value="0.00" data-step="0.25">
+                <button type="button" class="stepper-btn" onclick="stepVal('arLeCyl',0.25)">+</button>
+              </div>
+            </div>
+            <div class="stepper-group">
+              <div class="stepper-label">AXIS</div>
+              <div class="stepper">
+                <button type="button" class="stepper-btn" onclick="stepVal('arLeAxis',-1)">−</button>
+                <input type="text" class="stepper-val" id="arLeAxis" value="180" data-step="1" data-min="0" data-max="180">
+                <button type="button" class="stepper-btn" onclick="stepVal('arLeAxis',1)">+</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+    </div>
+
+    <!-- 8. Lensometry -->
+    <div class="section">
+      <input type="checkbox" class="section-toggle" id="sec8">
+      <label class="section-header" for="sec8">
+        <span class="section-number">8</span>
+        <div><div class="section-title">Lensometry</div><div class="section-subtitle">Current glasses power (if applicable)</div></div>
+        <svg class="section-chevron" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"/></svg>
+      </label>
+      <div class="section-body"><div class="section-content">
+        <div class="rx-panel">
+          <div class="rx-eye-label re">Right Eye (RE)</div>
+          <div class="rx-row">
+            <div class="stepper-group">
+              <div class="stepper-label">SPH</div>
+              <div class="stepper">
+                <button type="button" class="stepper-btn" onclick="stepVal('lensoReSph',-0.25)">−</button>
+                <input type="text" class="stepper-val" id="lensoReSph" value="0.00" data-step="0.25">
+                <button type="button" class="stepper-btn" onclick="stepVal('lensoReSph',0.25)">+</button>
+              </div>
+            </div>
+            <div class="stepper-group">
+              <div class="stepper-label">CYL</div>
+              <div class="stepper">
+                <button type="button" class="stepper-btn" onclick="stepVal('lensoReCyl',-0.25)">−</button>
+                <input type="text" class="stepper-val" id="lensoReCyl" value="0.00" data-step="0.25">
+                <button type="button" class="stepper-btn" onclick="stepVal('lensoReCyl',0.25)">+</button>
+              </div>
+            </div>
+            <div class="stepper-group">
+              <div class="stepper-label">AXIS</div>
+              <div class="stepper">
+                <button type="button" class="stepper-btn" onclick="stepVal('lensoReAxis',-1)">−</button>
+                <input type="text" class="stepper-val" id="lensoReAxis" value="180" data-step="1" data-min="0" data-max="180">
+                <button type="button" class="stepper-btn" onclick="stepVal('lensoReAxis',1)">+</button>
+              </div>
+            </div>
+            <div class="stepper-group">
+              <div class="stepper-label">ADD</div>
+              <div class="stepper">
+                <button type="button" class="stepper-btn" onclick="stepVal('lensoAddR',-0.25)">−</button>
+                <input type="text" class="stepper-val" id="lensoAddR" value="0.00" data-step="0.25" data-min="0">
+                <button type="button" class="stepper-btn" onclick="stepVal('lensoAddR',0.25)">+</button>
+              </div>
+            </div>
+          </div>
+          <div class="rx-eye-label le">Left Eye (LE)</div>
+          <div class="rx-row">
+            <div class="stepper-group">
+              <div class="stepper-label">SPH</div>
+              <div class="stepper">
+                <button type="button" class="stepper-btn" onclick="stepVal('lensoLeSph',-0.25)">−</button>
+                <input type="text" class="stepper-val" id="lensoLeSph" value="0.00" data-step="0.25">
+                <button type="button" class="stepper-btn" onclick="stepVal('lensoLeSph',0.25)">+</button>
+              </div>
+            </div>
+            <div class="stepper-group">
+              <div class="stepper-label">CYL</div>
+              <div class="stepper">
+                <button type="button" class="stepper-btn" onclick="stepVal('lensoLeCyl',-0.25)">−</button>
+                <input type="text" class="stepper-val" id="lensoLeCyl" value="0.00" data-step="0.25">
+                <button type="button" class="stepper-btn" onclick="stepVal('lensoLeCyl',0.25)">+</button>
+              </div>
+            </div>
+            <div class="stepper-group">
+              <div class="stepper-label">AXIS</div>
+              <div class="stepper">
+                <button type="button" class="stepper-btn" onclick="stepVal('lensoLeAxis',-1)">−</button>
+                <input type="text" class="stepper-val" id="lensoLeAxis" value="180" data-step="1" data-min="0" data-max="180">
+                <button type="button" class="stepper-btn" onclick="stepVal('lensoLeAxis',1)">+</button>
+              </div>
+            </div>
+            <div class="stepper-group">
+              <div class="stepper-label">ADD</div>
+              <div class="stepper">
+                <button type="button" class="stepper-btn" onclick="stepVal('lensoAddL',-0.25)">−</button>
+                <input type="text" class="stepper-val" id="lensoAddL" value="0.00" data-step="0.25" data-min="0">
+                <button type="button" class="stepper-btn" onclick="stepVal('lensoAddL',0.25)">+</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+    </div>
+
+    <!-- Submit -->
+    <div class="submit-area">
+      <button type="submit" class="submit-btn" id="submitBtn">Start Eye Test</button>
+    </div>
+  </form>
+</div>
+
+<!-- Loading overlay -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="loading-spinner"></div>
+</div>
+
+<script>
+const API = window.BACKEND_URL || '';
+
+// ── Stepper logic ──
+function stepVal(id, delta) {
+  const el = document.getElementById(id);
+  const step = parseFloat(el.dataset.step) || 0.25;
+  const min = el.dataset.min !== undefined ? parseFloat(el.dataset.min) : -30;
+  const max = el.dataset.max !== undefined ? parseFloat(el.dataset.max) : 30;
+  let val = parseFloat(el.value) || 0;
+  val = Math.round((val + delta) * 100) / 100;
+  if (val < min) val = min;
+  if (val > max) val = max;
+  // Format: axis as integer, others as X.XX
+  if (id.toLowerCase().includes('axis')) {
+    el.value = Math.round(val);
+  } else {
+    el.value = val.toFixed(2);
+  }
+}
+
+// ── Device typeahead ──
+async function loadDevices() {
+  try {
+    const resp = await fetch(`${API}/api/devices?all=true`);
+    const data = await resp.json();
+    const list = document.getElementById('deviceList');
+    const devices = Array.isArray(data) ? data : (data.devices || []);
+    devices.forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = typeof d === 'string' ? d : (d.device_id || d.id || '');
+      list.appendChild(opt);
+    });
+  } catch (e) {
+    console.log('Could not load devices:', e);
+  }
+}
+loadDevices();
+
+// ── Fill dummy data ──
+function fillDummy() {
+  document.getElementById('phoropterId').value = 'lkst1782-1';
+  document.getElementById('operatorName').value = 'Dr. Sharma';
+  document.getElementById('age').value = '35';
+  document.getElementById('occupation').value = 'Software Engineer';
+  document.getElementById('screenTime').value = '8';
+  document.getElementById('drivingHours').value = '1';
+  document.getElementById('primaryReason').value = 'Blurred distance';
+  document.getElementById('lastTestMonths').value = '18';
+  document.getElementById('satNot').checked = true;
+  document.getElementById('wearSV').checked = true;
+  document.getElementById('dt66').checked = true;
+  document.getElementById('prioStd').checked = true;
+  document.getElementById('npMed').checked = true;
+
+  // AR readings
+  document.getElementById('arReSph').value = '-2.50';
+  document.getElementById('arReCyl').value = '-1.00';
+  document.getElementById('arReAxis').value = '90';
+  document.getElementById('arLeSph').value = '-2.00';
+  document.getElementById('arLeCyl').value = '-0.75';
+  document.getElementById('arLeAxis').value = '85';
+
+  // Lenso
+  document.getElementById('lensoReSph').value = '-2.25';
+  document.getElementById('lensoReCyl').value = '-0.75';
+  document.getElementById('lensoReAxis').value = '88';
+  document.getElementById('lensoLeSph').value = '-1.75';
+  document.getElementById('lensoLeCyl').value = '-0.50';
+  document.getElementById('lensoLeAxis').value = '82';
+  document.getElementById('lensoAddR').value = '0.00';
+  document.getElementById('lensoAddL').value = '0.00';
+
+  // Open all sections
+  document.querySelectorAll('.section-toggle').forEach(t => t.checked = true);
+}
+
+// ── Clear all ──
+function clearAll() {
+  document.getElementById('intakeForm').reset();
+  document.querySelectorAll('.stepper-val').forEach(el => {
+    if (el.id.toLowerCase().includes('axis')) {
+      el.value = '180';
+    } else {
+      el.value = '0.00';
+    }
+  });
+}
+
+// ── Collect form data ──
+function collectFormData() {
+  const symptoms = [];
+  if (document.getElementById('symptSudden').checked) symptoms.push('Sudden vision change');
+  if (document.getElementById('symptDouble').checked) symptoms.push('Double vision');
+  if (document.getElementById('symptGlare').checked) symptoms.push('Glare/halos');
+  if (document.getElementById('symptNight').checked) symptoms.push('Night driving difficulty');
+  if (document.getElementById('symptFluct').checked) symptoms.push('Fluctuating vision');
+
+  const getRadio = (name) => {
+    const el = document.querySelector(`input[name="${name}"]:checked`);
+    return el ? el.value : '';
+  };
+
+  return {
+    phoropter_id: document.getElementById('phoropterId').value.trim(),
+    operator_name: document.getElementById('operatorName').value.trim(),
+    patient: {
+      age: parseInt(document.getElementById('age').value) || null,
+      occupation: document.getElementById('occupation').value.trim(),
+      screen_time_hours: parseFloat(document.getElementById('screenTime').value) || 0,
+      driving_hours: parseFloat(document.getElementById('drivingHours').value) || 0,
+      primary_reason: document.getElementById('primaryReason').value,
+      symptoms_text: symptoms.join(', '),
+      satisfaction: getRadio('satisfaction'),
+      wear_type: getRadio('wearType'),
+      distance_target: getRadio('distTarget'),
+      priority: getRadio('priority'),
+      near_priority: getRadio('nearPrio'),
+      last_test_months: parseFloat(document.getElementById('lastTestMonths').value) || null,
+      rx_change_large: document.getElementById('rxChangeLarge').checked,
+      fluctuating_vision: document.getElementById('fluctuatingVision').checked,
+      diabetes: document.getElementById('diabetes').checked,
+      prior_surgery: document.getElementById('priorSurgery').value,
+      keratoconus: document.getElementById('keratoconus').checked,
+      amblyopia: document.getElementById('amblyopia').checked,
+      infection: document.getElementById('infection').checked,
+      optom_review: document.getElementById('optomReview').checked,
+      // AR
+      ar_re_sph: parseFloat(document.getElementById('arReSph').value) || 0,
+      ar_re_cyl: parseFloat(document.getElementById('arReCyl').value) || 0,
+      ar_re_axis: parseFloat(document.getElementById('arReAxis').value) || 180,
+      ar_le_sph: parseFloat(document.getElementById('arLeSph').value) || 0,
+      ar_le_cyl: parseFloat(document.getElementById('arLeCyl').value) || 0,
+      ar_le_axis: parseFloat(document.getElementById('arLeAxis').value) || 180,
+      // Lenso
+      lenso_re_sph: parseFloat(document.getElementById('lensoReSph').value) || null,
+      lenso_re_cyl: parseFloat(document.getElementById('lensoReCyl').value) || null,
+      lenso_re_axis: parseFloat(document.getElementById('lensoReAxis').value) || null,
+      lenso_le_sph: parseFloat(document.getElementById('lensoLeSph').value) || null,
+      lenso_le_cyl: parseFloat(document.getElementById('lensoLeCyl').value) || null,
+      lenso_le_axis: parseFloat(document.getElementById('lensoLeAxis').value) || null,
+      lenso_add_r: parseFloat(document.getElementById('lensoAddR').value) || null,
+      lenso_add_l: parseFloat(document.getElementById('lensoAddL').value) || null,
+    },
+  };
+}
+
+// ── Submit ──
+document.getElementById('intakeForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+
+  const data = collectFormData();
+  if (!data.phoropter_id) {
+    alert('Please enter a Phoropter Device ID');
+    return;
+  }
+
+  const overlay = document.getElementById('loadingOverlay');
+  overlay.classList.add('active');
+  document.getElementById('submitBtn').disabled = true;
+
+  try {
+    const resp = await fetch(`${API}/api/session/intake`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.error || `Server returned ${resp.status}`);
+    }
+
+    const result = await resp.json();
+    const sessionId = result.session_id;
+
+    // Clear stale data from any previous session before storing new one
+    sessionStorage.removeItem('session_language');
+    sessionStorage.removeItem('cached_state');
+
+    // Store in sessionStorage
+    sessionStorage.setItem('session_id', sessionId);
+    sessionStorage.setItem('phoropter_id', data.phoropter_id);
+    sessionStorage.setItem('operator_name', data.operator_name);
+
+    // Redirect to test screen
+    window.location.href = `index.html?session_id=${sessionId}`;
+  } catch (err) {
+    alert('Failed to start session: ' + err.message);
+    overlay.classList.remove('active');
+    document.getElementById('submitBtn').disabled = false;
+  }
+});
+</script>
+</body>
+</html>
