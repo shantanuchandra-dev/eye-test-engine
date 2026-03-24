@@ -5,39 +5,38 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ETE v2 — Calibration Editor</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Anybody:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
 :root {
-  --ink: #0f172a;
-  --ink-secondary: #475569;
-  --ink-muted: #94a3b8;
-  --surface: #f1f5f9;
-  --surface-card: #ffffff;
-  --border: #e2e8f0;
-  --border-focus: #3b82f6;
-  --accent: #2563eb;
-  --accent-hover: #1d4ed8;
-  --accent-glow: rgba(37,99,235,0.12);
-  --success: #059669;
-  --success-bg: rgba(5,150,105,0.08);
-  --warning: #d97706;
-  --warning-bg: rgba(217,119,6,0.06);
-  --danger: #dc2626;
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --shadow-sm: 0 1px 2px rgba(15,23,42,0.06);
-  --shadow-md: 0 4px 12px rgba(15,23,42,0.08);
-  --shadow-lg: 0 8px 30px rgba(15,23,42,0.12);
-  --font-body: 'DM Sans', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', 'SF Mono', monospace;
+  --bg: #0c0e14;
+  --bg-raised: #12151e;
+  --bg-card: #171b27;
+  --bg-input: #0e1019;
+  --ink: #e2e8f0;
+  --ink-dim: #8892a8;
+  --ink-ghost: #4a5268;
+  --border: #232838;
+  --border-hover: #2e3548;
+  --accent: #38bdf8;
+  --accent-dim: rgba(56,189,248,0.12);
+  --accent-glow: 0 0 20px rgba(56,189,248,0.15);
+  --amber: #f59e0b;
+  --amber-dim: rgba(245,158,11,0.1);
+  --amber-glow: 0 0 12px rgba(245,158,11,0.2);
+  --green: #34d399;
+  --green-dim: rgba(52,211,153,0.08);
+  --red: #f87171;
+  --red-dim: rgba(248,113,113,0.08);
+  --font: 'Anybody', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', monospace;
+  --radius: 8px;
 }
 
 *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
-html { font-size: 15px; }
+html { font-size: 14px; }
 body {
-  font-family: var(--font-body);
-  background: var(--surface);
+  font-family: var(--font);
+  background: var(--bg);
   color: var(--ink);
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
@@ -46,573 +45,551 @@ body {
 /* ── Topbar ── */
 .topbar {
   position: sticky; top: 0; z-index: 100;
-  background: var(--ink);
-  color: white;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
   padding: 0 1.5rem;
-  height: 50px;
+  height: 52px;
   display: flex; align-items: center; justify-content: space-between;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.2);
 }
-.topbar-left { display: flex; align-items: center; gap: 14px; }
-.topbar-brand { font-weight: 600; font-size: 0.95rem; letter-spacing: -0.02em; }
-.topbar-badge {
-  padding: 3px 10px;
+.topbar-left { display: flex; align-items: center; gap: 12px; }
+.topbar-brand {
+  font: 600 0.85rem var(--mono);
+  color: var(--accent);
+  letter-spacing: 0.04em;
+}
+.topbar-sep { width: 1px; height: 20px; background: var(--border); }
+.topbar-title {
+  font: 300 0.95rem var(--font);
+  color: var(--ink);
+  letter-spacing: 0.02em;
+}
+.topbar-version {
+  font: 400 0.68rem var(--mono);
+  color: var(--ink-ghost);
+  padding: 2px 8px;
+  border: 1px solid var(--border);
   border-radius: 4px;
-  font-size: 0.75rem; font-weight: 600;
-  text-transform: uppercase; letter-spacing: 0.06em;
-  background: rgba(37,99,235,0.3);
-  color: rgba(255,255,255,0.9);
 }
-.topbar-right a {
-  color: rgba(255,255,255,0.7);
+.topbar-right { display: flex; align-items: center; gap: 10px; }
+.topbar-link {
+  color: var(--ink-dim);
   text-decoration: none;
-  font-size: 0.82rem;
-  font-weight: 500;
-  padding: 5px 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid rgba(255,255,255,0.15);
-  transition: all 0.15s;
+  font: 400 0.78rem var(--font);
+  padding: 6px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  transition: all 0.2s;
 }
-.topbar-right a:hover { color: white; background: rgba(255,255,255,0.1); }
+.topbar-link:hover { color: var(--ink); border-color: var(--border-hover); background: rgba(255,255,255,0.03); }
 
-/* ── Password Gate ── */
-.gate-overlay {
-  min-height: calc(100vh - 50px);
+/* ── Gate ── */
+.gate {
+  min-height: calc(100vh - 52px);
   display: flex; align-items: center; justify-content: center;
   padding: 2rem;
+  background:
+    radial-gradient(ellipse 600px 400px at 50% 40%, rgba(56,189,248,0.04), transparent),
+    var(--bg);
 }
 .gate-card {
-  background: var(--surface-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
-  padding: 3rem 2.5rem;
   text-align: center;
-  max-width: 380px;
+  max-width: 360px;
   width: 100%;
 }
-.gate-icon {
-  width: 56px; height: 56px;
-  margin: 0 auto 1.2rem;
-  background: var(--accent-glow);
+.gate-ring {
+  width: 72px; height: 72px;
+  margin: 0 auto 1.5rem;
   border-radius: 50%;
+  border: 2px solid var(--border);
   display: flex; align-items: center; justify-content: center;
+  position: relative;
+  animation: ringPulse 3s ease-in-out infinite;
 }
-.gate-icon svg { width: 24px; height: 24px; color: var(--accent); }
-.gate-title {
-  font-size: 1.15rem; font-weight: 600;
-  margin-bottom: 0.4rem;
+@keyframes ringPulse {
+  0%, 100% { border-color: var(--border); box-shadow: none; }
+  50% { border-color: rgba(56,189,248,0.3); box-shadow: var(--accent-glow); }
+}
+.gate-ring svg { width: 28px; height: 28px; color: var(--ink-dim); }
+.gate-heading {
+  font: 500 1.2rem var(--font);
+  color: var(--ink);
+  margin-bottom: 0.5rem;
+  letter-spacing: 0.01em;
 }
 .gate-sub {
-  font-size: 0.82rem; color: var(--ink-muted);
-  margin-bottom: 1.5rem;
+  font: 300 0.82rem var(--font);
+  color: var(--ink-ghost);
+  margin-bottom: 2rem;
+  line-height: 1.5;
 }
-.gate-input-row {
-  display: flex; gap: 8px;
-}
+.gate-form { display: flex; gap: 8px; }
 .gate-input {
   flex: 1;
-  padding: 10px 14px;
+  padding: 11px 14px;
+  background: var(--bg-input);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  font: 400 0.88rem var(--font-body);
+  border-radius: var(--radius);
+  color: var(--ink);
+  font: 400 0.85rem var(--mono);
   outline: none;
-  transition: border-color 0.15s;
+  letter-spacing: 0.08em;
+  transition: all 0.2s;
 }
-.gate-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
-.gate-btn {
-  padding: 10px 20px;
+.gate-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+.gate-input::placeholder { color: var(--ink-ghost); letter-spacing: 0.02em; font-family: var(--font); }
+.gate-submit {
+  padding: 11px 22px;
   background: var(--accent);
-  color: white; border: none;
-  border-radius: var(--radius-sm);
-  font: 600 0.85rem var(--font-body);
+  color: var(--bg);
+  border: none;
+  border-radius: var(--radius);
+  font: 600 0.82rem var(--font);
   cursor: pointer;
-  transition: background 0.15s;
+  letter-spacing: 0.03em;
+  transition: all 0.2s;
 }
-.gate-btn:hover { background: var(--accent-hover); }
+.gate-submit:hover { filter: brightness(1.1); transform: translateY(-1px); }
 .gate-error {
-  font-size: 0.78rem; color: var(--danger);
-  margin-top: 10px; display: none;
+  font: 400 0.75rem var(--font);
+  color: var(--red);
+  margin-top: 12px;
+  opacity: 0;
+  transition: opacity 0.2s;
 }
+.gate-error.show { opacity: 1; }
 
-/* ── Content Area ── */
-.content-area {
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 1.5rem 1.5rem 6rem;
+/* ── Editor Shell ── */
+.editor {
   display: none;
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 1.2rem 1.5rem 5.5rem;
 }
 
-/* ── Section Cards ── */
-.section-card {
-  background: var(--surface-card);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-sm);
-  margin-bottom: 12px;
-  overflow: hidden;
-  transition: box-shadow 0.2s;
+/* ── Toolbar ── */
+.toolbar {
+  display: flex; align-items: center; gap: 12px;
+  margin-bottom: 16px;
 }
-.section-card:hover { box-shadow: var(--shadow-md); }
-.section-header {
-  padding: 12px 16px;
+.search-wrap {
+  flex: 1;
+  position: relative;
+}
+.search-icon {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  width: 16px; height: 16px; color: var(--ink-ghost);
+  pointer-events: none;
+}
+.search {
+  width: 100%;
+  padding: 9px 12px 9px 38px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--ink);
+  font: 400 0.82rem var(--font);
+  outline: none;
+  transition: all 0.2s;
+}
+.search:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-dim); }
+.search::placeholder { color: var(--ink-ghost); }
+.stat-chip {
+  font: 500 0.72rem var(--mono);
+  color: var(--ink-dim);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  padding: 7px 12px;
+  border-radius: var(--radius);
+  white-space: nowrap;
+}
+.stat-chip strong { color: var(--accent); font-weight: 600; }
+
+/* ── Section ── */
+.section {
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+.section:hover { border-color: var(--border-hover); }
+.section-head {
+  padding: 10px 16px;
   display: flex; align-items: center; justify-content: space-between;
   cursor: pointer;
   user-select: none;
-  transition: background 0.15s;
 }
-.section-header:hover { background: rgba(37,99,235,0.03); }
-.section-header-left { display: flex; align-items: center; gap: 10px; }
-.section-name {
-  font: 600 0.82rem var(--font-mono);
-  letter-spacing: 0.03em;
+.section-head:hover { background: rgba(255,255,255,0.015); }
+.section-left { display: flex; align-items: center; gap: 10px; }
+.section-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.6;
+}
+.section-label {
+  font: 500 0.78rem var(--mono);
   color: var(--ink);
+  letter-spacing: 0.04em;
 }
-.section-count {
-  font-size: 0.7rem;
-  color: var(--ink-muted);
-  background: var(--surface);
-  padding: 2px 8px;
-  border-radius: 10px;
+.section-n {
+  font: 400 0.68rem var(--mono);
+  color: var(--ink-ghost);
 }
-.section-chevron {
-  width: 18px; height: 18px;
-  color: var(--ink-muted);
+.section-arrow {
+  width: 14px; height: 14px;
+  color: var(--ink-ghost);
   transition: transform 0.25s ease;
 }
-.section-card.collapsed .section-chevron { transform: rotate(-90deg); }
+.section.shut .section-arrow { transform: rotate(-90deg); }
 .section-body {
-  max-height: 2000px;
+  border-top: 1px solid var(--border);
   overflow: hidden;
-  transition: max-height 0.35s ease, opacity 0.25s ease;
+  max-height: 3000px;
+  transition: max-height 0.4s ease, opacity 0.3s ease;
   opacity: 1;
 }
-.section-card.collapsed .section-body {
-  max-height: 0;
-  opacity: 0;
-}
+.section.shut .section-body { max-height: 0; opacity: 0; border-top-color: transparent; }
 
-/* ── Parameter Rows ── */
-.param-row {
-  padding: 10px 16px;
-  border-top: 1px solid #f1f5f9;
+/* ── Param Row ── */
+.p-row {
+  padding: 8px 16px;
   display: grid;
-  grid-template-columns: 1fr 120px 56px;
-  gap: 10px;
+  grid-template-columns: 1fr 110px 52px;
+  gap: 8px;
   align-items: start;
   transition: background 0.15s;
+  position: relative;
 }
-.param-row:hover { background: #fafbfc; }
-.param-key-block {}
-.param-key {
-  font: 500 0.8rem var(--font-body);
+.p-row + .p-row { border-top: 1px solid rgba(255,255,255,0.025); }
+.p-row:hover { background: rgba(255,255,255,0.015); }
+.p-key {
+  font: 400 0.78rem var(--font);
   color: var(--ink);
-  line-height: 1.4;
+  line-height: 1.5;
 }
-.param-explanation {
-  font-size: 0.68rem;
-  color: var(--ink-muted);
-  line-height: 1.4;
-  margin-top: 2px;
+.p-explain {
+  font: 300 0.66rem var(--font);
+  color: var(--ink-ghost);
+  line-height: 1.45;
+  margin-top: 1px;
 }
-.param-value-input {
+.p-input {
   padding: 5px 8px;
+  background: var(--bg-input);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  font: 500 0.8rem var(--font-mono);
+  border-radius: 5px;
+  color: var(--ink);
+  font: 500 0.78rem var(--mono);
   text-align: right;
   width: 100%;
   outline: none;
   transition: all 0.2s;
-  background: #fafbfc;
 }
-.param-value-input:focus {
+.p-input:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-glow);
-  background: white;
+  box-shadow: 0 0 0 2px var(--accent-dim);
+  background: rgba(56,189,248,0.04);
 }
-.param-value-input.modified {
-  border-color: var(--warning);
-  background: var(--warning-bg);
-  box-shadow: 0 0 0 2px rgba(217,119,6,0.1);
+.p-input.dirty {
+  border-color: var(--amber);
+  background: var(--amber-dim);
+  box-shadow: 0 0 8px rgba(245,158,11,0.1);
+  color: var(--amber);
 }
-.param-unit {
-  font: 500 0.68rem var(--font-mono);
-  color: var(--ink-muted);
-  background: var(--surface);
-  padding: 5px 0;
-  border-radius: var(--radius-sm);
+.p-unit {
+  font: 400 0.66rem var(--mono);
+  color: var(--ink-ghost);
   text-align: center;
+  padding-top: 7px;
   white-space: nowrap;
-  align-self: start;
-  margin-top: 1px;
 }
 
-/* ── Sticky Footer ── */
-.save-footer {
+/* ── Save Bar ── */
+.save-bar {
   position: fixed; bottom: 0; left: 0; right: 0;
-  background: var(--surface-card);
+  background: var(--bg-raised);
   border-top: 1px solid var(--border);
-  box-shadow: 0 -4px 16px rgba(15,23,42,0.06);
-  padding: 12px 1.5rem;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
+  padding: 10px 1.5rem;
+  display: flex; align-items: center; justify-content: center; gap: 14px;
   z-index: 50;
+  transform: translateY(100%);
+  transition: transform 0.3s ease;
 }
-.save-footer.visible { display: flex; }
-.modified-badge {
-  font: 500 0.78rem var(--font-body);
-  color: var(--warning);
-  background: var(--warning-bg);
-  padding: 5px 12px;
+.save-bar.up { transform: translateY(0); }
+.save-count {
+  font: 500 0.75rem var(--mono);
+  color: var(--amber);
+  background: var(--amber-dim);
+  padding: 5px 14px;
   border-radius: 20px;
+  border: 1px solid rgba(245,158,11,0.15);
 }
 .save-btn {
-  padding: 9px 28px;
+  padding: 8px 28px;
   background: var(--accent);
-  color: white; border: none;
-  border-radius: var(--radius-sm);
-  font: 600 0.85rem var(--font-body);
+  color: var(--bg);
+  border: none;
+  border-radius: var(--radius);
+  font: 600 0.82rem var(--font);
   cursor: pointer;
-  transition: all 0.15s;
+  letter-spacing: 0.02em;
+  transition: all 0.2s;
 }
-.save-btn:hover { background: var(--accent-hover); transform: translateY(-1px); box-shadow: var(--shadow-md); }
-.save-btn:disabled { background: var(--ink-muted); cursor: not-allowed; transform: none; box-shadow: none; }
+.save-btn:hover { filter: brightness(1.1); transform: translateY(-1px); }
+.save-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; filter: none; }
+.reset-btn {
+  padding: 8px 16px;
+  background: transparent;
+  color: var(--ink-dim);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font: 400 0.78rem var(--font);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.reset-btn:hover { color: var(--red); border-color: rgba(248,113,113,0.3); background: var(--red-dim); }
 
 /* ── Toast ── */
 .toast {
   position: fixed; top: 64px; right: 20px;
-  padding: 12px 20px;
-  border-radius: var(--radius-md);
-  font: 500 0.82rem var(--font-body);
-  box-shadow: var(--shadow-lg);
+  padding: 10px 18px;
+  border-radius: var(--radius);
+  font: 500 0.78rem var(--font);
   z-index: 200;
-  transform: translateX(120%);
-  transition: transform 0.3s ease;
+  transform: translateX(calc(100% + 30px));
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+  backdrop-filter: blur(12px);
 }
-.toast.show { transform: translateX(0); }
-.toast.success { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
-.toast.error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+.toast.vis { transform: translateX(0); }
+.toast.ok { background: var(--green-dim); color: var(--green); border: 1px solid rgba(52,211,153,0.2); }
+.toast.err { background: var(--red-dim); color: var(--red); border: 1px solid rgba(248,113,113,0.2); }
 
-/* ── Search ── */
-.search-bar {
-  margin-bottom: 16px;
-  position: relative;
+/* ── Stagger entrance ── */
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
 }
-.search-input {
-  width: 100%;
-  padding: 10px 14px 10px 40px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  font: 400 0.85rem var(--font-body);
-  background: var(--surface-card);
-  outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-.search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
-.search-icon {
-  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
-  width: 18px; height: 18px; color: var(--ink-muted);
-}
-
-/* ── Stats Bar ── */
-.stats-bar {
-  display: flex; gap: 16px;
-  margin-bottom: 16px;
-  font-size: 0.78rem;
-  color: var(--ink-muted);
-}
-.stats-bar strong { color: var(--ink); font-weight: 600; }
+.section { animation: fadeSlideUp 0.4s ease both; }
 </style>
 </head>
 <body>
 
-<!-- Topbar -->
 <div class="topbar">
   <div class="topbar-left">
     <span class="topbar-brand">ETE v2</span>
-    <span class="topbar-badge">Calibration</span>
+    <div class="topbar-sep"></div>
+    <span class="topbar-title">Calibration</span>
+    <span class="topbar-version" id="versionBadge">—</span>
   </div>
   <div class="topbar-right">
-    <a href="/">Back to App</a>
+    <a class="topbar-link" href="/">Back to App</a>
   </div>
 </div>
 
-<!-- Password Gate -->
-<div class="gate-overlay" id="gateOverlay">
+<!-- Gate -->
+<div class="gate" id="gate">
   <div class="gate-card">
-    <div class="gate-icon">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <div class="gate-ring">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
         <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>
       </svg>
     </div>
-    <div class="gate-title">Calibration Editor</div>
-    <div class="gate-sub">Enter password to view and modify global calibration parameters</div>
-    <div class="gate-input-row">
-      <input type="password" class="gate-input" id="gatePassword" placeholder="Password" autofocus>
-      <button class="gate-btn" onclick="unlock()">Unlock</button>
+    <div class="gate-heading">Calibration Editor</div>
+    <div class="gate-sub">Modify global FSM parameters. Changes take effect on the next eye test session.</div>
+    <div class="gate-form">
+      <input type="password" class="gate-input" id="pw" placeholder="Password" autofocus>
+      <button class="gate-submit" onclick="unlock()">Unlock</button>
     </div>
-    <div class="gate-error" id="gateError">Incorrect password</div>
+    <div class="gate-error" id="gateErr">Incorrect password</div>
   </div>
 </div>
 
-<!-- Content (hidden until unlocked) -->
-<div class="content-area" id="contentArea">
-  <div class="search-bar">
-    <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-    </svg>
-    <input type="text" class="search-input" id="searchInput" placeholder="Search parameters...">
+<!-- Editor -->
+<div class="editor" id="editor">
+  <div class="toolbar">
+    <div class="search-wrap">
+      <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      <input type="text" class="search" id="searchInput" placeholder="Search parameters...">
+    </div>
+    <div class="stat-chip" id="statChip">—</div>
   </div>
-  <div class="stats-bar" id="statsBar"></div>
-  <div id="sectionsContainer"></div>
+  <div id="sections"></div>
 </div>
 
-<!-- Save Footer -->
-<div class="save-footer" id="saveFooter">
-  <span class="modified-badge" id="modifiedBadge">0 modified</span>
-  <button class="save-btn" id="saveBtn" onclick="save()">Save Changes</button>
+<!-- Save Bar -->
+<div class="save-bar" id="saveBar">
+  <span class="save-count" id="saveCount">0 changed</span>
+  <button class="reset-btn" onclick="resetAll()">Discard</button>
+  <button class="save-btn" id="saveBtn" onclick="save()">Save to Disk</button>
 </div>
 
-<!-- Toast -->
 <div class="toast" id="toast"></div>
 
 <script>
 const API = '';
-const PASSWORD = 'SidShan';
-const UNLOCK_KEY = 'cal_unlocked_until';
+const PW = 'SidShan';
+const UKEY = 'cal_unlock_until';
 
-let calibData = [];     // Original data from server
-let modifiedKeys = {};  // { parameter_key: new_value }
+let data = [];
+let dirty = {};
 
-// ── Password Gate ──
-
-document.getElementById('gatePassword').addEventListener('keydown', e => {
-  if (e.key === 'Enter') unlock();
-});
+// ── Gate ──
+document.getElementById('pw').addEventListener('keydown', e => { if (e.key === 'Enter') unlock(); });
 
 function unlock() {
-  const pw = document.getElementById('gatePassword').value;
-  if (pw !== PASSWORD) {
-    const err = document.getElementById('gateError');
-    err.style.display = 'block';
-    document.getElementById('gatePassword').value = '';
-    document.getElementById('gatePassword').focus();
-    setTimeout(() => err.style.display = 'none', 2000);
+  const v = document.getElementById('pw').value;
+  if (v !== PW) {
+    document.getElementById('gateErr').classList.add('show');
+    document.getElementById('pw').value = '';
+    document.getElementById('pw').focus();
+    setTimeout(() => document.getElementById('gateErr').classList.remove('show'), 2000);
     return;
   }
-  localStorage.setItem(UNLOCK_KEY, String(Date.now() + 24 * 60 * 60 * 1000));
-  showEditor();
+  localStorage.setItem(UKEY, String(Date.now() + 86400000));
+  enter();
 }
 
-function checkAutoUnlock() {
-  const until = parseInt(localStorage.getItem(UNLOCK_KEY) || '0');
-  if (Date.now() < until) {
-    showEditor();
-    return true;
-  }
-  return false;
+function enter() {
+  document.getElementById('gate').style.display = 'none';
+  document.getElementById('editor').style.display = 'block';
+  load();
 }
 
-function showEditor() {
-  document.getElementById('gateOverlay').style.display = 'none';
-  document.getElementById('contentArea').style.display = 'block';
-  loadCalibration();
-}
+(function autoUnlock() {
+  if (Date.now() < parseInt(localStorage.getItem(UKEY) || '0')) enter();
+  else document.getElementById('gate').style.display = 'flex';
+})();
 
-// ── Load & Render ──
-
-async function loadCalibration() {
+// ── Load ──
+async function load() {
   try {
-    const resp = await fetch(`${API}/api/calibration`);
-    calibData = await resp.json();
-    if (calibData.error) { showToast(calibData.error, 'error'); return; }
-    modifiedKeys = {};
-    updateFooter();
-    render(calibData);
-  } catch (e) {
-    showToast('Failed to load: ' + e.message, 'error');
-  }
+    const r = await fetch(`${API}/api/calibration`);
+    data = await r.json();
+    if (data.error) { toast(data.error, 'err'); return; }
+    dirty = {};
+    updateBar();
+
+    // Version badge
+    const sys = data.find(d => d.parameter_key === 'active_profile');
+    document.getElementById('versionBadge').textContent = sys ? sys.value : '—';
+
+    render();
+  } catch (e) { toast('Load failed: ' + e.message, 'err'); }
 }
 
-function render(data) {
-  // Group by section, preserving CSV order
-  const sections = [];
-  const sectionMap = {};
+function render() {
+  const ordered = []; const map = {};
   for (const row of data) {
-    const s = row.section || 'UNCATEGORIZED';
-    if (!sectionMap[s]) {
-      sectionMap[s] = [];
-      sections.push(s);
-    }
-    sectionMap[s].push(row);
+    const s = row.section || '?';
+    if (!map[s]) { map[s] = []; ordered.push(s); }
+    map[s].push(row);
   }
 
-  document.getElementById('statsBar').innerHTML =
-    `<span><strong>${data.length}</strong> parameters</span>` +
-    `<span><strong>${sections.length}</strong> sections</span>`;
+  document.getElementById('statChip').innerHTML =
+    `<strong>${data.length}</strong> params &middot; <strong>${ordered.length}</strong> sections`;
 
-  const container = document.getElementById('sectionsContainer');
-  container.innerHTML = '';
+  const c = document.getElementById('sections');
+  c.innerHTML = '';
 
-  for (const section of sections) {
-    const params = sectionMap[section];
-    const card = document.createElement('div');
-    card.className = 'section-card';
-    card.dataset.section = section;
-    card.innerHTML = `
-      <div class="section-header" onclick="toggleSection(this)">
-        <div class="section-header-left">
-          <span class="section-name">${section}</span>
-          <span class="section-count">${params.length}</span>
+  ordered.forEach((sec, i) => {
+    const params = map[sec];
+    const el = document.createElement('div');
+    el.className = 'section';
+    el.dataset.sec = sec;
+    el.style.animationDelay = `${i * 0.04}s`;
+    el.innerHTML = `
+      <div class="section-head" onclick="this.parentElement.classList.toggle('shut')">
+        <div class="section-left">
+          <div class="section-dot"></div>
+          <span class="section-label">${sec}</span>
+          <span class="section-n">${params.length}</span>
         </div>
-        <svg class="section-chevron" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="6 9 12 15 18 9"/>
-        </svg>
+        <svg class="section-arrow" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
       </div>
-      <div class="section-body">
-        ${params.map(p => paramRowHTML(p)).join('')}
-      </div>
-    `;
-    container.appendChild(card);
-  }
+      <div class="section-body">${params.map(pHTML).join('')}</div>`;
+    c.appendChild(el);
+  });
 }
 
-function paramRowHTML(p) {
-  const val = modifiedKeys.hasOwnProperty(p.parameter_key) ? modifiedKeys[p.parameter_key] : p.value;
-  const modClass = modifiedKeys.hasOwnProperty(p.parameter_key) ? ' modified' : '';
-  return `
-    <div class="param-row" data-key="${p.parameter_key}">
-      <div class="param-key-block">
-        <div class="param-key">${p.parameter_key.replace(/_/g, ' ')}</div>
-        ${p.parameter_explanation ? `<div class="param-explanation">${p.parameter_explanation}</div>` : ''}
-      </div>
-      <input class="param-value-input${modClass}" type="text"
-             value="${escapeAttr(val)}"
-             data-key="${p.parameter_key}"
-             data-original="${escapeAttr(p.value)}"
-             oninput="onParamChange(this)">
-      <div class="param-unit">${p.unit_or_type || '—'}</div>
-    </div>`;
+function pHTML(p) {
+  const v = dirty.hasOwnProperty(p.parameter_key) ? dirty[p.parameter_key] : p.value;
+  const cls = dirty.hasOwnProperty(p.parameter_key) ? ' dirty' : '';
+  return `<div class="p-row" data-k="${p.parameter_key}">
+    <div><div class="p-key">${p.parameter_key.replace(/_/g, ' ')}</div>${p.parameter_explanation ? `<div class="p-explain">${p.parameter_explanation}</div>` : ''}</div>
+    <input class="p-input${cls}" type="text" value="${esc(v)}" data-k="${p.parameter_key}" data-o="${esc(p.value)}" oninput="chg(this)">
+    <div class="p-unit">${p.unit_or_type || ''}</div>
+  </div>`;
 }
 
-function escapeAttr(s) {
-  return (s || '').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+function esc(s) { return (s||'').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+
+// ── Edit tracking ──
+function chg(el) {
+  const k = el.dataset.k, o = el.dataset.o;
+  if (el.value !== o) { dirty[k] = el.value; el.classList.add('dirty'); }
+  else { delete dirty[k]; el.classList.remove('dirty'); }
+  updateBar();
 }
 
-// ── Interactions ──
-
-function toggleSection(header) {
-  header.closest('.section-card').classList.toggle('collapsed');
+function updateBar() {
+  const n = Object.keys(dirty).length;
+  const bar = document.getElementById('saveBar');
+  if (n) { bar.classList.add('up'); document.getElementById('saveCount').textContent = `${n} changed`; }
+  else bar.classList.remove('up');
 }
 
-function onParamChange(input) {
-  const key = input.dataset.key;
-  const original = input.dataset.original;
-  const current = input.value;
-
-  if (current !== original) {
-    modifiedKeys[key] = current;
-    input.classList.add('modified');
-  } else {
-    delete modifiedKeys[key];
-    input.classList.remove('modified');
-  }
-  updateFooter();
-}
-
-function updateFooter() {
-  const count = Object.keys(modifiedKeys).length;
-  const footer = document.getElementById('saveFooter');
-  if (count > 0) {
-    footer.classList.add('visible');
-    document.getElementById('modifiedBadge').textContent = `${count} modified`;
-  } else {
-    footer.classList.remove('visible');
-  }
+function resetAll() {
+  dirty = {};
+  document.querySelectorAll('.p-input.dirty').forEach(el => {
+    el.value = el.dataset.o;
+    el.classList.remove('dirty');
+  });
+  updateBar();
 }
 
 // ── Search ──
-
 document.getElementById('searchInput').addEventListener('input', function() {
   const q = this.value.toLowerCase().trim();
-  const rows = document.querySelectorAll('.param-row');
-  const sections = document.querySelectorAll('.section-card');
-
-  if (!q) {
-    rows.forEach(r => r.style.display = '');
-    sections.forEach(s => { s.style.display = ''; s.classList.remove('collapsed'); });
-    return;
-  }
-
-  // Hide non-matching rows, collapse empty sections
-  const visibleSections = new Set();
-  rows.forEach(r => {
-    const key = (r.dataset.key || '').toLowerCase();
-    const explanation = (r.querySelector('.param-explanation')?.textContent || '').toLowerCase();
-    const match = key.includes(q) || explanation.includes(q);
+  document.querySelectorAll('.p-row').forEach(r => {
+    const match = !q || r.dataset.k.includes(q) || (r.querySelector('.p-explain')?.textContent||'').toLowerCase().includes(q);
     r.style.display = match ? '' : 'none';
-    if (match) visibleSections.add(r.closest('.section-card')?.dataset.section);
   });
-
-  sections.forEach(s => {
-    if (visibleSections.has(s.dataset.section)) {
-      s.style.display = '';
-      s.classList.remove('collapsed');
-    } else {
-      s.style.display = 'none';
-    }
+  document.querySelectorAll('.section').forEach(s => {
+    const vis = [...s.querySelectorAll('.p-row')].some(r => r.style.display !== 'none');
+    s.style.display = vis ? '' : 'none';
+    if (q && vis) s.classList.remove('shut');
   });
 });
 
 // ── Save ──
-
 async function save() {
   const btn = document.getElementById('saveBtn');
-  btn.disabled = true;
-  btn.textContent = 'Saving...';
-
+  btn.disabled = true; btn.textContent = 'Saving...';
   try {
-    const resp = await fetch(`${API}/api/calibration`, {
+    const r = await fetch(`${API}/api/calibration`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password: PASSWORD, parameters: modifiedKeys }),
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ password: PW, parameters: dirty }),
     });
-    const result = await resp.json();
-
-    if (!resp.ok) {
-      showToast(result.error || 'Save failed', 'error');
-      return;
-    }
-
-    showToast(`Saved ${result.updated_count} parameter${result.updated_count !== 1 ? 's' : ''}`, 'success');
-
-    // Reload to sync with disk state
-    await loadCalibration();
-  } catch (e) {
-    showToast('Error: ' + e.message, 'error');
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Save Changes';
-  }
+    const res = await r.json();
+    if (!r.ok) { toast(res.error || 'Failed', 'err'); return; }
+    toast(`${res.updated_count} parameter${res.updated_count!==1?'s':''} saved`, 'ok');
+    await load();
+  } catch (e) { toast(e.message, 'err'); }
+  finally { btn.disabled = false; btn.textContent = 'Save to Disk'; }
 }
 
 // ── Toast ──
-
-function showToast(msg, type) {
-  const toast = document.getElementById('toast');
-  toast.className = `toast ${type}`;
-  toast.textContent = msg;
-  toast.classList.add('show');
-  setTimeout(() => toast.classList.remove('show'), 3000);
-}
-
-// ── Init ──
-if (!checkAutoUnlock()) {
-  document.getElementById('gateOverlay').style.display = 'flex';
+function toast(msg, type) {
+  const t = document.getElementById('toast');
+  t.className = `toast ${type}`;
+  t.textContent = msg;
+  requestAnimationFrame(() => t.classList.add('vis'));
+  setTimeout(() => t.classList.remove('vis'), 3000);
 }
 </script>
 </body>

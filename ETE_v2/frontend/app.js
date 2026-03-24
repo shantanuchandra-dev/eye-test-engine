@@ -1922,10 +1922,39 @@ async function loadDvSummary() {
     const resp = await fetch(`${API}/api/session/${sessionId}/derived-variables`);
     const dv = await resp.json();
     if (dv.error) { content.textContent = dv.error; return; }
+
+    const fD = (v) => v != null ? (v >= 0 ? '+' : '') + parseFloat(v).toFixed(2) : '—';
+    const fA = (v) => v != null ? Math.round(v) : '—';
+    const rxRow = (cls, eye) => eye
+      ? `<tr><td class="${cls}">${cls === 'eye-r' ? 'RE' : 'LE'}</td><td>${fD(eye.sph)}</td><td>${fD(eye.cyl)}</td><td>${fA(eye.axis)}</td></tr>`
+      : `<tr><td class="${cls}">${cls === 'eye-r' ? 'RE' : 'LE'}</td><td colspan="3" style="color:var(--ink-muted);text-align:center">No data</td></tr>`;
+    const rxCard = (title, re, le) => `<div class="dv-rx-card"><div class="dv-rx-title">${title}</div>
+      <table class="dv-rx-table"><tr><th></th><th>SPH</th><th>CYL</th><th>AXIS</th></tr>${rxRow('eye-r',re)}${rxRow('eye-l',le)}</table></div>`;
+
+    let html = '';
+
+    // AR & Lenso power cards
+    if (dv._ar || dv._lenso) {
+      const ar = dv._ar || {}, lo = dv._lenso || {};
+      html += rxCard('Autorefractor (AR)', ar.re, ar.le);
+      html += rxCard('Lensometry', lo.re, lo.le);
+    }
+
+    // Badge formatter for risk/level/boolean values
+    const badgeMap = { 'Low': 'low', 'Medium': 'medium', 'High': 'high' };
+    const fmtVal = (k, v) => {
+      if (v === true) return `<span class="dv-badge yes">Yes</span>`;
+      if (v === false) return `<span class="dv-badge no">No</span>`;
+      const s = String(v ?? '—');
+      if (badgeMap[s]) return `<span class="dv-badge ${badgeMap[s]}">${s}</span>`;
+      return `<strong>${s}</strong>`;
+    };
+    const label = (k) => k.replace(/^dv_/,'').replace(/_/g, ' ');
+
     const cats = {
       'Patient Profile': ['dv_age_bucket', 'dv_distance_priority', 'dv_near_priority'],
       'Risk Assessment': ['dv_symptom_risk_level', 'dv_medical_risk_level', 'dv_stability_level', 'dv_anomaly_watch', 'dv_requires_optom_review'],
-      'AR/Lenso': ['dv_ar_lenso_mismatch_level_RE', 'dv_ar_lenso_mismatch_level_LE', 'dv_start_source_policy'],
+      'AR / Lenso Mismatch': ['dv_ar_lenso_mismatch_level_RE', 'dv_ar_lenso_mismatch_level_LE', 'dv_start_source_policy'],
       'Starting Rx': ['dv_start_rx_RE_sph', 'dv_start_rx_RE_cyl', 'dv_start_rx_RE_axis', 'dv_start_rx_LE_sph', 'dv_start_rx_LE_cyl', 'dv_start_rx_LE_axis'],
       'Test Config': ['dv_target_distance_va', 'dv_endpoint_bias_policy', 'dv_step_size_policy', 'dv_confidence_requirement', 'dv_expected_convergence_time', 'dv_branching_guardrails'],
       'Fogging': ['dv_fogging_policy', 'dv_fogging_amount_D', 'dv_fogging_clearance_mode', 'dv_fogging_required_confirmation', 'dv_fogging_required', 'dv_fogging_stop_at_target_va', 'dv_accommodation_level'],
@@ -1934,20 +1963,22 @@ async function loadDvSummary() {
       'Near Vision': ['dv_add_expected', 'dv_near_test_required', 'dv_near_binoc_step_D', 'dv_near_binoc_max_plus_steps', 'dv_near_binoc_max_minus_steps'],
       'Safety / Escalation': ['dv_max_delta_from_start_sph', 'dv_max_delta_from_ar_sph'],
     };
-    // Collect all keys already listed in categories
     const listed = new Set(Object.values(cats).flat());
-    // Any DV keys not in a category go into "Other"
     const otherKeys = Object.keys(dv).filter(k => k.startsWith('dv_') && !listed.has(k));
     if (otherKeys.length) cats['Other'] = otherKeys;
-    let html = '';
-    const fmt = (v) => v === true ? 'Yes' : v === false ? 'No' : (v ?? '—');
+
     for (const [cat, keys] of Object.entries(cats)) {
-      html += `<div style="font-weight:700;color:var(--accent);margin-top:10px;font-size:0.8rem">${cat}</div>`;
+      html += `<div class="dv-section">
+        <div class="dv-section-head" onclick="this.parentElement.classList.toggle('collapsed')">
+          <span class="dv-section-label">${cat}</span>
+          <span class="dv-section-chevron">▼</span>
+        </div><div class="dv-section-body">`;
       for (const k of keys) {
-        const v = dv[k];
-        html += `<div><span style="color:var(--ink-muted)">${k.replace(/^dv_/,'').replace(/_/g,' ')}:</span> <strong>${fmt(v)}</strong></div>`;
+        html += `<div class="dv-row"><span class="dv-key">${label(k)}</span><span class="dv-val">${fmtVal(k, dv[k])}</span></div>`;
       }
+      html += `</div></div>`;
     }
+
     content.innerHTML = html || 'No DV data.';
   } catch (e) { content.textContent = 'Error: ' + e.message; }
 }
@@ -2317,6 +2348,17 @@ function setOptionsEnabled(enabled) {
 }
 
 // ── Collapsible sidebar sections ──
+// ── Sidebar overlay (iPad) ──
+function toggleSidebarOverlay() {
+  const sidebar = document.querySelector('.sidebar');
+  const backdrop = document.getElementById('sidebarBackdrop');
+  const fab = document.getElementById('sidebarFab');
+  if (!sidebar) return;
+  const open = sidebar.classList.toggle('overlay-open');
+  backdrop.classList.toggle('show', open);
+  fab.classList.toggle('active', open);
+}
+
 function toggleSidebarSection(sectionId) {
   const section = document.getElementById(sectionId);
   if (!section) return;

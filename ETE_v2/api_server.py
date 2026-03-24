@@ -514,10 +514,27 @@ def session_status(session_id):
 
 @app.route("/api/session/<session_id>/derived-variables")
 def session_derived_variables(session_id):
-    """Return computed derived variables for debug display."""
+    """Return computed derived variables + AR/Lenso for debug display."""
     if session_id not in sessions:
         return jsonify({"error": "Session not found"}), 404
-    return jsonify(sessions[session_id].get_derived_variables())
+    orch = sessions[session_id]
+    result = orch.get_derived_variables()
+    # Include AR and Lensometry powers for the DV drawer
+    pi = orch.patient_input
+    if pi:
+        ar_re = pi.autorefractor_re
+        ar_le = pi.autorefractor_le
+        lo_re = pi.lenso_re
+        lo_le = pi.lenso_le
+        result["_ar"] = {
+            "re": {"sph": ar_re.sphere, "cyl": ar_re.cylinder, "axis": ar_re.axis} if ar_re else None,
+            "le": {"sph": ar_le.sphere, "cyl": ar_le.cylinder, "axis": ar_le.axis} if ar_le else None,
+        }
+        result["_lenso"] = {
+            "re": {"sph": lo_re.sphere, "cyl": lo_re.cylinder, "axis": lo_re.axis} if lo_re else None,
+            "le": {"sph": lo_le.sphere, "cyl": lo_le.cylinder, "axis": lo_le.axis} if lo_le else None,
+        }
+    return jsonify(result)
 
 
 @app.route("/api/session/<session_id>/sync-power", methods=["POST"])

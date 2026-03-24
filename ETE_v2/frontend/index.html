@@ -695,10 +695,78 @@ body {
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes fadeInUp { from { opacity:0; transform:translateX(-50%) translateY(8px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }
 
-/* ── Responsive ── */
-@media (max-width: 900px) {
+/* ── Sidebar FAB (iPad overlay toggle) ── */
+.sidebar-fab {
+  display: none;
+  position: fixed;
+  bottom: 20px; right: 20px;
+  width: 52px; height: 52px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: white;
+  border: none;
+  font: 700 0.78rem var(--font-body);
+  cursor: pointer;
+  z-index: 80;
+  box-shadow: 0 4px 16px rgba(37,99,235,0.35);
+  transition: all 0.2s;
+  letter-spacing: 0.02em;
+}
+.sidebar-fab:hover { transform: scale(1.08); }
+.sidebar-fab.active { background: var(--ink); }
+.sidebar-backdrop {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(15,23,42,0.4);
+  z-index: 69;
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+.sidebar-backdrop.show { display: block; }
+
+/* ── Responsive: iPad (≤1024px) ── */
+@media (max-width: 1024px) {
   .main-layout { grid-template-columns: 1fr; }
-  .sidebar { border-left: none; border-top: 1px solid var(--border); }
+
+  /* Hide sidebar by default, show as overlay */
+  .sidebar {
+    display: none;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    height: auto;
+    max-height: 55vh;
+    border-left: none;
+    border-top: 1px solid var(--border);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    box-shadow: 0 -8px 30px rgba(0,0,0,0.15);
+    z-index: 70;
+    overflow-y: auto;
+  }
+  .sidebar.overlay-open { display: flex; }
+
+  /* Show floating toggle */
+  .sidebar-fab { display: flex; align-items: center; justify-content: center; }
+  .sidebar.overlay-open ~ .sidebar-fab { display: none; }
+
+  /* Question card: breathe */
+  .center-panel { padding: 1.2rem; }
+  .question-card { padding: 1.5rem; max-width: 100%; }
+  .question-text { font-size: 1.1rem; }
+
+  /* Topbar: allow wrapping */
+  .topbar { padding: 0 1rem; gap: 8px; flex-wrap: wrap; height: auto; min-height: 50px; }
+  .topbar-right { flex-wrap: wrap; gap: 6px; }
+  .topbar-btn { padding: 4px 10px; font-size: 0.72rem; }
+  .topbar-select { font-size: 0.72rem; padding: 4px 18px 4px 6px; }
+
+  /* Drawers: clamp width to viewport */
+  .logs-drawer { width: min(420px, 92vw); }
+
+  /* Screenshot PIP: fit viewport */
+  .screenshot-pip { width: min(340px, 82vw); }
+
+  /* Option buttons: touch-friendly */
+  .option-btn { min-width: 110px; padding: 14px 18px; min-height: 48px; }
 }
 </style>
 </head>
@@ -819,6 +887,10 @@ body {
   </div>
 </div>
 
+<!-- Sidebar overlay (iPad) -->
+<div class="sidebar-backdrop" id="sidebarBackdrop" onclick="toggleSidebarOverlay()"></div>
+<button class="sidebar-fab" id="sidebarFab" onclick="toggleSidebarOverlay()">Rx</button>
+
 <!-- Logs drawer -->
 <div class="logs-drawer" id="logsDrawer">
   <div class="logs-header">
@@ -855,8 +927,64 @@ body {
     <h3>Derived Variables</h3>
     <button class="logs-close" onclick="toggleDvPanel()">&times;</button>
   </div>
-  <div class="logs-content" id="dvContent" style="font-size:0.78rem; line-height:1.7;">Loading...</div>
+  <div class="logs-content" id="dvContent" style="font-size:0.78rem; line-height:1.5; padding:10px 14px;">Loading...</div>
 </div>
+<style>
+/* ── DV Drawer Styles ── */
+.dv-rx-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 8px 10px; margin-bottom: 6px;
+}
+.dv-rx-title {
+  font: 600 0.68rem var(--font-body); text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--ink-muted); margin-bottom: 5px;
+}
+.dv-rx-table { width: 100%; border-collapse: collapse; font: 500 0.8rem var(--font-mono); }
+.dv-rx-table th {
+  font: 600 0.62rem var(--font-body); text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--ink-muted); padding: 0 4px 3px; text-align: center;
+}
+.dv-rx-table td { padding: 3px 4px; text-align: center; }
+.dv-rx-table .eye-r { color: var(--re-color); font-weight: 700; }
+.dv-rx-table .eye-l { color: var(--le-color); font-weight: 700; }
+
+.dv-section {
+  border-top: 1px solid var(--border); padding-top: 8px; margin-top: 8px;
+}
+.dv-section-head {
+  display: flex; align-items: center; justify-content: space-between;
+  cursor: pointer; user-select: none; padding: 2px 0;
+}
+.dv-section-label {
+  font: 700 0.72rem var(--font-body); text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--accent);
+}
+.dv-section-chevron {
+  font-size: 0.6rem; color: var(--ink-muted);
+  transition: transform 0.2s;
+}
+.dv-section.collapsed .dv-section-chevron { transform: rotate(-90deg); }
+.dv-section-body {
+  overflow: hidden; max-height: 500px;
+  transition: max-height 0.25s ease, opacity 0.2s ease; opacity: 1;
+}
+.dv-section.collapsed .dv-section-body { max-height: 0; opacity: 0; }
+
+.dv-row {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 2px 0; gap: 8px;
+}
+.dv-key { color: var(--ink-secondary); font-size: 0.76rem; flex: 1; min-width: 0; }
+.dv-val { font: 600 0.76rem var(--font-mono); color: var(--ink); text-align: right; white-space: nowrap; }
+
+/* Risk / level badges */
+.dv-badge { padding: 1px 7px; border-radius: 3px; font: 600 0.68rem var(--font-body); letter-spacing: 0.02em; }
+.dv-badge.low { background: rgba(5,150,105,0.1); color: #059669; }
+.dv-badge.medium { background: rgba(217,119,6,0.1); color: #d97706; }
+.dv-badge.high { background: rgba(220,38,38,0.1); color: #dc2626; }
+.dv-badge.yes { background: rgba(220,38,38,0.1); color: #dc2626; }
+.dv-badge.no { background: rgba(5,150,105,0.1); color: #059669; }
+</style>
 
 <!-- Persistent draggable screenshot panel -->
 <div class="screenshot-pip" id="screenshotPip">
