@@ -1,5 +1,4 @@
 {
-  "syntaxHighlightingDisabled": true,
   "permissions": {
     "allow": [
       "Bash(python3 -c \":*)",
@@ -103,7 +102,9 @@
       "Bash(lsof -ti:5050)",
       "Bash(lsof -i:8766)",
       "Bash(ln -s /Users/shantanuchandra/Downloads/eye_test_engine_Claude/FSMv3.1_R2/models/whisper-large-v3-turbo-ct2 /Users/shantanuchandra/Downloads/eye_test_engine_Claude/ETE_v2/models/whisper-large-v3-turbo-ct2)",
-      "Skill(update-config)"
+      "Skill(update-config)",
+      "Bash(python:*)"
     ]
-  }
+  },
+  "syntaxHighlightingDisabled": true
 }
