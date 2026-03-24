@@ -25,10 +25,25 @@ class CalibrationLoader:
         self.df["Parameter_Key"] = self.df["Parameter_Key"].astype(str).str.strip()
 
         self._map = {}
+        self._rows = []  # Full calibration snapshot: Section, Key, Value, Unit
         for _, row in self.df.iterrows():
             key = str(row["Parameter_Key"]).strip()
             if key and key.lower() != "nan":
                 self._map[key] = row["Value"]
+                raw_val = row["Value"]
+                val_str = None
+                if raw_val is not None and not pd.isna(raw_val):
+                    val_str = str(raw_val).strip()
+                self._rows.append({
+                    "section": str(row.get("Section", "")).strip(),
+                    "parameter_key": key,
+                    "value": val_str,
+                    "unit_or_type": str(row.get("Unit_or_Type", "")).strip(),
+                })
+
+    def get_snapshot(self) -> list:
+        """Return full calibration as list of {section, parameter_key, value, unit_or_type}."""
+        return list(self._rows)
 
     def get_raw(self, key: str, default: Any = None) -> Any:
         return self._map.get(key, default)

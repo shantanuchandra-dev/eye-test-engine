@@ -7,6 +7,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from .ist_time import ist_now
 from .outputs import COMBINED_METADATA_FIELDS
 
 
@@ -82,7 +83,7 @@ def count_today(
     scope: str = "global",
     phoropter_id: Optional[str] = None,
 ) -> int:
-    today = date.today()
+    today = ist_now().date()
     rows = load_metadata_rows(combined_path)
     count = 0
     for r in rows:
