@@ -103,7 +103,8 @@
       "Bash(lsof -i:8766)",
       "Bash(ln -s /Users/shantanuchandra/Downloads/eye_test_engine_Claude/FSMv3.1_R2/models/whisper-large-v3-turbo-ct2 /Users/shantanuchandra/Downloads/eye_test_engine_Claude/ETE_v2/models/whisper-large-v3-turbo-ct2)",
       "Skill(update-config)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(/Users/shantanuchandra/Downloads/eye_test_engine_Claude/ETE_v2/frontend/favicon.svg:*)"
     ]
   },
   "syntaxHighlightingDisabled": true
