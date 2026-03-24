@@ -108,6 +108,25 @@ def append_to_combined_log(rows: List[dict], session_id: str,
             writer.writerow(row_dict)
 
 
+def combined_log_rows_csv_string(
+    rows: List[dict], session_id: str, *, include_header: bool
+) -> str:
+    """CSV for combined_log: Session_ID + session rows. Used for remote merge."""
+    if not rows:
+        return ""
+    import io as _io
+
+    fields = ["Session_ID"] + SESSION_CSV_FIELDS
+    buf = _io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=fields)
+    if include_header:
+        writer.writeheader()
+    for row in rows:
+        row_dict = {"Session_ID": session_id, **_row_to_dict(row)}
+        writer.writerow(row_dict)
+    return buf.getvalue()
+
+
 COMBINED_METADATA_FIELDS = [
     "Session_ID",
     "Phoropter_ID",
@@ -143,14 +162,13 @@ def _safe_get(d, *keys, default=""):
     return current if current is not None else default
 
 
-def append_to_combined_metadata(metadata: dict, combined_path: Path) -> None:
-    _ensure_dir(combined_path)
-    file_exists = combined_path.exists() and combined_path.stat().st_size > 0
+def build_combined_metadata_flat(metadata: dict) -> dict:
+    """Single combined_metadata.csv row as a flat dict."""
     qm = metadata.get("quality_metrics", {})
     final = metadata.get("final_prescription", {})
     ar = metadata.get("ar", {})
     lenso = metadata.get("lensometry", {})
-    flat = {
+    return {
         "Session_ID": metadata.get("session_id", ""),
         "Phoropter_ID": metadata.get("phoropter_id", ""),
         "Operator_Name": metadata.get("operator_name", ""),
@@ -188,6 +206,25 @@ def append_to_combined_metadata(metadata: dict, combined_path: Path) -> None:
         "Final_L_ADD": _safe_get(final, "left", "add"),
         "Phases_Completed": "; ".join(metadata.get("phases_completed", [])),
     }
+
+
+def combined_metadata_row_csv_string(metadata: dict, *, include_header: bool) -> str:
+    """One row (and optional header) for combined_metadata.csv."""
+    import io as _io
+
+    flat = build_combined_metadata_flat(metadata)
+    buf = _io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=COMBINED_METADATA_FIELDS)
+    if include_header:
+        writer.writeheader()
+    writer.writerow(flat)
+    return buf.getvalue()
+
+
+def append_to_combined_metadata(metadata: dict, combined_path: Path) -> None:
+    _ensure_dir(combined_path)
+    file_exists = combined_path.exists() and combined_path.stat().st_size > 0
+    flat = build_combined_metadata_flat(metadata)
     with combined_path.open("a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=COMBINED_METADATA_FIELDS)
         if not file_exists:

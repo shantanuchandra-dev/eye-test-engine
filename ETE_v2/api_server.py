@@ -16,6 +16,10 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent / ".env")
+
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 
@@ -30,7 +34,7 @@ from ete_io.outputs import (
     append_to_combined_log,
     append_to_combined_metadata,
 )
-from ete_io.remote_storage import upload_session
+from ete_io.remote_storage import remote_supabase_remote_only, upload_session
 from ete_io.dashboard_data import (
     load_metadata_rows,
     filter_rows,
@@ -543,7 +547,7 @@ def session_failed_voice_attempts(session_id):
 
 @app.route("/api/session/<session_id>/end", methods=["POST"])
 def session_end(session_id):
-    """End session, store CSV/metadata, optional Supabase upload."""
+    """End session: write logs under LOG_DIR, or Supabase-only when REMOTE_STORAGE=supabase."""
     if session_id not in sessions:
         return jsonify({"error": "Session not found"}), 404
 
@@ -582,30 +586,56 @@ def session_end(session_id):
     metadata["total_steps"] = len(orch.session_history)
     metadata["prompt_instance_count"] = orch.prompt_instance_id
 
-    # Write files
-    csv_path = SESSIONS_DIR / f"{session_id}.csv"
-    meta_path = SESSIONS_DIR / f"{session_id}_metadata.json"
-    write_session_csv(orch.session_history, csv_path)
-    write_session_metadata(metadata, meta_path)
-    append_to_combined_log(orch.session_history, session_id, COMBINED_LOG_PATH)
-    append_to_combined_metadata(metadata, COMBINED_METADATA_PATH)
+    remote_only = remote_supabase_remote_only()
 
-    # Write failed voice attempts to file (Fix G)
+    # Write files (skipped when REMOTE_STORAGE=supabase — logs only in Supabase Storage)
+    if not remote_only:
+        csv_path = SESSIONS_DIR / f"{session_id}.csv"
+        meta_path = SESSIONS_DIR / f"{session_id}_metadata.json"
+        write_session_csv(orch.session_history, csv_path)
+        write_session_metadata(metadata, meta_path)
+        append_to_combined_log(orch.session_history, session_id, COMBINED_LOG_PATH)
+        append_to_combined_metadata(metadata, COMBINED_METADATA_PATH)
+
+    combined_log_for_remote: Optional[str] = None
+    if not remote_only and COMBINED_LOG_PATH.exists():
+        combined_log_for_remote = COMBINED_LOG_PATH.read_text(encoding="utf-8")
+
+    # Failed voice attempts CSV (in memory for upload; local file only if not remote-only)
     failed_attempts = getattr(orch, "failed_voice_attempts", [])
+    failed_voice_csv_content: Optional[str] = None
     if failed_attempts:
         import csv as _csv
-        fva_path = SESSIONS_DIR / f"{session_id}_failed_voice_attempts.csv"
-        fva_path.parent.mkdir(parents=True, exist_ok=True)
-        keys = sorted(set().union(*(a.keys() for a in failed_attempts)))
-        with fva_path.open("w", newline="", encoding="utf-8") as f:
-            writer = _csv.DictWriter(f, fieldnames=keys)
-            writer.writeheader()
-            for attempt in failed_attempts:
-                writer.writerow(attempt)
+        import io as _io
 
-    # Remote upload
+        keys = sorted(set().union(*(a.keys() for a in failed_attempts)))
+        buf = _io.StringIO()
+        writer = _csv.DictWriter(buf, fieldnames=keys)
+        writer.writeheader()
+        for attempt in failed_attempts:
+            writer.writerow(attempt)
+        failed_voice_csv_content = buf.getvalue()
+        if not remote_only:
+            fva_path = SESSIONS_DIR / f"{session_id}_failed_voice_attempts.csv"
+            fva_path.parent.mkdir(parents=True, exist_ok=True)
+            with fva_path.open("w", newline="", encoding="utf-8") as f:
+                f.write(failed_voice_csv_content)
+
+    # Remote upload (Supabase Storage when REMOTE_STORAGE=supabase; see ete_io.remote_storage)
     csv_content = session_csv_string(orch.session_history)
-    upload_err = upload_session(session_id, csv_content, metadata)
+    upload_err = upload_session(
+        session_id,
+        csv_content,
+        metadata,
+        failed_voice_csv_content=failed_voice_csv_content,
+        combined_log_csv_content=combined_log_for_remote if not remote_only else None,
+        combined_log_merge=(
+            (session_id, orch.session_history)
+            if remote_only and orch.session_history
+            else None
+        ),
+        combined_metadata_merge=metadata if remote_only else None,
+    )
 
     result = {"status": "stored", "session_id": session_id}
     if upload_err:
