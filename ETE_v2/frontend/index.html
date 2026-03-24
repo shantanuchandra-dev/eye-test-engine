@@ -693,6 +693,7 @@ body {
 .loading-overlay.active { display: flex; }
 .spinner { width: 36px; height: 36px; border: 3px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes fadeInUp { from { opacity:0; transform:translateX(-50%) translateY(8px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }
 
 /* ── Responsive ── */
 @media (max-width: 900px) {
@@ -716,6 +717,9 @@ body {
       <option value="browser" selected>Mic: Browser</option>
       <option value="whisper">Mic: Whisper</option>
       <option value="off">Mic: OFF</option>
+    </select>
+    <select class="topbar-select" id="ttsVoiceSelect" onchange="setTTSVoice(this.value)" title="TTS voice" style="max-width:180px">
+      <option value="Samantha">Samantha (US)</option>
     </select>
     <button class="topbar-btn" id="ttsBtn" onclick="toggleTTS()">TTS: ON</button>
     <button class="topbar-btn" id="phoropBtn" onclick="togglePhoropter()" style="background:rgba(34,197,94,0.3)">Phoropter: ON</button>

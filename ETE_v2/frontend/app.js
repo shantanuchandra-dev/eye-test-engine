@@ -10,10 +10,113 @@ const LOGS_PASSWORD = 'Shantanu';
 
 // ── TTS (Browser SpeechSynthesis) ──
 let ttsEnabled = true;
+let ttsSelectedVoiceName = null; // null = auto; string = pinned voice name
 
-function speakQuestion(text, langOverride) {
+// Fixed voice list: only these voices are shown in the dropdown
+const ALLOWED_VOICES = [
+  { match: v => v.name === 'Samantha',          label: 'Samantha (US)',       group: '🇺🇸 US English', disabled: false },
+  { match: v => v.name === 'Google US English', label: 'Google US English',   group: '🇺🇸 US English', disabled: false },
+  { match: v => v.name === 'Rishi',             label: 'Rishi (IN English)',  group: '🇮🇳 Indian',     disabled: false },
+  { match: v => v.name === 'Google हिन्दी',       label: 'Google Hindi',        group: '🇮🇳 Indian',     disabled: false },
+];
+
+// Coming-soon Indian voices (shown disabled in dropdown)
+const COMING_SOON_VOICES = [
+  { label: 'Google Bengali',   group: '🇮🇳 Indian' },
+  { label: 'Google Tamil',     group: '🇮🇳 Indian' },
+  { label: 'Google Telugu',    group: '🇮🇳 Indian' },
+  { label: 'Google Gujarati',  group: '🇮🇳 Indian' },
+  { label: 'Google Kannada',   group: '🇮🇳 Indian' },
+  { label: 'Google Malayalam', group: '🇮🇳 Indian' },
+  { label: 'Google Marathi',   group: '🇮🇳 Indian' },
+];
+
+function populateTTSVoiceDropdown() {
+  const sel = document.getElementById('ttsVoiceSelect');
+  if (!sel) return;
+  const voices = speechSynthesis.getVoices();
+
+  sel.innerHTML = '';
+
+  const groups = {};
+
+  const getOrCreateGroup = (groupLabel) => {
+    if (!groups[groupLabel]) {
+      groups[groupLabel] = document.createElement('optgroup');
+      groups[groupLabel].label = groupLabel;
+      sel.appendChild(groups[groupLabel]);
+    }
+    return groups[groupLabel];
+  };
+
+  // Active voices
+  ALLOWED_VOICES.forEach(({ match, label, group }) => {
+    const voice = voices.find(match);
+    if (!voice) return;
+    const opt = document.createElement('option');
+    opt.value = voice.name;
+    opt.textContent = label;
+    getOrCreateGroup(group).appendChild(opt);
+  });
+
+  // Coming-soon voices (disabled)
+  COMING_SOON_VOICES.forEach(({ label, group }) => {
+    const opt = document.createElement('option');
+    opt.value = '__coming_soon__';
+    opt.textContent = `${label} — Coming Soon`;
+    opt.disabled = true;
+    opt.style.color = '#94a3b8';
+    getOrCreateGroup(group).appendChild(opt);
+  });
+
+  // Restore previous selection
+  if (ttsSelectedVoiceName) {
+    sel.value = ttsSelectedVoiceName;
+  }
+
+  // Default: Samantha
+  if (!ttsSelectedVoiceName) {
+    const samantha = voices.find(v => v.name === 'Samantha');
+    ttsSelectedVoiceName = samantha ? samantha.name : null;
+    if (ttsSelectedVoiceName) sel.value = ttsSelectedVoiceName;
+  }
+
+  console.log(`[TTS] Voice dropdown ready. Selected: ${ttsSelectedVoiceName}`);
+}
+
+function setTTSVoice(name) {
+  if (name === '__coming_soon__') {
+    // Snap back to previous valid selection
+    const sel = document.getElementById('ttsVoiceSelect');
+    if (sel && ttsSelectedVoiceName) sel.value = ttsSelectedVoiceName;
+    showComingSoonToast();
+    return;
+  }
+  ttsSelectedVoiceName = name;
+  console.log(`[TTS] Voice pinned to: ${name}`);
+}
+
+function showComingSoonToast() {
+  const existing = document.getElementById('comingSoonToast');
+  if (existing) existing.remove();
+  const toast = document.createElement('div');
+  toast.id = 'comingSoonToast';
+  toast.textContent = '🚧 Coming Soon';
+  toast.style.cssText = `
+    position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+    background:#1e293b; color:#f8fafc; padding:10px 22px;
+    border-radius:8px; font-size:0.85rem; font-weight:600;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3); z-index:9999;
+    animation: fadeInUp 0.2s ease;
+  `;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 2200);
+}
+
+function speakQuestion(text, langOverride, onEnd) {
   if (!ttsEnabled || !('speechSynthesis' in window)) {
     console.log('[TTS] Disabled or unavailable');
+    if (onEnd) onEnd();
     return;
   }
 
@@ -33,31 +136,58 @@ function speakQuestion(text, langOverride) {
 
     if (lang === 'hi') {
       utterance.lang = 'hi-IN';
-      const hiVoice = voices.find(v => v.lang.startsWith('hi'))
-        || voices.find(v => v.lang === 'hi-IN');
+      const hiVoice = voices.find(v => v.lang === 'hi-IN')
+        || voices.find(v => v.lang.startsWith('hi'));
       if (hiVoice) { utterance.voice = hiVoice; console.log(`[TTS] Hindi voice: ${hiVoice.name}`); }
     } else {
-      utterance.lang = 'en-IN';
-      const enVoice = voices.find(v => v.lang.startsWith('en') && v.name.includes('Samantha'))
-        || voices.find(v => v.lang.startsWith('en-IN'))
-        || voices.find(v => v.lang.startsWith('en-') && !v.name.includes('Compact'))
-        || voices.find(v => v.lang.startsWith('en'));
-      if (enVoice) { utterance.voice = enVoice; console.log(`[TTS] English voice: ${enVoice.name}`); }
+      // Use pinned voice from dropdown; set utterance.lang to match voice locale
+      const pinned = ttsSelectedVoiceName
+        ? voices.find(v => v.name === ttsSelectedVoiceName)
+        : null;
+      if (pinned) {
+        utterance.voice = pinned;
+        utterance.lang = pinned.lang;
+        console.log(`[TTS] Using pinned voice: ${pinned.name} (${pinned.lang})`);
+      } else {
+        // Fallback: first available en-US voice, else any English
+        const fallback = voices.find(v => v.lang === 'en-US')
+          || voices.find(v => v.lang.startsWith('en'));
+        if (fallback) { utterance.voice = fallback; utterance.lang = fallback.lang; }
+        console.log(`[TTS] Fallback voice: ${fallback ? fallback.name : 'browser default'}`);
+      }
     }
 
-    utterance.onstart = () => console.log('[TTS] Started speaking');
-    utterance.onend = () => console.log('[TTS] Finished speaking');
-    utterance.onerror = (e) => console.error('[TTS] Error:', e.error);
+    // Guard against double-fire (cancel() on a previous utterance can fire onend)
+    let callbackFired = false;
+    const fireOnEnd = () => {
+      if (callbackFired) return;
+      callbackFired = true;
+      clearInterval(keepAlive);
+      clearTimeout(startupGuard);
+      if (onEnd) onEnd();
+    };
+
+    utterance.onstart = () => { console.log('[TTS] Started speaking'); clearTimeout(startupGuard); };
+    utterance.onend = () => { console.log('[TTS] Finished speaking'); fireOnEnd(); };
+    utterance.onerror = (e) => { console.error('[TTS] Error:', e.error); fireOnEnd(); };
 
     speechSynthesis.speak(utterance);
 
     // Chrome workaround: Chrome sometimes pauses speech after 15s.
-    // Periodic resume keeps it going.
+    // Use resume() only (no pause first) to avoid the audible stutter on Indian voices.
     const keepAlive = setInterval(() => {
       if (!speechSynthesis.speaking) { clearInterval(keepAlive); return; }
-      speechSynthesis.pause();
       speechSynthesis.resume();
     }, 10000);
+
+    // Safety fallback: if the browser silently blocks TTS (autoplay policy),
+    // neither onend nor onerror fires. Fire the callback after 800ms if speech never started.
+    const startupGuard = setTimeout(() => {
+      if (!speechSynthesis.speaking) {
+        console.warn('[TTS] Speech did not start within 800ms — firing callback as fallback.');
+        fireOnEnd();
+      }
+    }, 800);
   };
 
   // Voices may not be loaded yet — wait with timeout
@@ -83,10 +213,12 @@ function speakQuestion(text, langOverride) {
   }
 }
 
-// Preload voices (needed on some browsers)
+// Preload voices and populate dropdown (needed on some browsers)
 if ('speechSynthesis' in window) {
   speechSynthesis.getVoices();
-  speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices();
+  speechSynthesis.onvoiceschanged = () => populateTTSVoiceDropdown();
+  // Fallback for browsers that load voices synchronously
+  setTimeout(populateTTSVoiceDropdown, 300);
 }
 
 // ── Distance chart stimuli (from FSMv3.1_R2) ──
@@ -313,9 +445,6 @@ function showLanguageSelection(pendingData) {
   const chartEl = document.getElementById('letterChart');
   if (chartEl) chartEl.style.display = 'none';
 
-  // Speak in English (neutral, before language is chosen)
-  speakQuestion('Please select your preferred language. English or Hindi?', 'en');
-
   const grid = document.getElementById('optionsGrid');
   grid.innerHTML = '';
 
@@ -334,14 +463,13 @@ function showLanguageSelection(pendingData) {
   hiBtn.onclick = () => selectLanguage('hi', _langSelectPendingData);
   grid.appendChild(hiBtn);
 
-  // If voice is enabled, listen for language choice
-  if (voiceEnabled && SpeechRecognition) {
-    updateVoiceStatus('Say "English" or "Hindi"');
-    playBeep();
-    setTimeout(() => {
-      startVoiceCapture('LANG_SELECT', ['ENGLISH', 'HINDI'], 0);
-    }, 200);
-  }
+  // Speak first, then beep + listen only after TTS finishes (prevents mic from picking up TTS)
+  speakQuestion('Please select your preferred language. English or Hindi?', 'en', () => {
+    if (voiceEnabled && SpeechRecognition) {
+      updateVoiceStatus('Say "English" or "Hindi"');
+      playBeep().then(() => setTimeout(() => startVoiceCapture('LANG_SELECT', ['ENGLISH', 'HINDI'], 0), 200));
+    }
+  });
 }
 
 function selectLanguage(lang, pendingData) {
@@ -534,19 +662,11 @@ async function showQuestion(data) {
   const isAutoFlip = data.auto_flip;
 
   if (ttsEnabled && !isAutoFlip) {
-    speakQuestion(localizedQuestion);
-    const waitForSpeech = () => {
-      if (speechSynthesis.speaking) {
-        setTimeout(waitForSpeech, 100);
-      } else {
-        setTimeout(async () => {
-          await playBeep();
-          _inputEnabled = true; // Enable ALL input (voice, gamepad, keyboard) after beep
-          if (canListen) startVoiceCapture(data.state, data.options || [], data.step);
-        }, 300);
-      }
-    };
-    setTimeout(waitForSpeech, 200);
+    speakQuestion(localizedQuestion, null, async () => {
+      await playBeep();
+      _inputEnabled = true; // Enable ALL input (voice, gamepad, keyboard) after beep
+      if (canListen) startVoiceCapture(data.state, data.options || [], data.step);
+    });
   } else if (!isAutoFlip) {
     playBeep().then(() => {
       _inputEnabled = true;
@@ -753,19 +873,9 @@ function startVoiceCapture(state, options, step) {
           const retryPrompt = sessionLanguage === 'hi'
             ? `फिर से सुनिए। ${questionText}`
             : `Let me repeat. ${questionText}`;
-          speakQuestion(retryPrompt);
-          // Wait for TTS, then beep + listen
-          const waitAndListen = () => {
-            if (speechSynthesis.speaking) {
-              setTimeout(waitAndListen, 100);
-            } else {
-              setTimeout(() => {
-                playBeep();
-                setTimeout(() => startVoiceCapture(capturedState, capturedOptions, capturedStep), 200);
-              }, 300);
-            }
-          };
-          setTimeout(waitAndListen, 200);
+          speakQuestion(retryPrompt, null, () => {
+            playBeep().then(() => setTimeout(() => startVoiceCapture(capturedState, capturedOptions, capturedStep), 200));
+          });
         }
       } else if (event.error === 'aborted') {
         // Intentional abort — don't restart
@@ -817,18 +927,9 @@ function startVoiceCapture(state, options, step) {
         const retryPrompt = sessionLanguage === 'hi'
           ? `सुनाई नहीं दिया। ${questionText}`
           : `I could not hear you. ${questionText}`;
-        speakQuestion(retryPrompt);
-        const waitAndListen = () => {
-          if (speechSynthesis.speaking) {
-            setTimeout(waitAndListen, 100);
-          } else {
-            setTimeout(() => {
-              playBeep();
-              setTimeout(() => startVoiceCapture(capturedState, capturedOptions, capturedStep), 200);
-            }, 300);
-          }
-        };
-        setTimeout(waitAndListen, 200);
+        speakQuestion(retryPrompt, null, () => {
+          playBeep().then(() => setTimeout(() => startVoiceCapture(capturedState, capturedOptions, capturedStep), 200));
+        });
       }
     };
 
@@ -1074,18 +1175,9 @@ function repeatAndListen(state, options, step) {
   const retryPrompt = sessionLanguage === 'hi'
     ? `समझ नहीं आया। ${questionText}`
     : `I didn't catch that. ${questionText}`;
-  speakQuestion(retryPrompt);
-  const waitAndListen = () => {
-    if (speechSynthesis.speaking) {
-      setTimeout(waitAndListen, 100);
-    } else {
-      setTimeout(() => {
-        playBeep();
-        setTimeout(() => startVoiceCapture(state, options, step), 200);
-      }, 300);
-    }
-  };
-  setTimeout(waitAndListen, 200);
+  speakQuestion(retryPrompt, null, () => {
+    playBeep().then(() => setTimeout(() => startVoiceCapture(state, options, step), 200));
+  });
 }
 
 function getCurrentStimulusLetters() {
@@ -1170,18 +1262,9 @@ async function matchVoiceResponseWithAlternatives(primary, alternatives, state, 
       const retryPrompt = sessionLanguage === 'hi'
         ? `समझ नहीं आया। ${questionText}`
         : `I didn't catch that. ${questionText}`;
-      speakQuestion(retryPrompt);
-      const waitAndListen = () => {
-        if (speechSynthesis.speaking) {
-          setTimeout(waitAndListen, 100);
-        } else {
-          setTimeout(() => {
-            playBeep();
-            setTimeout(() => startVoiceCapture(state, options, 0), 200);
-          }, 300);
-        }
-      };
-      setTimeout(waitAndListen, 200);
+      speakQuestion(retryPrompt, null, () => {
+        playBeep().then(() => setTimeout(() => startVoiceCapture(state, options, 0), 200));
+      });
     }
   }
 }
@@ -1684,6 +1767,8 @@ async function discardSession() {
 function cleanup() {
   if (heartbeatInterval) clearInterval(heartbeatInterval);
   sessionStorage.removeItem('session_id');
+  sessionStorage.removeItem('session_language');
+  sessionStorage.removeItem('cached_state');
   window.location.href = '/intake';
 }
 
@@ -2168,20 +2253,12 @@ function handleAutoFlip(data) {
     ? `यह विकल्प 1 है। ध्यान से देखिए।`
     : `This is Dot Chart. First option. Look carefully.`;
   document.getElementById('questionText').textContent = flip1Text;
-  speakQuestion(flip1Text);
-
   const waitSeconds = data.flip_wait_seconds || 2;
 
-  // Wait for Flip 1 TTS to finish, THEN wait 2s, THEN flip
-  const waitForFlip1Speech = () => {
-    if (speechSynthesis.speaking) {
-      setTimeout(waitForFlip1Speech, 100);
-      return;
-    }
-    // Flip 1 speech done — now wait the observation period
+  // Wait for Flip 1 TTS to finish via onEnd callback, THEN wait the observation period
+  speakQuestion(flip1Text, null, () => {
     _autoFlipTimer = setTimeout(doFlip2, waitSeconds * 1000);
-  };
-  setTimeout(waitForFlip1Speech, 200);
+  });
 
   async function doFlip2() {
     // Send handle command to flip to position 2
@@ -2202,23 +2279,16 @@ function handleAutoFlip(data) {
       ? `यह विकल्प 2 है। कौन सा बेहतर है? पहला, दूसरा, समान, या फिर से कहिए।`
       : `This is second option. Which is better? Say first, second, same, or repeat.`;
     document.getElementById('questionText').textContent = flip2Text;
-    speakQuestion(flip2Text);
-
-    // Wait for TTS to finish, then beep + enable buttons + listen
-    const waitAndEnable = () => {
-      if (speechSynthesis.speaking) {
-        setTimeout(waitAndEnable, 100);
-      } else {
-        setOptionsEnabled(true);
-        playBeep().then(() => {
-          _inputEnabled = true; // Enable ALL input after Flip 2 beep
-          if (voiceEnabled && currentState) {
-            startVoiceCapture(currentState.state, currentState.options || [], currentState.step);
-          }
-        });
-      }
-    };
-    setTimeout(waitAndEnable, 200);
+    // Wait for Flip 2 TTS to finish via onEnd callback, then beep + enable buttons + listen
+    speakQuestion(flip2Text, null, () => {
+      setOptionsEnabled(true);
+      playBeep().then(() => {
+        _inputEnabled = true; // Enable ALL input after Flip 2 beep
+        if (voiceEnabled && currentState) {
+          startVoiceCapture(currentState.state, currentState.options || [], currentState.step);
+        }
+      });
+    });
   }
 }
 

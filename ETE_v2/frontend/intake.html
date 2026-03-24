@@ -907,6 +907,10 @@ document.getElementById('intakeForm').addEventListener('submit', async (e) => {
     const result = await resp.json();
     const sessionId = result.session_id;
 
+    // Clear stale data from any previous session before storing new one
+    sessionStorage.removeItem('session_language');
+    sessionStorage.removeItem('cached_state');
+
     // Store in sessionStorage
     sessionStorage.setItem('session_id', sessionId);
     sessionStorage.setItem('phoropter_id', data.phoropter_id);
