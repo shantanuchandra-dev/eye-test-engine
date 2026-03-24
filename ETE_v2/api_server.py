@@ -23,6 +23,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 
+from fsm.config.calibration_loader import CalibrationLoader
 from session_orchestrator import SessionOrchestrator
 
 # ── IO imports ──
@@ -127,6 +128,11 @@ def serve_dashboard():
     return send_from_directory("frontend", "dashboard.html")
 
 
+@app.route("/cal")
+def serve_calibration():
+    return send_from_directory("frontend", "calibration.html")
+
+
 @app.route("/<path:path>")
 def serve_static(path):
     return send_from_directory("frontend", path)
@@ -142,6 +148,40 @@ def get_config():
         "backend_url": BACKEND_URL,
         "phoropter_base_url": PHOROPTER_BASE_URL,
     })
+
+
+# ═══════════════════════════════════════════════════════════════════
+# CALIBRATION EDITOR
+# ═══════════════════════════════════════════════════════════════════
+
+CALIBRATION_PASSWORD = "SidShan"
+
+
+@app.route("/api/calibration", methods=["GET"])
+def get_calibration():
+    try:
+        rows = CalibrationLoader.read_full(CALIBRATION_PATH)
+        return jsonify(rows)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/calibration", methods=["PUT"])
+def update_calibration():
+    data = _request_payload()
+    password = data.get("password", "")
+    if password != CALIBRATION_PASSWORD:
+        return jsonify({"error": "Invalid password"}), 403
+
+    updates = data.get("parameters", {})
+    if not updates:
+        return jsonify({"error": "No parameters provided"}), 400
+
+    try:
+        count = CalibrationLoader.write_values(CALIBRATION_PATH, updates)
+        return jsonify({"status": "saved", "updated_count": count})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 # ═══════════════════════════════════════════════════════════════════

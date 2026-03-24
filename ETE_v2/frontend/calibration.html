@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ETE v2 — Calibration Editor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ink: #0f172a;
+  --ink-secondary: #475569;
+  --ink-muted: #94a3b8;
+  --surface: #f1f5f9;
+  --surface-card: #ffffff;
+  --border: #e2e8f0;
+  --border-focus: #3b82f6;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-glow: rgba(37,99,235,0.12);
+  --success: #059669;
+  --success-bg: rgba(5,150,105,0.08);
+  --warning: #d97706;
+  --warning-bg: rgba(217,119,6,0.06);
+  --danger: #dc2626;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --shadow-sm: 0 1px 2px rgba(15,23,42,0.06);
+  --shadow-md: 0 4px 12px rgba(15,23,42,0.08);
+  --shadow-lg: 0 8px 30px rgba(15,23,42,0.12);
+  --font-body: 'DM Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', monospace;
+}
+
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+html { font-size: 15px; }
+body {
+  font-family: var(--font-body);
+  background: var(--surface);
+  color: var(--ink);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Topbar ── */
+.topbar {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--ink);
+  color: white;
+  padding: 0 1.5rem;
+  height: 50px;
+  display: flex; align-items: center; justify-content: space-between;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+}
+.topbar-left { display: flex; align-items: center; gap: 14px; }
+.topbar-brand { font-weight: 600; font-size: 0.95rem; letter-spacing: -0.02em; }
+.topbar-badge {
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 0.75rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  background: rgba(37,99,235,0.3);
+  color: rgba(255,255,255,0.9);
+}
+.topbar-right a {
+  color: rgba(255,255,255,0.7);
+  text-decoration: none;
+  font-size: 0.82rem;
+  font-weight: 500;
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255,255,255,0.15);
+  transition: all 0.15s;
+}
+.topbar-right a:hover { color: white; background: rgba(255,255,255,0.1); }
+
+/* ── Password Gate ── */
+.gate-overlay {
+  min-height: calc(100vh - 50px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 2rem;
+}
+.gate-card {
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 3rem 2.5rem;
+  text-align: center;
+  max-width: 380px;
+  width: 100%;
+}
+.gate-icon {
+  width: 56px; height: 56px;
+  margin: 0 auto 1.2rem;
+  background: var(--accent-glow);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+}
+.gate-icon svg { width: 24px; height: 24px; color: var(--accent); }
+.gate-title {
+  font-size: 1.15rem; font-weight: 600;
+  margin-bottom: 0.4rem;
+}
+.gate-sub {
+  font-size: 0.82rem; color: var(--ink-muted);
+  margin-bottom: 1.5rem;
+}
+.gate-input-row {
+  display: flex; gap: 8px;
+}
+.gate-input {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font: 400 0.88rem var(--font-body);
+  outline: none;
+  transition: border-color 0.15s;
+}
+.gate-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+.gate-btn {
+  padding: 10px 20px;
+  background: var(--accent);
+  color: white; border: none;
+  border-radius: var(--radius-sm);
+  font: 600 0.85rem var(--font-body);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.gate-btn:hover { background: var(--accent-hover); }
+.gate-error {
+  font-size: 0.78rem; color: var(--danger);
+  margin-top: 10px; display: none;
+}
+
+/* ── Content Area ── */
+.content-area {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 1.5rem 1.5rem 6rem;
+  display: none;
+}
+
+/* ── Section Cards ── */
+.section-card {
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 12px;
+  overflow: hidden;
+  transition: box-shadow 0.2s;
+}
+.section-card:hover { box-shadow: var(--shadow-md); }
+.section-header {
+  padding: 12px 16px;
+  display: flex; align-items: center; justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+.section-header:hover { background: rgba(37,99,235,0.03); }
+.section-header-left { display: flex; align-items: center; gap: 10px; }
+.section-name {
+  font: 600 0.82rem var(--font-mono);
+  letter-spacing: 0.03em;
+  color: var(--ink);
+}
+.section-count {
+  font-size: 0.7rem;
+  color: var(--ink-muted);
+  background: var(--surface);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.section-chevron {
+  width: 18px; height: 18px;
+  color: var(--ink-muted);
+  transition: transform 0.25s ease;
+}
+.section-card.collapsed .section-chevron { transform: rotate(-90deg); }
+.section-body {
+  max-height: 2000px;
+  overflow: hidden;
+  transition: max-height 0.35s ease, opacity 0.25s ease;
+  opacity: 1;
+}
+.section-card.collapsed .section-body {
+  max-height: 0;
+  opacity: 0;
+}
+
+/* ── Parameter Rows ── */
+.param-row {
+  padding: 10px 16px;
+  border-top: 1px solid #f1f5f9;
+  display: grid;
+  grid-template-columns: 1fr 120px 56px;
+  gap: 10px;
+  align-items: start;
+  transition: background 0.15s;
+}
+.param-row:hover { background: #fafbfc; }
+.param-key-block {}
+.param-key {
+  font: 500 0.8rem var(--font-body);
+  color: var(--ink);
+  line-height: 1.4;
+}
+.param-explanation {
+  font-size: 0.68rem;
+  color: var(--ink-muted);
+  line-height: 1.4;
+  margin-top: 2px;
+}
+.param-value-input {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font: 500 0.8rem var(--font-mono);
+  text-align: right;
+  width: 100%;
+  outline: none;
+  transition: all 0.2s;
+  background: #fafbfc;
+}
+.param-value-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+  background: white;
+}
+.param-value-input.modified {
+  border-color: var(--warning);
+  background: var(--warning-bg);
+  box-shadow: 0 0 0 2px rgba(217,119,6,0.1);
+}
+.param-unit {
+  font: 500 0.68rem var(--font-mono);
+  color: var(--ink-muted);
+  background: var(--surface);
+  padding: 5px 0;
+  border-radius: var(--radius-sm);
+  text-align: center;
+  white-space: nowrap;
+  align-self: start;
+  margin-top: 1px;
+}
+
+/* ── Sticky Footer ── */
+.save-footer {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  background: var(--surface-card);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -4px 16px rgba(15,23,42,0.06);
+  padding: 12px 1.5rem;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  z-index: 50;
+}
+.save-footer.visible { display: flex; }
+.modified-badge {
+  font: 500 0.78rem var(--font-body);
+  color: var(--warning);
+  background: var(--warning-bg);
+  padding: 5px 12px;
+  border-radius: 20px;
+}
+.save-btn {
+  padding: 9px 28px;
+  background: var(--accent);
+  color: white; border: none;
+  border-radius: var(--radius-sm);
+  font: 600 0.85rem var(--font-body);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.save-btn:hover { background: var(--accent-hover); transform: translateY(-1px); box-shadow: var(--shadow-md); }
+.save-btn:disabled { background: var(--ink-muted); cursor: not-allowed; transform: none; box-shadow: none; }
+
+/* ── Toast ── */
+.toast {
+  position: fixed; top: 64px; right: 20px;
+  padding: 12px 20px;
+  border-radius: var(--radius-md);
+  font: 500 0.82rem var(--font-body);
+  box-shadow: var(--shadow-lg);
+  z-index: 200;
+  transform: translateX(120%);
+  transition: transform 0.3s ease;
+}
+.toast.show { transform: translateX(0); }
+.toast.success { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+.toast.error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+
+/* ── Search ── */
+.search-bar {
+  margin-bottom: 16px;
+  position: relative;
+}
+.search-input {
+  width: 100%;
+  padding: 10px 14px 10px 40px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font: 400 0.85rem var(--font-body);
+  background: var(--surface-card);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+.search-icon {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  width: 18px; height: 18px; color: var(--ink-muted);
+}
+
+/* ── Stats Bar ── */
+.stats-bar {
+  display: flex; gap: 16px;
+  margin-bottom: 16px;
+  font-size: 0.78rem;
+  color: var(--ink-muted);
+}
+.stats-bar strong { color: var(--ink); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<!-- Topbar -->
+<div class="topbar">
+  <div class="topbar-left">
+    <span class="topbar-brand">ETE v2</span>
+    <span class="topbar-badge">Calibration</span>
+  </div>
+  <div class="topbar-right">
+    <a href="/">Back to App</a>
+  </div>
+</div>
+
+<!-- Password Gate -->
+<div class="gate-overlay" id="gateOverlay">
+  <div class="gate-card">
+    <div class="gate-icon">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>
+      </svg>
+    </div>
+    <div class="gate-title">Calibration Editor</div>
+    <div class="gate-sub">Enter password to view and modify global calibration parameters</div>
+    <div class="gate-input-row">
+      <input type="password" class="gate-input" id="gatePassword" placeholder="Password" autofocus>
+      <button class="gate-btn" onclick="unlock()">Unlock</button>
+    </div>
+    <div class="gate-error" id="gateError">Incorrect password</div>
+  </div>
+</div>
+
+<!-- Content (hidden until unlocked) -->
+<div class="content-area" id="contentArea">
+  <div class="search-bar">
+    <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+    </svg>
+    <input type="text" class="search-input" id="searchInput" placeholder="Search parameters...">
+  </div>
+  <div class="stats-bar" id="statsBar"></div>
+  <div id="sectionsContainer"></div>
+</div>
+
+<!-- Save Footer -->
+<div class="save-footer" id="saveFooter">
+  <span class="modified-badge" id="modifiedBadge">0 modified</span>
+  <button class="save-btn" id="saveBtn" onclick="save()">Save Changes</button>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+const API = '';
+const PASSWORD = 'SidShan';
+const UNLOCK_KEY = 'cal_unlocked_until';
+
+let calibData = [];     // Original data from server
+let modifiedKeys = {};  // { parameter_key: new_value }
+
+// ── Password Gate ──
+
+document.getElementById('gatePassword').addEventListener('keydown', e => {
+  if (e.key === 'Enter') unlock();
+});
+
+function unlock() {
+  const pw = document.getElementById('gatePassword').value;
+  if (pw !== PASSWORD) {
+    const err = document.getElementById('gateError');
+    err.style.display = 'block';
+    document.getElementById('gatePassword').value = '';
+    document.getElementById('gatePassword').focus();
+    setTimeout(() => err.style.display = 'none', 2000);
+    return;
+  }
+  localStorage.setItem(UNLOCK_KEY, String(Date.now() + 24 * 60 * 60 * 1000));
+  showEditor();
+}
+
+function checkAutoUnlock() {
+  const until = parseInt(localStorage.getItem(UNLOCK_KEY) || '0');
+  if (Date.now() < until) {
+    showEditor();
+    return true;
+  }
+  return false;
+}
+
+function showEditor() {
+  document.getElementById('gateOverlay').style.display = 'none';
+  document.getElementById('contentArea').style.display = 'block';
+  loadCalibration();
+}
+
+// ── Load & Render ──
+
+async function loadCalibration() {
+  try {
+    const resp = await fetch(`${API}/api/calibration`);
+    calibData = await resp.json();
+    if (calibData.error) { showToast(calibData.error, 'error'); return; }
+    modifiedKeys = {};
+    updateFooter();
+    render(calibData);
+  } catch (e) {
+    showToast('Failed to load: ' + e.message, 'error');
+  }
+}
+
+function render(data) {
+  // Group by section, preserving CSV order
+  const sections = [];
+  const sectionMap = {};
+  for (const row of data) {
+    const s = row.section || 'UNCATEGORIZED';
+    if (!sectionMap[s]) {
+      sectionMap[s] = [];
+      sections.push(s);
+    }
+    sectionMap[s].push(row);
+  }
+
+  document.getElementById('statsBar').innerHTML =
+    `<span><strong>${data.length}</strong> parameters</span>` +
+    `<span><strong>${sections.length}</strong> sections</span>`;
+
+  const container = document.getElementById('sectionsContainer');
+  container.innerHTML = '';
+
+  for (const section of sections) {
+    const params = sectionMap[section];
+    const card = document.createElement('div');
+    card.className = 'section-card';
+    card.dataset.section = section;
+    card.innerHTML = `
+      <div class="section-header" onclick="toggleSection(this)">
+        <div class="section-header-left">
+          <span class="section-name">${section}</span>
+          <span class="section-count">${params.length}</span>
+        </div>
+        <svg class="section-chevron" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </div>
+      <div class="section-body">
+        ${params.map(p => paramRowHTML(p)).join('')}
+      </div>
+    `;
+    container.appendChild(card);
+  }
+}
+
+function paramRowHTML(p) {
+  const val = modifiedKeys.hasOwnProperty(p.parameter_key) ? modifiedKeys[p.parameter_key] : p.value;
+  const modClass = modifiedKeys.hasOwnProperty(p.parameter_key) ? ' modified' : '';
+  return `
+    <div class="param-row" data-key="${p.parameter_key}">
+      <div class="param-key-block">
+        <div class="param-key">${p.parameter_key.replace(/_/g, ' ')}</div>
+        ${p.parameter_explanation ? `<div class="param-explanation">${p.parameter_explanation}</div>` : ''}
+      </div>
+      <input class="param-value-input${modClass}" type="text"
+             value="${escapeAttr(val)}"
+             data-key="${p.parameter_key}"
+             data-original="${escapeAttr(p.value)}"
+             oninput="onParamChange(this)">
+      <div class="param-unit">${p.unit_or_type || '—'}</div>
+    </div>`;
+}
+
+function escapeAttr(s) {
+  return (s || '').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
+// ── Interactions ──
+
+function toggleSection(header) {
+  header.closest('.section-card').classList.toggle('collapsed');
+}
+
+function onParamChange(input) {
+  const key = input.dataset.key;
+  const original = input.dataset.original;
+  const current = input.value;
+
+  if (current !== original) {
+    modifiedKeys[key] = current;
+    input.classList.add('modified');
+  } else {
+    delete modifiedKeys[key];
+    input.classList.remove('modified');
+  }
+  updateFooter();
+}
+
+function updateFooter() {
+  const count = Object.keys(modifiedKeys).length;
+  const footer = document.getElementById('saveFooter');
+  if (count > 0) {
+    footer.classList.add('visible');
+    document.getElementById('modifiedBadge').textContent = `${count} modified`;
+  } else {
+    footer.classList.remove('visible');
+  }
+}
+
+// ── Search ──
+
+document.getElementById('searchInput').addEventListener('input', function() {
+  const q = this.value.toLowerCase().trim();
+  const rows = document.querySelectorAll('.param-row');
+  const sections = document.querySelectorAll('.section-card');
+
+  if (!q) {
+    rows.forEach(r => r.style.display = '');
+    sections.forEach(s => { s.style.display = ''; s.classList.remove('collapsed'); });
+    return;
+  }
+
+  // Hide non-matching rows, collapse empty sections
+  const visibleSections = new Set();
+  rows.forEach(r => {
+    const key = (r.dataset.key || '').toLowerCase();
+    const explanation = (r.querySelector('.param-explanation')?.textContent || '').toLowerCase();
+    const match = key.includes(q) || explanation.includes(q);
+    r.style.display = match ? '' : 'none';
+    if (match) visibleSections.add(r.closest('.section-card')?.dataset.section);
+  });
+
+  sections.forEach(s => {
+    if (visibleSections.has(s.dataset.section)) {
+      s.style.display = '';
+      s.classList.remove('collapsed');
+    } else {
+      s.style.display = 'none';
+    }
+  });
+});
+
+// ── Save ──
+
+async function save() {
+  const btn = document.getElementById('saveBtn');
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+
+  try {
+    const resp = await fetch(`${API}/api/calibration`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: PASSWORD, parameters: modifiedKeys }),
+    });
+    const result = await resp.json();
+
+    if (!resp.ok) {
+      showToast(result.error || 'Save failed', 'error');
+      return;
+    }
+
+    showToast(`Saved ${result.updated_count} parameter${result.updated_count !== 1 ? 's' : ''}`, 'success');
+
+    // Reload to sync with disk state
+    await loadCalibration();
+  } catch (e) {
+    showToast('Error: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save Changes';
+  }
+}
+
+// ── Toast ──
+
+function showToast(msg, type) {
+  const toast = document.getElementById('toast');
+  toast.className = `toast ${type}`;
+  toast.textContent = msg;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 3000);
+}
+
+// ── Init ──
+if (!checkAutoUnlock()) {
+  document.getElementById('gateOverlay').style.display = 'flex';
+}
+</script>
+</body>
+</html>
