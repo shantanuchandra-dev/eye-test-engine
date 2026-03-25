@@ -116,6 +116,61 @@ class RefractionFSMEngine:
     def _axis_fixed_step(self) -> float:
         return float(self.cal.get("axis_fixed_step", 5))
 
+    def _quick_axis_scan_step(self) -> float:
+        return float(self.cal.get("quick_axis_scan_step", 45))
+
+    def _quick_axis_reversal_step(self) -> float:
+        return float(self.cal.get("quick_axis_reversal_step", 30))
+
+    def _quick_axis_refine_step_1(self) -> float:
+        return float(self.cal.get("quick_axis_refine_step_1", 10))
+
+    def _quick_axis_refine_step_2(self) -> float:
+        return float(self.cal.get("quick_axis_refine_step_2", 5))
+
+    def _axis_quick_search_active_for_state(self, state: str, dv) -> bool:
+        if state == "E":
+            return bool(getattr(dv, "dv_quick_axis_search_RE", False))
+        if state == "H":
+            return bool(getattr(dv, "dv_quick_axis_search_LE", False))
+        return False
+
+    def _axis_nominal_step(self, quick_active: bool, quick_phase: str) -> float:
+        if not quick_active:
+            return self._axis_fixed_step()
+        if quick_phase == "REFINE_10":
+            return self._quick_axis_refine_step_1()
+        if quick_phase == "REFINE_5":
+            return self._quick_axis_refine_step_2()
+        return self._quick_axis_scan_step()
+
+    def _quick_axis_delta(self, current: FSMRuntimeRow, normalized_response: str) -> tuple[float, float, str, str]:
+        phase = current.axis_quick_phase or "SEEK_45"
+        last_directional = current.axis_last_directional_response
+
+        if normalized_response not in ("ONE", "TWO"):
+            return 0.0, self._axis_nominal_step(True, phase), phase, last_directional
+
+        if phase == "SEEK_45":
+            if last_directional in ("ONE", "TWO") and normalized_response != last_directional:
+                step = self._quick_axis_reversal_step()
+                next_phase = "REFINE_10"
+            else:
+                step = self._quick_axis_scan_step()
+                next_phase = "SEEK_45"
+        elif phase == "REFINE_10":
+            # The quick-search ladder must always include one 10-degree move
+            # immediately after the 30-degree correction, regardless of which
+            # option wins on that next comparison.
+            step = self._quick_axis_refine_step_1()
+            next_phase = "REFINE_5"
+        else:
+            step = self._quick_axis_refine_step_2()
+            next_phase = "REFINE_5"
+
+        delta = jcc_axis_delta(normalized_response, step, positive_for_better_1=True)
+        return delta, step, next_phase, normalized_response
+
     def _normalize_response_value(self, state: str, response_value: str) -> str:
         value = str(response_value or "").strip().upper()
         if not value:
@@ -208,6 +263,9 @@ class RefractionFSMEngine:
         duo_flip: int,
         axis_step: float,
         axis_flip_count: int = 0,
+        axis_quick_search_active: bool = False,
+        axis_quick_phase: str = "",
+        axis_last_directional_response: str = "",
         jcc_power_start_re_cyl: Optional[float] = None,
         jcc_power_start_le_cyl: Optional[float] = None,
         near_bino_start_add_r: Optional[float] = None,
@@ -291,6 +349,9 @@ class RefractionFSMEngine:
             next_state=state,
             row_active=True,
             axis_flip_count=axis_flip_count,
+            axis_quick_search_active=axis_quick_search_active,
+            axis_quick_phase=axis_quick_phase,
+            axis_last_directional_response=axis_last_directional_response,
             jcc_power_start_re_cyl=jcc_power_start_re_cyl,
             jcc_power_start_le_cyl=jcc_power_start_le_cyl,
             near_bino_start_add_r=near_bino_start_add_r,
@@ -456,6 +517,9 @@ class RefractionFSMEngine:
             duo_flip=0,
             axis_step=self._axis_fixed_step(),
             axis_flip_count=0,
+            axis_quick_search_active=False,
+            axis_quick_phase="",
+            axis_last_directional_response="",
             jcc_power_start_re_cyl=None,
             jcc_power_start_le_cyl=None,
             near_bino_start_add_r=None,
@@ -504,8 +568,10 @@ class RefractionFSMEngine:
 
         next_duo_iter = row.duo_iter if row.next_state == row.state else 0
         next_duo_flip = row.duo_flip if row.next_state == row.state else 0
-        next_axis_step = row.axis_step if row.next_state == row.state else self._axis_fixed_step()
         next_axis_flip_count = row.axis_flip_count if row.next_state == row.state else 0
+        next_axis_quick_search_active = row.axis_quick_search_active if row.next_state == row.state else False
+        next_axis_quick_phase = row.axis_quick_phase if row.next_state == row.state else ""
+        next_axis_last_directional_response = row.axis_last_directional_response if row.next_state == row.state else ""
         next_jcc_power_start_re_cyl = row.jcc_power_start_re_cyl if row.next_state == row.state else None
         next_jcc_power_start_le_cyl = row.jcc_power_start_le_cyl if row.next_state == row.state else None
 
@@ -568,6 +634,18 @@ class RefractionFSMEngine:
         if row.next_state == "I" and row.state != "I":
             next_jcc_power_start_le_cyl = next_le_cyl
 
+        if row.next_state in ("E", "H") and row.state != row.next_state:
+            next_axis_quick_search_active = self._axis_quick_search_active_for_state(row.next_state, dv)
+            next_axis_quick_phase = "SEEK_45" if next_axis_quick_search_active else ""
+            next_axis_last_directional_response = ""
+
+        if row.next_state in ("E", "H"):
+            next_axis_step = self._axis_nominal_step(next_axis_quick_search_active, next_axis_quick_phase)
+        elif row.next_state == row.state:
+            next_axis_step = row.axis_step
+        else:
+            next_axis_step = self._axis_fixed_step()
+
         next_row = self._row_for_state(
             step=row.step + 1,
             visit_id=row.visit_id,
@@ -589,6 +667,9 @@ class RefractionFSMEngine:
             duo_flip=next_duo_flip,
             axis_step=next_axis_step,
             axis_flip_count=next_axis_flip_count,
+            axis_quick_search_active=next_axis_quick_search_active,
+            axis_quick_phase=next_axis_quick_phase,
+            axis_last_directional_response=next_axis_last_directional_response,
             jcc_power_start_re_cyl=next_jcc_power_start_re_cyl,
             jcc_power_start_le_cyl=next_jcc_power_start_le_cyl,
             near_bino_start_add_r=next_near_bino_start_add_r,
@@ -644,10 +725,22 @@ class RefractionFSMEngine:
                 coarse_endpoint_reached = True
 
         elif current.state == "E":
-            row.da_re = jcc_axis_delta(normalized_response, current.axis_step, positive_for_better_1=True)
+            if current.axis_quick_search_active:
+                row.da_re, row.axis_step, row.axis_quick_phase, row.axis_last_directional_response = self._quick_axis_delta(
+                    current,
+                    normalized_response,
+                )
+            else:
+                row.da_re = jcc_axis_delta(normalized_response, current.axis_step, positive_for_better_1=True)
 
         elif current.state == "H":
-            row.da_le = jcc_axis_delta(normalized_response, current.axis_step, positive_for_better_1=True)
+            if current.axis_quick_search_active:
+                row.da_le, row.axis_step, row.axis_quick_phase, row.axis_last_directional_response = self._quick_axis_delta(
+                    current,
+                    normalized_response,
+                )
+            else:
+                row.da_le = jcc_axis_delta(normalized_response, current.axis_step, positive_for_better_1=True)
 
         elif current.state == "F":
             proposed_dc = jcc_power_cyl_delta(normalized_response, current.cyl_step)
@@ -778,14 +871,14 @@ class RefractionFSMEngine:
             row.duo_flip = 0
 
         if current.state in ("E", "H"):
-            row.axis_step = self._axis_fixed_step()
-
             axis_flip = (
                 current.prev_axis_response in ("ONE", "TWO")
                 and normalized_response in ("ONE", "TWO")
                 and current.prev_axis_response != normalized_response
             )
             row.axis_flip_count = current.axis_flip_count + 1 if axis_flip else current.axis_flip_count
+            if not current.axis_quick_search_active:
+                row.axis_step = self._axis_fixed_step()
         else:
             row.axis_flip_count = 0
 
