@@ -145,6 +145,15 @@ class DerivedVariablesEngine:
             self.cal.get("jcc_axis_max_flips", 3)
         )
 
+        quick_axis_search_re = self._derive_quick_axis_search_enabled(
+            patient.autorefractor_re,
+            patient.lenso_re,
+        )
+        quick_axis_search_le = self._derive_quick_axis_search_enabled(
+            patient.autorefractor_le,
+            patient.lenso_le,
+        )
+
         near_binoc_step = float(
             self.cal.get("near_binoc_step_D", 0.25)
         )
@@ -204,6 +213,8 @@ class DerivedVariablesEngine:
 
             dv_jcc_axis_same_required=jcc_axis_same_required,
             dv_jcc_axis_max_flips=jcc_axis_max_flips,
+            dv_quick_axis_search_RE=quick_axis_search_re,
+            dv_quick_axis_search_LE=quick_axis_search_le,
 
             dv_near_binoc_step_D=near_binoc_step,
             dv_near_binoc_max_plus_steps=near_binoc_max_plus,
@@ -642,6 +653,13 @@ class DerivedVariablesEngine:
         if symptom_risk == "None" and medical_risk == "None" and stability == "Stable":
             return "Fast"
         return "Normal"
+
+    def _derive_quick_axis_search_enabled(
+        self,
+        ar: Optional[EyePrescription],
+        lenso: Optional[EyePrescription],
+    ) -> bool:
+        return self._is_cardinal_axis(ar.axis if ar else None) or self._is_cardinal_axis(lenso.axis if lenso else None)
 
     def _use_slow_axis_policy_for_ar_start(
         self,

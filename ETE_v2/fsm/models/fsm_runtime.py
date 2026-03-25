@@ -94,6 +94,9 @@ class FSMRuntimeRow:
 
     # JCC Axis tracking
     axis_flip_count: int = 0
+    axis_quick_search_active: bool = False
+    axis_quick_phase: str = ""
+    axis_last_directional_response: str = ""
 
     # JCC Power entry cylinder (used for relative cylinder displacement compensation)
     jcc_power_start_re_cyl: Optional[float] = None
