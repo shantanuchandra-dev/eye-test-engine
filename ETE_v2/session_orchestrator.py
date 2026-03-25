@@ -547,7 +547,7 @@ class SessionOrchestrator:
             "phase_step_count": row.phase_step_count,
             "phoropter_commands": self.get_phoropter_commands() if not is_terminal else {},
             "auto_flip": state in ("E", "F", "H", "I") and not is_terminal,
-            "flip_wait_seconds": 2,
+            "flip_wait_seconds": 1,
             "flip_state": "flip1",  # Always starts at flip1; frontend sends handle after delay
         }
 
