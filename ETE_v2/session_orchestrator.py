@@ -225,26 +225,20 @@ class SessionOrchestrator:
         ar_pd_mm = _snap_ar_pd_mm(patient_data.get("ar_pd_mm", 64.0))
         if self.phoropter_auto_dispatch and self.phoropter_id:
             reset_url = f"{self.phoropter_base_url}/phoropter/{self.phoropter_id}/reset"
-            if math.isclose(ar_pd_mm, 64.0):
-                self._log_conversation(
-                    "system",
-                    "Phoropter /reset skipped (PD at default 64 mm)",
-                )
-            else:
-                self._post_to_phoropter(reset_url, {})
-                self._log_conversation("system", "Phoropter reset to 0/0/180 (before PD adjust)")
-                self._post_to_phoropter(
-                    self._phoropter_url(),
-                    {
-                        "test_cases": [
-                            {"case_id": "test_pd_auto", "pd": float(ar_pd_mm)},
-                        ]
-                    },
-                )
-                self._log_conversation(
-                    "system",
-                    f"Phoropter PD set to {ar_pd_mm} mm (test_pd_auto)",
-                )
+            self._post_to_phoropter(reset_url, {})
+            self._log_conversation("system", "Phoropter reset to 0/0/180 (before PD adjust)")
+            self._post_to_phoropter(
+                self._phoropter_url(),
+                {
+                    "test_cases": [
+                        {"case_id": "test_pd_auto", "pd": float(ar_pd_mm)},
+                    ]
+                },
+            )
+            self._log_conversation(
+                "system",
+                f"Phoropter PD set to {ar_pd_mm} mm (test_pd_auto)",
+            )
 
         # Step 2: Set prev-state to 0/0/180 (post-reset state) so the broker
         # can compute the correct delta clicks from zero to the starting Rx
@@ -461,6 +455,7 @@ class SessionOrchestrator:
 
         return PatientInput(
             visit_id=self.session_id,
+            patient_name=data.get("patient_name", ""),
             age=data.get("age"),
             occupation=data.get("occupation", ""),
             screen_time_hours=data.get("screen_time_hours"),

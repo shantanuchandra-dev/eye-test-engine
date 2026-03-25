@@ -658,7 +658,7 @@ def session_end(session_id):
         phases_completed=orch.phases_completed,
         duration_per_phase=orch.duration_per_phase,
         operator_name=data.get("operator_name", ""),
-        customer_name=data.get("customer_name", ""),
+        customer_name=data.get("customer_name") or (orch.patient_input.patient_name if orch.patient_input else ""),
         customer_age=data.get("customer_age", ""),
         customer_gender=data.get("customer_gender", ""),
         qualitative_feedback=data.get("qualitative_feedback", ""),

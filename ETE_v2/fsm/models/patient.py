@@ -9,6 +9,7 @@ from .prescription import EyePrescription
 @dataclass
 class PatientInput:
     visit_id: str
+    patient_name: str = ""
 
     age: Optional[int] = None
     occupation: str = ""

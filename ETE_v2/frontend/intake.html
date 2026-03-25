@@ -481,6 +481,10 @@ body {
       </label>
       <div class="section-body"><div class="section-content">
         <div class="form-grid cols-4">
+          <div class="form-group full">
+            <label class="form-label">Patient Name</label>
+            <input type="text" class="form-input" id="patientName" placeholder="Full name">
+          </div>
           <div class="form-group">
             <label class="form-label">Age</label>
             <input type="number" class="form-input" id="age" min="3" max="120" placeholder="Years">
@@ -1102,6 +1106,7 @@ loadDevices(false);
 // ── Fill dummy data ──
 function fillDummy() {
   // Keep whatever device is already selected in the dropdown
+  document.getElementById('patientName').value = 'John Doe';
   document.getElementById('operatorName').value = 'Dr. Sharma';
   document.getElementById('age').value = '35';
   document.getElementById('occupation').value = 'Software Engineer';
@@ -1170,6 +1175,7 @@ function collectFormData() {
     phoropter_id: document.getElementById('phoropterId').value.trim(),
     operator_name: document.getElementById('operatorName').value.trim(),
     patient: {
+      patient_name: document.getElementById('patientName').value.trim(),
       age: parseInt(document.getElementById('age').value) || null,
       occupation: document.getElementById('occupation').value.trim(),
       screen_time_hours: parseFloat(document.getElementById('screenTime').value) || 0,
