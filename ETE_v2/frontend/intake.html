@@ -709,6 +709,16 @@ body {
               </div>
             </div>
           </div>
+          <div class="rx-row">
+            <div class="stepper-group">
+              <div class="stepper-label">PD (mm)</div>
+              <div class="stepper">
+                <button type="button" class="stepper-btn" onclick="stepVal('arPd',-0.5)">−</button>
+                <input type="text" class="stepper-val" id="arPd" value="64.00" data-step="0.5" data-min="50" data-max="78">
+                <button type="button" class="stepper-btn" onclick="stepVal('arPd',0.5)">+</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div></div>
     </div>
@@ -1112,6 +1122,7 @@ function fillDummy() {
   document.getElementById('arLeSph').value = '-2.00';
   document.getElementById('arLeCyl').value = '-0.75';
   document.getElementById('arLeAxis').value = '85';
+  document.getElementById('arPd').value = '64.00';
 
   // Lenso
   document.getElementById('lensoReSph').value = '-2.25';
@@ -1131,7 +1142,9 @@ function fillDummy() {
 function clearAll() {
   document.getElementById('intakeForm').reset();
   document.querySelectorAll('.stepper-val').forEach(el => {
-    if (el.id.toLowerCase().includes('axis')) {
+    if (el.id === 'arPd') {
+      el.value = '64.00';
+    } else if (el.id.toLowerCase().includes('axis')) {
       el.value = '180';
     } else {
       el.value = '0.00';
@@ -1184,6 +1197,10 @@ function collectFormData() {
       ar_le_sph: parseFloat(document.getElementById('arLeSph').value) || 0,
       ar_le_cyl: parseFloat(document.getElementById('arLeCyl').value) || 0,
       ar_le_axis: parseFloat(document.getElementById('arLeAxis').value) || 180,
+      ar_pd_mm: (() => {
+        const v = parseFloat(document.getElementById('arPd').value);
+        return Number.isFinite(v) ? v : 64;
+      })(),
       // Lenso
       lenso_re_sph: parseFloat(document.getElementById('lensoReSph').value) || null,
       lenso_re_cyl: parseFloat(document.getElementById('lensoReCyl').value) || null,

@@ -12,6 +12,7 @@ Responsibilities:
 from __future__ import annotations
 
 import logging
+import math
 import os
 import time
 from dataclasses import asdict
@@ -117,6 +118,16 @@ STATE_PHASE_DISPLAY = {
 }
 
 
+def _snap_ar_pd_mm(raw: Any) -> float:
+    """AR intake PD in mm; broker uses 0.5 mm steps (curl_API.md §3)."""
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        v = 64.0
+    v = round(v * 2.0) / 2.0
+    return max(50.0, min(78.0, v))
+
+
 class SessionOrchestrator:
     """Drives a single eye test session using the FSMv3.1 engine."""
 
@@ -210,11 +221,30 @@ class SessionOrchestrator:
         # Log conversation start
         self._log_conversation("system", f"Session started. State: {self.current_row.state}")
 
-        # Step 1: Reset phoropter to 0/0/180
+        # Step 1: Phoropter baseline (curl_API.md §2 preload, §3 PD Control)
+        ar_pd_mm = _snap_ar_pd_mm(patient_data.get("ar_pd_mm", 64.0))
         if self.phoropter_auto_dispatch and self.phoropter_id:
             reset_url = f"{self.phoropter_base_url}/phoropter/{self.phoropter_id}/reset"
-            self._post_to_phoropter(reset_url, {})
-            self._log_conversation("system", "Phoropter reset to 0/0/180")
+            if math.isclose(ar_pd_mm, 64.0):
+                self._log_conversation(
+                    "system",
+                    "Phoropter /reset skipped (PD at default 64 mm)",
+                )
+            else:
+                self._post_to_phoropter(reset_url, {})
+                self._log_conversation("system", "Phoropter reset to 0/0/180 (before PD adjust)")
+                self._post_to_phoropter(
+                    self._phoropter_url(),
+                    {
+                        "test_cases": [
+                            {"case_id": "test_pd_auto", "pd": float(ar_pd_mm)},
+                        ]
+                    },
+                )
+                self._log_conversation(
+                    "system",
+                    f"Phoropter PD set to {ar_pd_mm} mm (test_pd_auto)",
+                )
 
         # Step 2: Set prev-state to 0/0/180 (post-reset state) so the broker
         # can compute the correct delta clicks from zero to the starting Rx
