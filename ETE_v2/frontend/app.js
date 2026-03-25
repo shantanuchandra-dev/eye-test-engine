@@ -344,6 +344,8 @@ let sessionLanguage = 'en'; // Default, set by language selection
 let activeLogTab = 'conversation';
 let completedPhases = new Set();
 let heartbeatInterval = null;
+let _examTimerIntervalId = null;
+let _examClockStartMs = null;
 let _langSelectPendingData = null; // Stores first-question data during language selection
 let _autoFlipTimer = null; // Timer for JCC auto-flip
 let _flipState = null; // 'flip1', 'flip2', or null
@@ -434,6 +436,7 @@ async function restoreSession() {
 function showLanguageSelection(pendingData) {
   // Store pendingData at module level so voice callback can access it
   _langSelectPendingData = pendingData;
+  syncExamClockFromSessionData(pendingData);
 
   document.getElementById('questionCard').style.display = '';
   document.getElementById('questionStep').textContent = 'LANGUAGE SELECTION';
@@ -515,6 +518,54 @@ function startHeartbeat() {
   }, 15000);
 }
 
+function formatExamElapsed(ms) {
+  if (ms < 0) ms = 0;
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function updateExamTimerDisplay() {
+  const el = document.getElementById('examTimer');
+  if (!el) return;
+  if (_examClockStartMs == null) {
+    el.textContent = '—';
+    return;
+  }
+  el.textContent = `Exam ${formatExamElapsed(Date.now() - _examClockStartMs)}`;
+}
+
+function startExamTimer() {
+  if (_examClockStartMs == null) return;
+  if (_examTimerIntervalId) clearInterval(_examTimerIntervalId);
+  updateExamTimerDisplay();
+  _examTimerIntervalId = setInterval(updateExamTimerDisplay, 1000);
+}
+
+function stopExamTimer() {
+  if (_examTimerIntervalId) {
+    clearInterval(_examTimerIntervalId);
+    _examTimerIntervalId = null;
+  }
+}
+
+function syncExamClockFromSessionData(data) {
+  if (!data || !data.exam_clock_start_iso) return;
+  const ms = Date.parse(data.exam_clock_start_iso);
+  if (Number.isNaN(ms)) return;
+  _examClockStartMs = ms;
+  startExamTimer();
+}
+
+function resetExamTimer() {
+  stopExamTimer();
+  _examClockStartMs = null;
+  updateExamTimerDisplay();
+}
+
 // ── Core: handle session update from backend ──
 async function handleSessionUpdate(data) {
   if (data.error) {
@@ -523,6 +574,7 @@ async function handleSessionUpdate(data) {
   }
 
   currentState = data;
+  syncExamClockFromSessionData(data);
 
   // Update topbar
   updateTopbar(data);
@@ -1436,6 +1488,9 @@ function updateVoiceStatus(status) {
 
 // ── Terminal display ──
 function showTerminal(data) {
+  stopExamTimer();
+  updateExamTimerDisplay();
+
   document.getElementById('questionCard').style.display = 'none';
   const card = document.getElementById('endCard');
   card.classList.add('active');
@@ -1561,7 +1616,6 @@ async function submitResponse(responseValue, voiceMeta) {
       currentState ? `${currentState.state}:${currentState.step}` : '');
   }
 
-  showLoading(true);
   try {
     const resp = await fetch(`${API}/api/session/${sessionId}/respond`, {
       method: 'POST',
@@ -1600,7 +1654,6 @@ async function submitResponse(responseValue, voiceMeta) {
   } catch (e) {
     alert('Error: ' + e.message);
   } finally {
-    showLoading(false);
     _lastInputMethod = 'Button'; // Reset to default after each submission
   }
 }
@@ -1744,7 +1797,6 @@ async function endSession() {
 
 async function signOff() {
   if (!sessionId) return;
-  showLoading(true);
   try {
     // Flush failed voice attempts to server
     if (failedVoiceAttempts.length > 0) {
@@ -1771,8 +1823,6 @@ async function signOff() {
     cleanup();
   } catch (e) {
     alert('Error: ' + e.message);
-  } finally {
-    showLoading(false);
   }
 }
 
@@ -1820,6 +1870,7 @@ window.addEventListener('pagehide', () => {
 
 async function cleanup() {
   if (heartbeatInterval) clearInterval(heartbeatInterval);
+  resetExamTimer();
   await releaseDevice();
   sessionStorage.removeItem('session_id');
   sessionStorage.removeItem('session_language');
@@ -2434,10 +2485,6 @@ function toggleSidebarSection(sectionId) {
   section.classList.toggle('collapsed');
   const icon = section.querySelector('.collapse-icon');
   if (icon) icon.textContent = section.classList.contains('collapsed') ? '▶' : '▼';
-}
-
-function showLoading(show) {
-  document.getElementById('loadingOverlay').classList.toggle('active', show);
 }
 
 // ── Logs auto-show if unlocked ──

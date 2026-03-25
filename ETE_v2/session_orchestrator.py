@@ -154,6 +154,9 @@ class SessionOrchestrator:
         # History and tracking
         self.session_history: List[dict] = []
         self.session_start_time: Optional[datetime] = None
+        # Wall-clock origin for "exam elapsed" UI: set at session init, then
+        # updated immediately after phoropter reset when hardware is used.
+        self.exam_clock_start: Optional[datetime] = None
         self.phase_start_times: Dict[str, float] = {}
         self.duration_per_phase: Dict[str, float] = {}
         self.phases_completed: List[str] = []
@@ -188,6 +191,7 @@ class SessionOrchestrator:
         self.session_id = session_id
         self.phoropter_id = phoropter_id
         self.session_start_time = ist_now()
+        self.exam_clock_start = self.session_start_time
 
         # Build PatientInput from form data
         self.patient_input = self._build_patient_input(patient_data)
@@ -226,6 +230,7 @@ class SessionOrchestrator:
         if self.phoropter_auto_dispatch and self.phoropter_id:
             reset_url = f"{self.phoropter_base_url}/phoropter/{self.phoropter_id}/reset"
             self._post_to_phoropter(reset_url, {})
+            self.exam_clock_start = ist_now()
             self._log_conversation("system", "Phoropter reset to 0/0/180 (before PD adjust)")
             self._post_to_phoropter(
                 self._phoropter_url(),
@@ -544,6 +549,9 @@ class SessionOrchestrator:
             "auto_flip": state in ("E", "F", "H", "I") and not is_terminal,
             "flip_wait_seconds": 1,
             "flip_state": "flip1",  # Always starts at flip1; frontend sends handle after delay
+            "exam_clock_start_iso": (
+                self.exam_clock_start.isoformat() if self.exam_clock_start else None
+            ),
         }
 
         return response

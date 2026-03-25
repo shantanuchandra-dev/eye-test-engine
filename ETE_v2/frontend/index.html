@@ -72,6 +72,14 @@ body {
 
 .topbar-right { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .topbar-info { font-size: 0.78rem; color: rgba(255,255,255,0.7); }
+.topbar-timer {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #93c5fd;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
 .topbar-btn {
   background: rgba(255,255,255,0.1);
   border: 1px solid rgba(255,255,255,0.15);
@@ -688,17 +696,6 @@ body {
   cursor: pointer;
 }
 
-/* ── Loading ── */
-.loading-overlay {
-  display: none;
-  position: fixed; inset: 0;
-  background: rgba(15,23,42,0.4);
-  z-index: 200;
-  align-items: center; justify-content: center;
-}
-.loading-overlay.active { display: flex; }
-.spinner { width: 36px; height: 36px; border: 3px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
 @keyframes fadeInUp { from { opacity:0; transform:translateX(-50%) translateY(8px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }
 
 /* ── Sidebar FAB (iPad overlay toggle) ── */
@@ -783,6 +780,7 @@ body {
     <span class="topbar-brand">ETE v2</span>
     <span class="topbar-phase" id="topbarPhase">—</span>
     <span class="topbar-info" id="topbarInfo">No session</span>
+    <span class="topbar-timer" id="examTimer" title="Elapsed time since phoropter reset; in test mode, since session start">—</span>
   </div>
   <div class="topbar-right">
     <span class="fog-badge" id="fogBadge">FOG ACTIVE</span>
@@ -1029,8 +1027,6 @@ body {
     </div>
   </div>
 </div>
-
-<div class="loading-overlay" id="loadingOverlay"><div class="spinner"></div></div>
 
 <script src="app.js"></script>
 </body>

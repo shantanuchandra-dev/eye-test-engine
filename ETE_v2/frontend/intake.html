@@ -389,23 +389,6 @@ body {
 .acquire-badge.error::before { background: #dc2626; }
 @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:0.3} }
 
-/* ── Loading overlay ── */
-.loading-overlay {
-  display: none;
-  position: fixed; inset: 0;
-  background: rgba(15,23,42,0.5);
-  z-index: 200;
-  align-items: center; justify-content: center;
-}
-.loading-overlay.active { display: flex; }
-.loading-spinner {
-  width: 40px; height: 40px;
-  border: 3px solid rgba(255,255,255,0.3);
-  border-top-color: white;
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
@@ -816,11 +799,6 @@ body {
       <button type="submit" class="submit-btn" id="submitBtn">Start Eye Test</button>
     </div>
   </form>
-</div>
-
-<!-- Loading overlay -->
-<div class="loading-overlay" id="loadingOverlay">
-  <div class="loading-spinner"></div>
 </div>
 
 <script>
@@ -1239,8 +1217,6 @@ document.getElementById('intakeForm').addEventListener('submit', async (e) => {
   // Use empty string for test mode so backend doesn't try to talk to a device
   if (isTestMode) data.phoropter_id = '';
 
-  const overlay = document.getElementById('loadingOverlay');
-  overlay.classList.add('active');
   document.getElementById('submitBtn').disabled = true;
 
   try {
@@ -1278,7 +1254,6 @@ document.getElementById('intakeForm').addEventListener('submit', async (e) => {
     window.location.href = `index.html?session_id=${sessionId}`;
   } catch (err) {
     alert('Failed to start session: ' + err.message);
-    overlay.classList.remove('active');
     document.getElementById('submitBtn').disabled = false;
   }
 });
