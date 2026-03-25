@@ -264,10 +264,10 @@ class SessionOrchestrator:
         # Step 4: Update prev-state to the starting Rx (for subsequent delta commands)
         self._prev_re_sph = self.current_row.re_sph or 0.0
         self._prev_re_cyl = self.current_row.re_cyl or 0.0
-        self._prev_re_axis = self.current_row.re_axis or 180.0
+        self._prev_re_axis = self._axis_or_default(self.current_row.re_axis)
         self._prev_le_sph = self.current_row.le_sph or 0.0
         self._prev_le_cyl = self.current_row.le_cyl or 0.0
-        self._prev_le_axis = self.current_row.le_axis or 180.0
+        self._prev_le_axis = self._axis_or_default(self.current_row.le_axis)
         self._prev_aux_lens = STATE_AUX_LENS_MAP.get(self.current_row.state, "BINO")
         self._log_conversation("system", f"Phoropter init: {phoropter_result}")
 
@@ -326,7 +326,7 @@ class SessionOrchestrator:
         # ── STEP 1: Send RESPONSE commands for the PREVIOUS state ──
         # (JCC handle/increase/decrease, duochrome increase/decrease)
         # These must be sent BEFORE transitioning, while we're still in the old state.
-        self._dispatch_response_commands(prev_state, response_value)
+        self._dispatch_response_commands(prev_state, response_value, applied_row=finalized)
 
         # Track phase exit if state changed
         next_state = finalized.next_state
@@ -618,13 +618,37 @@ class SessionOrchestrator:
             return
         self._prev_re_sph = self.current_row.re_sph or 0.0
         self._prev_re_cyl = self.current_row.re_cyl or 0.0
-        self._prev_re_axis = self.current_row.re_axis or 180.0
+        self._prev_re_axis = self._axis_or_default(self.current_row.re_axis)
         self._prev_le_sph = self.current_row.le_sph or 0.0
         self._prev_le_cyl = self.current_row.le_cyl or 0.0
-        self._prev_le_axis = self.current_row.le_axis or 180.0
+        self._prev_le_axis = self._axis_or_default(self.current_row.le_axis)
         self._prev_add_r = self.current_row.add_r or 0.0
         self._prev_add_l = self.current_row.add_l or 0.0
         self._prev_aux_lens = STATE_AUX_LENS_MAP.get(self.current_row.state, "BINO")
+
+    @staticmethod
+    def _axis_or_default(axis: Optional[float]) -> float:
+        if axis is None:
+            return 180.0
+        axis_value = float(axis)
+        return 180.0 if abs(axis_value) < 1e-9 else axis_value
+
+    def _axis_response_clicks(self, state: str, applied_row: Optional[FSMRuntimeRow]) -> int:
+        base_step = float(self.calibration.get("axis_fixed_step", 5))
+        if applied_row is None:
+            return 1
+
+        if state == "E":
+            delta = float(applied_row.da_re or 0.0)
+        elif state == "H":
+            delta = float(applied_row.da_le or 0.0)
+        else:
+            return 1
+
+        if abs(delta) < 1e-9:
+            return 0
+
+        return max(1, int(round(abs(delta) / base_step)))
 
     def _track_phase_entry(self, state: str) -> None:
         self.phase_start_times[state] = time.time()
@@ -778,7 +802,12 @@ class SessionOrchestrator:
             logger.debug(f"Screenshot failed: {e}")
         return None
 
-    def _dispatch_response_commands(self, state: str, response_value: str) -> None:
+    def _dispatch_response_commands(
+        self,
+        state: str,
+        response_value: str,
+        applied_row: Optional[FSMRuntimeRow] = None,
+    ) -> None:
         """Send phoropter commands for a patient RESPONSE in the given state.
         Called BEFORE state transition. Handles JCC flip/adjust and duochrome SPH.
 
@@ -794,10 +823,12 @@ class SessionOrchestrator:
         # REPEAT handled in process_response before this is called
         if state in ("E", "H"):
             if resp in ("ONE", "BETTER_1"):
-                self._send_jcc("increase")
+                for _ in range(self._axis_response_clicks(state, applied_row)):
+                    self._send_jcc("increase")
                 self._send_jcc("handle")
             elif resp in ("TWO", "BETTER_2"):
-                self._send_jcc("decrease")
+                for _ in range(self._axis_response_clicks(state, applied_row)):
+                    self._send_jcc("decrease")
                 self._send_jcc("handle")
 
         # JCC Power (F, I): increase/decrease + handle
@@ -869,8 +900,8 @@ class SessionOrchestrator:
 
         prev_right = {"sph": self._prev_re_sph, "cyl": self._prev_re_cyl, "axis": self._prev_re_axis}
         prev_left = {"sph": self._prev_le_sph, "cyl": self._prev_le_cyl, "axis": self._prev_le_axis}
-        right_eye = {"sph": row.re_sph or 0.0, "cyl": row.re_cyl or 0.0, "axis": row.re_axis or 180.0}
-        left_eye = {"sph": row.le_sph or 0.0, "cyl": row.le_cyl or 0.0, "axis": row.le_axis or 180.0}
+        right_eye = {"sph": row.re_sph or 0.0, "cyl": row.re_cyl or 0.0, "axis": self._axis_or_default(row.re_axis)}
+        left_eye = {"sph": row.le_sph or 0.0, "cyl": row.le_cyl or 0.0, "axis": self._axis_or_default(row.le_axis)}
 
         if include_add:
             if row.add_r is not None:
@@ -901,8 +932,8 @@ class SessionOrchestrator:
         row = self.current_row
         prev_right = {"sph": self._prev_re_sph, "cyl": self._prev_re_cyl, "axis": self._prev_re_axis}
         prev_left = {"sph": self._prev_le_sph, "cyl": self._prev_le_cyl, "axis": self._prev_le_axis}
-        right_eye = {"sph": row.re_sph or 0.0, "cyl": row.re_cyl or 0.0, "axis": row.re_axis or 180.0}
-        left_eye = {"sph": row.le_sph or 0.0, "cyl": row.le_cyl or 0.0, "axis": row.le_axis or 180.0}
+        right_eye = {"sph": row.re_sph or 0.0, "cyl": row.re_cyl or 0.0, "axis": self._axis_or_default(row.re_axis)}
+        left_eye = {"sph": row.le_sph or 0.0, "cyl": row.le_cyl or 0.0, "axis": self._axis_or_default(row.le_axis)}
 
         # Only right_eye gets ADD (left_eye deliberately omits it)
         if row.add_r is not None:

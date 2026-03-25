@@ -55,8 +55,12 @@ AXIS_POLICY,axis_start_step,5,deg,integer,FSM axis_step initialization,Initial J
 AXIS_POLICY,axis_reversal_step_1,3,deg,integer,FSM axis_step after first reversal,Axis step after first preference reversal
 AXIS_POLICY,axis_reversal_step_2,1,deg,integer,FSM axis_step after second reversal,Axis step after second preference reversal
 AXIS_POLICY,axis_fixed_step,5,deg,integer,FSM v2.3 JCC axis delta,Fixed JCC axis step used for all axis changes
-AXIS_POLICY,jcc_axis_same_required,2,count,integer,FSM axis convergence,Number of SAME confirmations required before exiting axis refinement
+AXIS_POLICY,jcc_axis_same_required,1,count,integer,FSM axis convergence,Number of SAME confirmations required before exiting axis refinement
 AXIS_POLICY,jcc_axis_max_flips,3,count,integer,FSM axis convergence,Maximum BETTER_1 ↔ BETTER_2 reversals allowed in JCC axis
+AXIS_POLICY,quick_axis_scan_step,45,deg,integer,FSM quick axis search coarse step,Axis jump used while scanning away from cardinal AR/lenso axes
+AXIS_POLICY,quick_axis_reversal_step,30,deg,integer,FSM quick axis search first reversal step,Axis jump used when preference first reverses during quick axis search
+AXIS_POLICY,quick_axis_refine_step_1,10,deg,integer,FSM quick axis search mid refinement step,Axis jump used after the first quick-search reversal
+AXIS_POLICY,quick_axis_refine_step_2,5,deg,integer,FSM quick axis search fine refinement step,Axis jump used for final fine refinement after the second reversal
 AXIS_POLICY,axis_tol_strict,1,deg,integer,dv_axis_tolerance_deg,Axis tolerance used when branching guardrails are strict
 AXIS_POLICY,axis_tol_normal,3,deg,integer,dv_axis_tolerance_deg,Axis tolerance used when branching guardrails are normal
 AXIS_POLICY,axis_tol_relaxed,5,deg,integer,dv_axis_tolerance_deg,Axis tolerance used when branching guardrails are relaxed
@@ -65,9 +69,9 @@ CYL_POLICY,cyl_tol_conservative,0.25,D,float,dv_cyl_tolerance_D,Cylinder toleran
 CYL_POLICY,cyl_tol_standard,0.25,D,float,dv_cyl_tolerance_D,Cylinder tolerance used in Standard mode
 CYL_POLICY,cyl_tol_aggressive,0.5,D,float,dv_cyl_tolerance_D,Cylinder tolerance used in Aggressive mode
 CYL_POLICY,jcc_power_same_low,1,count,integer,FSM JCC power convergence,Number of SAME confirmations required in low confidence cases
-CYL_POLICY,jcc_power_same_medium,2,count,integer,FSM JCC power convergence,Number of SAME confirmations required in medium confidence cases
-CYL_POLICY,jcc_power_same_high,2,count,integer,FSM JCC power convergence,Number of SAME confirmations required in high confidence cases
-CYL_POLICY,jcc_power_max_flips,3,count,integer,FSM JCC power convergence,Maximum allowed BETTER_1 ↔ BETTER_2 flips in JCC power before forcing exit to duochrome
+CYL_POLICY,jcc_power_same_medium,1,count,integer,FSM JCC power convergence,Number of SAME confirmations required in medium confidence cases
+CYL_POLICY,jcc_power_same_high,1,count,integer,FSM JCC power convergence,Number of SAME confirmations required in high confidence cases
+CYL_POLICY,jcc_power_max_flips,2,count,integer,FSM JCC power convergence,Maximum allowed BETTER_1 ↔ BETTER_2 flips in JCC power before forcing exit to duochrome
 
 FOGGING,no_fog_amount,0.5,D,float,dv_fogging_amount_D,Sphere shift added when no fogging is applied
 FOGGING,standard_fog_amount,1.25,D,float,dv_fogging_amount_D,Sphere fog amount used for standard fogging
@@ -78,8 +82,8 @@ FOGGING,fogging_use_accommodation_logic,TRUE,boolean,TRUE/FALSE,FSM v3.1 fogging
 FOGGING,strong_fog_for_children,TRUE,boolean,TRUE/FALSE,FSM v3.1 fogging decision,Documentation row for FSM v3.1: child cases are treated as high accommodation risk and receive strong fogging
 FOGGING,standard_fog_for_adult_instability_or_moderate_risk,TRUE,boolean,TRUE/FALSE,FSM v3.1 fogging decision,Documentation row for FSM v3.1: unstable adults or moderate-risk adults receive standard fogging
 FOGGING,no_fog_for_presbyopes,TRUE,boolean,TRUE/FALSE,FSM v3.1 fogging decision,Documentation row for FSM v3.1: presbyopes are treated as low accommodation risk and receive no fogging
-FOGGING,strong_fog_if_presbyope,FALSE,boolean,TRUE/FALSE,dv_fogging_policy,"Legacy deprecated row. FSM v3.1 does NOT use presbyopia as a trigger for fogging."
-FOGGING,strong_fog_if_unstable,FALSE,boolean,TRUE/FALSE,dv_fogging_policy,"Legacy deprecated row. FSM v3.1 does NOT use instability alone to trigger strong fogging."
+FOGGING,strong_fog_if_presbyope,FALSE,boolean,TRUE/FALSE,dv_fogging_policy,Legacy deprecated row. FSM v3.1 does NOT use presbyopia as a trigger for fogging.
+FOGGING,strong_fog_if_unstable,FALSE,boolean,TRUE/FALSE,dv_fogging_policy,Legacy deprecated row. FSM v3.1 does NOT use instability alone to trigger strong fogging.
 
 DUOCHROME,duochrome_red_step,-0.25,D,float,FSM dS in duochrome,Sphere adjustment applied when red is clearer
 DUOCHROME,duochrome_green_step,0.25,D,float,FSM dS in duochrome,Sphere adjustment applied when green is clearer
@@ -112,7 +116,7 @@ PHASE_TIMEOUTS,timeout_coarse_normal,48,steps,integer,FSM phaseMax,Maximum allow
 PHASE_TIMEOUTS,timeout_coarse_slow,60,steps,integer,FSM phaseMax,Maximum allowed coarse sphere iterations in slow cases
 PHASE_TIMEOUTS,timeout_jcc_fast,15,steps,integer,FSM phaseMax,Maximum allowed JCC axis/power iterations in fast cases
 PHASE_TIMEOUTS,timeout_jcc_normal,20,steps,integer,FSM phaseMax,Maximum allowed JCC axis/power iterations in normal cases
-PHASE_TIMEOUTS,timeout_jcc_slow,36,steps,integer,FSM phaseMax,Maximum allowed JCC axis/power iterations in slow cases
+PHASE_TIMEOUTS,timeout_jcc_slow,30,steps,integer,FSM phaseMax,Maximum allowed JCC axis/power iterations in slow cases
 PHASE_TIMEOUTS,timeout_duochrome_fast,12,steps,integer,FSM phaseMax,Maximum allowed duochrome iterations in fast cases
 PHASE_TIMEOUTS,timeout_duochrome_normal,14,steps,integer,FSM phaseMax,Maximum allowed duochrome iterations in normal cases
 PHASE_TIMEOUTS,timeout_duochrome_slow,16,steps,integer,FSM phaseMax,Maximum allowed duochrome iterations in slow cases

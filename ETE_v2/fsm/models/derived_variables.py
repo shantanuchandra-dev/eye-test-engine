@@ -60,6 +60,8 @@ class DerivedVariables:
 
     dv_jcc_axis_same_required: int = 2
     dv_jcc_axis_max_flips: int = 3
+    dv_quick_axis_search_RE: bool = False
+    dv_quick_axis_search_LE: bool = False
 
     dv_near_binoc_step_D: float = 0.25
     dv_near_binoc_max_plus_steps: int = 4
