@@ -283,7 +283,32 @@ curl -X POST https://rajasthan-royals.preprod.lenskart.com/phoropter/{Phoropter-
 
 ---
 
-## 3. Chart Controls
+## 3. PD Control
+Adjust the Pupillary Distance (PD). The agent tracks state internally and uses arrow keys to increment/decrement from the current value.
+
+> [!IMPORTANT]
+> **Always call `/reset` first** before setting PD for the first time in a session to ensure the agent starts from the default 64.0mm state.
+
+```bash
+curl -X POST https://rajasthan-royals.preprod.lenskart.com/phoropter/{Phoropter-ID}/run-tests \
+  -H "Content-Type: application/json" \
+  -d '{
+    "test_cases": [
+      {
+        "case_id": "test_pd_auto",
+        "pd": 62.0
+      }
+    ]
+  }'
+```
+
+| Parameter | Description |
+| :--- | :--- |
+| **pd** | Target PD value in millimeters (e.g., 62.0, 67.5). Step size is 0.5mm. |
+
+---
+
+## 4. Chart Controls
 Individual commands for specific chart items on **Chart1** and **Chart2**.
 
 ### Chart 1: Visual Acuity & Tests
