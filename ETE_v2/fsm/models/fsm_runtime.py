@@ -86,6 +86,7 @@ class FSMRuntimeRow:
     duo_iter: int = 0
     duo_flip: int = 0
     coarse_compare_mode: bool = False
+    coarse_recheck_mode: bool = False
     coarse_last_confirmed_chart_re: str = ""
     coarse_last_confirmed_chart_le: str = ""
     distance_va_re_chart: str = ""

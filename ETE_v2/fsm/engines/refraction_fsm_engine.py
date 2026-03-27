@@ -231,6 +231,8 @@ class RefractionFSMEngine:
         if row.state in ("B", "D", "C", "L"):
             if row.state in ("B", "D") and row.coarse_compare_mode:
                 return "session:line_compare"
+            if row.state in ("B", "D") and row.coarse_recheck_mode:
+                return "session:line_recheck"
             return "session:line_read"
         if row.state in ("E", "F", "H", "I"):
             return f"eye:{row.eye}:jcc_compare"
@@ -260,9 +262,16 @@ class RefractionFSMEngine:
         if state in ("B", "D"):
             if row.coarse_compare_mode:
                 question = (
-                    "Did the line become clearer or more blurry?"
+                    "Did it get better now? Say yes or no."
                     if early
-                    else "Did the letters get clearer or more blurry?"
+                    else "Better now, yes or no?"
+                )
+                return question, ("CLEAR", "BLURRY", "REPEAT")
+            if row.coarse_recheck_mode:
+                question = (
+                    "Can you read the line now, or is it still blurry?"
+                    if early
+                    else "Read it now, or is it still blurry?"
                 )
                 return question, ("CLEAR", "BLURRY", "REPEAT")
             question = (
@@ -415,6 +424,7 @@ class RefractionFSMEngine:
         duo_flip: int,
         axis_step: float,
         coarse_compare_mode: bool = False,
+        coarse_recheck_mode: bool = False,
         coarse_last_confirmed_chart_re: str = "",
         coarse_last_confirmed_chart_le: str = "",
         distance_va_re_chart: str = "",
@@ -519,6 +529,7 @@ class RefractionFSMEngine:
             duo_iter=duo_iter,
             duo_flip=duo_flip,
             coarse_compare_mode=coarse_compare_mode,
+            coarse_recheck_mode=coarse_recheck_mode,
             coarse_last_confirmed_chart_re=coarse_last_confirmed_chart_re,
             coarse_last_confirmed_chart_le=coarse_last_confirmed_chart_le,
             distance_va_re_chart=distance_va_re_chart,
@@ -697,6 +708,7 @@ class RefractionFSMEngine:
             duo_iter=0,
             duo_flip=0,
             coarse_compare_mode=False,
+            coarse_recheck_mode=False,
             coarse_last_confirmed_chart_re="",
             coarse_last_confirmed_chart_le="",
             distance_va_re_chart="",
@@ -778,6 +790,7 @@ class RefractionFSMEngine:
         next_duo_iter = row.duo_iter if row.next_state == row.state else 0
         next_duo_flip = row.duo_flip if row.next_state == row.state else 0
         next_coarse_compare_mode = row.coarse_compare_mode if row.next_state == row.state else False
+        next_coarse_recheck_mode = row.coarse_recheck_mode if row.next_state == row.state else False
         next_prompt_memory = dict(row.prompt_memory or {})
         next_coarse_last_confirmed_chart_re = row.coarse_last_confirmed_chart_re
         next_coarse_last_confirmed_chart_le = row.coarse_last_confirmed_chart_le
@@ -913,6 +926,7 @@ class RefractionFSMEngine:
             duo_iter=next_duo_iter,
             duo_flip=next_duo_flip,
             coarse_compare_mode=next_coarse_compare_mode,
+            coarse_recheck_mode=next_coarse_recheck_mode,
             coarse_last_confirmed_chart_re=next_coarse_last_confirmed_chart_re,
             coarse_last_confirmed_chart_le=next_coarse_last_confirmed_chart_le,
             distance_va_re_chart=next_distance_va_re_chart,
@@ -978,13 +992,17 @@ class RefractionFSMEngine:
             if current.coarse_compare_mode:
                 if normalized_response == "CLEAR":
                     row.coarse_compare_mode = False
+                    row.coarse_recheck_mode = True
                 elif normalized_response == "BLURRY":
                     row.ds_re = abs(float(current.sph_step))
                     row.coarse_compare_mode = False
+                    row.coarse_recheck_mode = False
                     coarse_endpoint_reached = True
                 else:
                     row.coarse_compare_mode = True
+                    row.coarse_recheck_mode = False
             else:
+                row.coarse_recheck_mode = current.coarse_recheck_mode if normalized_response == "REPEAT" else False
                 if normalized_response == "CLEAR":
                     row.coarse_last_confirmed_chart_re = str(current.chart_param)
                     row.next_chart_param = get_next_chart(str(current.chart_param))
@@ -999,13 +1017,17 @@ class RefractionFSMEngine:
             if current.coarse_compare_mode:
                 if normalized_response == "CLEAR":
                     row.coarse_compare_mode = False
+                    row.coarse_recheck_mode = True
                 elif normalized_response == "BLURRY":
                     row.ds_le = abs(float(current.sph_step))
                     row.coarse_compare_mode = False
+                    row.coarse_recheck_mode = False
                     coarse_endpoint_reached = True
                 else:
                     row.coarse_compare_mode = True
+                    row.coarse_recheck_mode = False
             else:
+                row.coarse_recheck_mode = current.coarse_recheck_mode if normalized_response == "REPEAT" else False
                 if normalized_response == "CLEAR":
                     row.coarse_last_confirmed_chart_le = str(current.chart_param)
                     row.next_chart_param = get_next_chart(str(current.chart_param))

@@ -337,6 +337,26 @@ class AxisLanePolicyTests(unittest.TestCase):
         self.assertEqual(result.response_value, "CLEAR")
         self.assertEqual(result.method, "clarity_intent")
 
+    def test_coarse_compare_yes_maps_to_clear(self):
+        result = match_response(
+            transcript="yes",
+            state="B",
+            available_options=["CLEAR", "BLURRY", "REPEAT"],
+            stimulus_letters="A P E O F",
+        )
+        self.assertTrue(result.accepted)
+        self.assertEqual(result.response_value, "CLEAR")
+
+    def test_coarse_compare_no_maps_to_blurry(self):
+        result = match_response(
+            transcript="no",
+            state="B",
+            available_options=["CLEAR", "BLURRY", "REPEAT"],
+            stimulus_letters="A P E O F",
+        )
+        self.assertTrue(result.accepted)
+        self.assertEqual(result.response_value, "BLURRY")
+
     def test_coarse_compare_got_worse_maps_to_blurry(self):
         result = match_response(
             transcript="they got worse",
@@ -547,7 +567,7 @@ class AxisLanePolicyTests(unittest.TestCase):
         compare_row = engine._build_next_row(blurred, dv)
         self.assertIsNotNone(compare_row)
         self.assertEqual(compare_row.state, "B")
-        self.assertEqual(compare_row.question, "Did the line become clearer or more blurry?")
+        self.assertEqual(compare_row.question, "Did it get better now? Say yes or no.")
 
         worse = engine.apply_response(compare_row, "BLURRY", dv)
         self.assertAlmostEqual(worse.ds_re, 0.25)
@@ -574,13 +594,39 @@ class AxisLanePolicyTests(unittest.TestCase):
         reading_row = engine._build_next_row(clearer, dv)
         self.assertIsNotNone(reading_row)
         self.assertFalse(reading_row.coarse_compare_mode)
+        self.assertTrue(reading_row.coarse_recheck_mode)
+        self.assertEqual(reading_row.question, "Can you read the line now, or is it still blurry?")
         self.assertEqual(reading_row.chart_param, "70_60_50")
 
         confirmed = engine.apply_response(reading_row, "CLEAR", dv)
         self.assertEqual(confirmed.coarse_last_confirmed_chart_re, "70_60_50")
         advanced_row = engine._build_next_row(confirmed, dv)
         self.assertIsNotNone(advanced_row)
+        self.assertFalse(advanced_row.coarse_recheck_mode)
         self.assertEqual(advanced_row.chart_param, "40_30_25")
+
+    def test_coarse_recheck_prompt_shortens_after_first_followup(self):
+        dv = self._derive(
+            self._patient(
+                visit_id="coarse-recheck-short",
+                ar_re=self._rx(-1.50, -0.75, 45),
+                lenso_re=None,
+            )
+        )
+        engine = RefractionFSMEngine(self.calibration)
+        current = engine.initialize_row("coarse-recheck-short", dv)
+
+        blurred = engine.apply_response(current, "BLURRY", dv)
+        compare_row = engine._build_next_row(blurred, dv)
+        clearer = engine.apply_response(compare_row, "CLEAR", dv)
+        recheck_row = engine._build_next_row(clearer, dv)
+        self.assertIsNotNone(recheck_row)
+        self.assertEqual(recheck_row.question, "Can you read the line now, or is it still blurry?")
+
+        repeated = engine.apply_response(recheck_row, "REPEAT", dv)
+        repeated_row = engine._build_next_row(repeated, dv)
+        self.assertIsNotNone(repeated_row)
+        self.assertEqual(repeated_row.question, "Read it now, or is it still blurry?")
 
     def test_axis_prompt_shortens_after_first_question(self):
         dv = self._derive(
@@ -813,9 +859,18 @@ class HindiLocalizationTests(unittest.TestCase):
             state="B",
             language="hi",
             retry=False,
-            fallback_question="Did the line become clearer or more blurry?",
+            fallback_question="Did it get better now? Say yes or no.",
         )
-        self.assertEqual(prompt, "क्या लाइन ज़्यादा साफ हुई या और धुंधली हुई?")
+        self.assertEqual(prompt, "क्या अब यह बेहतर हुआ? हाँ या नहीं कहिए।")
+
+    def test_hindi_localizes_coarse_recheck_prompt(self):
+        prompt = localized_voice_prompt(
+            state="B",
+            language="hi",
+            retry=False,
+            fallback_question="Can you read the line now, or is it still blurry?",
+        )
+        self.assertEqual(prompt, "क्या अब आप लाइन पढ़ पा रहे हैं, या यह अभी भी धुंधली है?")
 
     def test_hindi_localizes_jcc_short_prompt(self):
         prompt = localized_voice_prompt(
@@ -848,9 +903,18 @@ class HindiLocalizationTests(unittest.TestCase):
                 "CLEAR",
                 "hi",
                 state="B",
-                question="Did the line become clearer or more blurry?",
+                question="Did it get better now? Say yes or no.",
             ),
-            "ज़्यादा साफ",
+            "हाँ",
+        )
+        self.assertEqual(
+            localized_option_label(
+                "BLURRY",
+                "hi",
+                state="B",
+                question="Can you read the line now, or is it still blurry?",
+            ),
+            "अभी भी धुंधला",
         )
         self.assertEqual(
             localized_option_label(

@@ -932,8 +932,10 @@ LOCALIZED_OPTION_LABELS = {
 HINDI_QUESTION_TRANSLATIONS = {
     "Can you read all the letters in this line, or are they blurry?": "क्या आप इस लाइन के सभी अक्षर पढ़ पा रहे हैं, या वे धुंधले हैं?",
     "Read the line.": "लाइन पढ़िए।",
-    "Did the line become clearer or more blurry?": "क्या लाइन ज़्यादा साफ हुई या और धुंधली हुई?",
-    "Did the letters get clearer or more blurry?": "क्या अक्षर ज़्यादा साफ हुए या और धुंधले हुए?",
+    "Did it get better now? Say yes or no.": "क्या अब यह बेहतर हुआ? हाँ या नहीं कहिए।",
+    "Better now, yes or no?": "अब बेहतर है, हाँ या नहीं?",
+    "Can you read the line now, or is it still blurry?": "क्या अब आप लाइन पढ़ पा रहे हैं, या यह अभी भी धुंधली है?",
+    "Read it now, or is it still blurry?": "अब इसे पढ़िए, या क्या यह अभी भी धुंधली है?",
     "Please compare the two choices. Which one is clearer or sharper? say first option, second option, both same, or repeat.": "कृपया दोनों विकल्पों की तुलना कीजिए। कौन सा ज़्यादा साफ या शार्प दिख रहा है? पहला विकल्प, दूसरा विकल्प, दोनों समान, या फिर से कहिए।",
     "First, second, or both same?": "पहला, दूसरा, या दोनों समान?",
     "First option, second option, or both same?": "पहला विकल्प, दूसरा विकल्प, या दोनों समान?",
@@ -979,8 +981,10 @@ def _localized_hindi_question(*, state: str, fallback_question: str, retry: bool
         return translated
 
     prompt_lc = prompt.lower()
-    if state in {"B", "D"} and "clearer or more blurry" in prompt_lc:
-        return "क्या अक्षर ज़्यादा साफ हुए या और धुंधले हुए?"
+    if state in {"B", "D"} and ("better now" in prompt_lc or "yes or no" in prompt_lc):
+        return "अब बेहतर है, हाँ या नहीं?"
+    if state in {"B", "D"} and "still blurry" in prompt_lc:
+        return "क्या अब आप लाइन पढ़ पा रहे हैं, या यह अभी भी धुंधली है?"
     if state in {"B", "C", "D", "L"} and "read the line" in prompt_lc:
         return "लाइन पढ़िए।"
     if state in {"E", "F", "H", "I"} and "both same" in prompt_lc:
@@ -996,10 +1000,17 @@ def _localized_hindi_question(*, state: str, fallback_question: str, retry: bool
 
 def _hindi_option_label(option: str, *, state: str, question: str) -> str:
     prompt = str(question or "").lower()
-    if state in {"B", "D"} and "clearer or more blurry" in prompt:
+    if state in {"B", "D"} and ("better now" in prompt or "yes or no" in prompt):
         return {
-            "CLEAR": "ज़्यादा साफ",
-            "BLURRY": "और धुंधला",
+            "CLEAR": "हाँ",
+            "BLURRY": "नहीं",
+            "REPEAT": "फिर से",
+        }.get(option, option)
+
+    if state in {"B", "D"} and "still blurry" in prompt:
+        return {
+            "CLEAR": "अब पढ़ पा रहा",
+            "BLURRY": "अभी भी धुंधला",
             "REPEAT": "फिर से",
         }.get(option, option)
 
@@ -1268,11 +1279,12 @@ COMPACT_MATCH_ALIASES = {
                 "readable hai", "साफ है", "साफ दिख रहा है", "दिख रहा है", "पढ़ पा रहा हूं", "padh pa raha", "saaf dikh raha",
                 "comfortable", "clear and comfortable", "आराम है",
                 "letters clear", "last line clear", "read last line", "got clearer", "became clearer",
+                "got better", "became better", "it got better", "yes it got better", "better now",
             ],
             "fuzzy": ["bloody clear", "cleer", "clar", "cler", "clir", "klear", "kleer", "saaf", "saf", "theek", "thik", "पड़बारा हूं", "पढ़वाराएं", "here", "hear", "cheers", "cheer"],
         },
         "BLURRY": {
-            "exact": ["blur", "blurry", "unclear", "hazy", "fuzzy", "bloody", "धुंधला", "ब्लर", "not clear"],
+            "exact": ["blur", "blurry", "unclear", "hazy", "fuzzy", "bloody", "धुंधला", "ब्लर", "not clear", "no", "nahin", "nahi", "नहीं"],
             "phrases": [
                 "it is blurry", "looks blurry", "slightly blurry", "not clear", "not that clear", "not very clear",
                 "its not clear", "it is not clear", "not so clear", "still not clear", "not sharp", "not readable",
@@ -1280,6 +1292,7 @@ COMPACT_MATCH_ALIASES = {
                 "धुंधला है", "ब्लर है", "थोड़ा blur है", "साफ नहीं",
                 "not comfortable", "eye strain", "still blurry", "not good", "not proper",
                 "letters blurry", "more blurry", "got more blurry", "became more blurry",
+                "not better", "did not get better", "didn't get better", "no better", "not improved",
             ],
             "fuzzy": ["blurr", "blury", "blr", "bluddy", "bladi", "dhundla", "dhundhla", "bilari", "blari", "blairy", "larry"],
         },
@@ -1659,10 +1672,17 @@ def localized_language_selection_prompt(*, retry: bool = False) -> str:
 
 def _english_option_label(option: str, *, state: str, question: str) -> str:
     prompt = str(question or "").lower()
-    if state in {"B", "D"} and "clearer or more blurry" in prompt:
+    if state in {"B", "D"} and ("better now" in prompt or "yes or no" in prompt):
         return {
-            "CLEAR": "Got clearer",
-            "BLURRY": "More blurry",
+            "CLEAR": "Yes",
+            "BLURRY": "No",
+            "REPEAT": "Repeat",
+        }.get(option, option)
+
+    if state in {"B", "D"} and "still blurry" in prompt:
+        return {
+            "CLEAR": "Can read now",
+            "BLURRY": "Still blurry",
             "REPEAT": "Repeat",
         }.get(option, option)
 
@@ -2528,6 +2548,11 @@ def _compact_clarity_intent_match(normalized_text: str) -> Optional[str]:
         r"\bgot worse\b",
         r"\bbecame worse\b",
         r"\bworse now\b",
+        r"\bnot better\b",
+        r"\bdid not get better\b",
+        r"\bdidn't get better\b",
+        r"\bno better\b",
+        r"\bnot improved\b",
     ]
     comparative_clear_patterns = [
         r"\bclearer\b",
@@ -2542,6 +2567,11 @@ def _compact_clarity_intent_match(normalized_text: str) -> Optional[str]:
         r"\bbecame better\b",
         r"\bimproved\b",
     ]
+
+    if short_utterance and token_set & {"yes", "haan", "haanji", "हाँ"}:
+        return "CLEAR"
+    if short_utterance and token_set & {"no", "nahin", "nahi", "नहीं", "nope"}:
+        return "BLURRY"
 
     if any(re.search(pattern, normalized_text) for pattern in comparative_blurry_patterns):
         return "BLURRY"

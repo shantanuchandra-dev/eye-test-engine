@@ -151,8 +151,14 @@ function buildSpokenQuestionText(data, localizedQuestion, prefacePrompt = '') {
   if (lang !== 'hi') {
     if (/^(please )?read the line\.$/i.test(spoken) || /^last line only\.$/i.test(spoken)) {
       spoken = 'Please read the line.';
-    } else if (/^did the line become clearer or more blurry\?$/i.test(spoken)) {
-      spoken = 'Did that look clearer, or more blurry?';
+    } else if (/^can you read the line now, or is it still blurry\?$/i.test(spoken)) {
+      spoken = 'Can you read the line now, or is it still blurry?';
+    } else if (/^read it now, or is it still blurry\?$/i.test(spoken)) {
+      spoken = 'Read it now, or is it still blurry?';
+    } else if (/^did it get better now\? say yes or no\.$/i.test(spoken)) {
+      spoken = 'Did that look better now? Say yes or no.';
+    } else if (/^better now, yes or no\?$/i.test(spoken)) {
+      spoken = 'Better now? Say yes or no.';
     } else if (/^first, second, or both same\?$/i.test(spoken) || /^first option, second option, or both same\?$/i.test(spoken)) {
       spoken = 'Which looks clearer: first option, second option, or both same?';
     } else if (/^red side, green side, or both same\?$/i.test(spoken)) {
@@ -1660,10 +1666,12 @@ function clientSideMatch(transcript, options) {
     // Clarity + misrecognitions
     'clear': 'CLEAR', 'clearly': 'CLEAR', 'yes': 'CLEAR', 'readable': 'CLEAR',
     'clearer': 'CLEAR', 'got clearer': 'CLEAR', 'letters clear': 'CLEAR', 'read line': 'CLEAR', 'read last line': 'CLEAR',
+    'better now': 'CLEAR', 'got better': 'CLEAR', 'it got better': 'CLEAR',
     'here': 'CLEAR', 'beer': 'CLEAR', 'cheer': 'CLEAR', 'dear': 'CLEAR', 'near': 'CLEAR',
     'saaf': 'CLEAR', 'saaf hai': 'CLEAR', 'haan': 'CLEAR',
     'blurry': 'BLURRY', 'blurred': 'BLURRY', 'blur': 'BLURRY', 'not clear': 'BLURRY',
     'more blurry': 'BLURRY', 'got more blurry': 'BLURRY', 'letters blurry': 'BLURRY',
+    'no': 'BLURRY', 'not better': 'BLURRY', 'did not get better': 'BLURRY', "didn't get better": 'BLURRY',
     'blare': 'BLURRY', 'blaring': 'BLURRY', 'glory': 'BLURRY',
     'dhundhla': 'BLURRY', 'nahi dikh raha': 'BLURRY',
     'repeat': 'REPEAT', 'again': 'REPEAT', 'dobara': 'REPEAT', 'phir se': 'REPEAT',
