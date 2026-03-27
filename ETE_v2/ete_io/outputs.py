@@ -166,12 +166,12 @@ def write_voice_utterances_csv(
             "Transcript": att.get("transcript", ""),
             "Alternatives": alts,
             "Intent_Matched": "",
-            "Canonical_Label": "",
-            "Confidence": "",
-            "Match_Method": "",
+            "Canonical_Label": att.get("canonical_label", ""),
+            "Confidence": att.get("match_confidence", ""),
+            "Match_Method": att.get("match_method", ""),
             "Input_Method": f"Voice_{att.get('backend', 'Browser')}".replace("voice_", ""),
             "Language": att.get("language", ""),
-            "Stimulus_Letters": "",
+            "Stimulus_Letters": att.get("stimulus_letters", ""),
             "Audio_File": "",
             "Accepted": "false",
         })
@@ -252,6 +252,7 @@ COMBINED_METADATA_FIELDS = [
     "Lenso_L_SPH", "Lenso_L_CYL", "Lenso_L_AXIS",
     "Final_R_SPH", "Final_R_CYL", "Final_R_AXIS", "Final_R_ADD",
     "Final_L_SPH", "Final_L_CYL", "Final_L_AXIS", "Final_L_ADD",
+    "Final_R_Distance_VA", "Final_L_Distance_VA",
     "Phases_Completed",
     # ── Patient Input fields ──
     "PI_Age", "PI_Occupation", "PI_Screen_Time_Hours", "PI_Driving_Hours",
@@ -332,6 +333,8 @@ def build_combined_metadata_flat(metadata: dict) -> dict:
         "Final_L_CYL": _safe_get(final, "left", "cyl"),
         "Final_L_AXIS": _safe_get(final, "left", "axis"),
         "Final_L_ADD": _safe_get(final, "left", "add"),
+        "Final_R_Distance_VA": _safe_get(metadata, "final_distance_va", "right", "line"),
+        "Final_L_Distance_VA": _safe_get(metadata, "final_distance_va", "left", "line"),
         "Phases_Completed": "; ".join(metadata.get("phases_completed", [])),
         # ── Patient Input ──
         "PI_Age": pi.get("age", ""),
@@ -469,6 +472,7 @@ def build_session_metadata(
     qna_count = sum(1 for r in rows if r.get("interaction_type") == "QnA")
 
     final_rx = {}
+    final_distance_va = {}
     if rows:
         last = rows[-1]
         final_rx = {
@@ -476,6 +480,16 @@ def build_session_metadata(
                        "axis": last.get("re_axis"), "add": last.get("add_r")},
             "left": {"sph": last.get("le_sph"), "cyl": last.get("le_cyl"),
                       "axis": last.get("le_axis"), "add": last.get("add_l")},
+        }
+        final_distance_va = {
+            "right": {
+                "chart": last.get("distance_va_re_chart", ""),
+                "line": last.get("distance_va_re_line", ""),
+            },
+            "left": {
+                "chart": last.get("distance_va_le_chart", ""),
+                "line": last.get("distance_va_le_line", ""),
+            },
         }
 
     return {
@@ -493,6 +507,7 @@ def build_session_metadata(
         "ar": ar or {},
         "lensometry": lensometry or {},
         "final_prescription": final_rx,
+        "final_distance_va": final_distance_va,
         "qualitative_feedback": qualitative_feedback or "",
         "phases_completed": phases_completed or [],
         "phases_skipped": phases_skipped or [],

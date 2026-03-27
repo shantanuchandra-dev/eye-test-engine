@@ -2,7 +2,7 @@ def compute_phase_max(state: str, dv_expected_convergence_time: str, calibration
     speed = dv_expected_convergence_time
 
     if speed == "Fast":
-        if state in ("B", "D"):
+        if state in ("B", "C", "D", "L"):
             return int(calibration.get("timeout_coarse_fast", 24))
         if state in ("E", "F", "H", "I"):
             return int(calibration.get("timeout_jcc_fast", 10))
@@ -15,7 +15,7 @@ def compute_phase_max(state: str, dv_expected_convergence_time: str, calibration
         return int(calibration.get("timeout_coarse_fast", 24))
 
     if speed == "Normal":
-        if state in ("B", "D"):
+        if state in ("B", "C", "D", "L"):
             return int(calibration.get("timeout_coarse_normal", 36))
         if state in ("E", "F", "H", "I"):
             return int(calibration.get("timeout_jcc_normal", 14))
@@ -27,7 +27,7 @@ def compute_phase_max(state: str, dv_expected_convergence_time: str, calibration
             return int(calibration.get("timeout_near_normal", 22))
         return int(calibration.get("timeout_coarse_normal", 36))
 
-    if state in ("B", "D"):
+    if state in ("B", "C", "D", "L"):
         return int(calibration.get("timeout_coarse_slow", 48))
     if state in ("E", "F", "H", "I"):
         return int(calibration.get("timeout_jcc_slow", 18))
@@ -62,6 +62,7 @@ def compute_next_state(context: dict) -> str:
     target_chart_idx = int(context["target_chart_idx"])
     jcc_power_flip_limit_hit = bool(context["jcc_power_flip_limit_hit"])
     jcc_cyl_at_zero = bool(context.get("jcc_cyl_at_zero", False))
+    va_confirm_completed = bool(context.get("va_confirm_completed", False))
 
     # FSM v2.3 additions
     axis_same_required = int(context.get("axis_same_required", 2))
@@ -79,8 +80,6 @@ def compute_next_state(context: dict) -> str:
             return "E"
         if response == "REPEAT":
             return "B"
-        if response in ("CLEAR", "READABLE") and chart_idx >= target_chart_idx:
-            return "E"
         return "B"
 
     if state == "E":
@@ -112,8 +111,15 @@ def compute_next_state(context: dict) -> str:
         if response == "REPEAT":
             return "G"
         if same_streak >= duo_equal_n or duo_flip >= duo_max:
-            return "D"
+            return "C"
         return "G"
+
+    if state == "C":
+        if response == "REPEAT":
+            return "C"
+        if timeout or va_confirm_completed:
+            return "D"
+        return "C"
 
     if state == "D":
         if le_escalate or timeout:
@@ -122,8 +128,6 @@ def compute_next_state(context: dict) -> str:
             return "H"
         if response == "REPEAT":
             return "D"
-        if response in ("CLEAR", "READABLE") and chart_idx >= target_chart_idx:
-            return "H"
         return "D"
 
     if state == "H":
@@ -155,10 +159,17 @@ def compute_next_state(context: dict) -> str:
         if response == "REPEAT":
             return "J"
         if same_streak >= duo_equal_n or duo_flip >= duo_max:
+            return "L"
+        return "J"
+
+    if state == "L":
+        if response == "REPEAT":
+            return "L"
+        if timeout or va_confirm_completed:
             if skip_bino_balance:
                 return "P" if near_required else "END"
             return "K"
-        return "J"
+        return "L"
 
     if state == "K":
         if timeout:

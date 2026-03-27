@@ -2,8 +2,11 @@ from dataclasses import asdict
 from typing import List, Optional
 
 from fsm.charts.chart_scale import (
+    chart_to_last_line_va,
     get_chart_index,
     get_next_chart,
+    get_previous_chart,
+    normalize_chart_param,
     target_line_to_chart,
 )
 from fsm.engines.delta_calculators import (
@@ -33,62 +36,72 @@ from fsm.models.fsm_runtime import FSMRuntimeRow
 COMPACT_PROMPT_CONFIG = {
     "B": {
         "response_type": "clarity_3way",
-        "question": "Distance letter chart. Read the letters, or say clear, blurry, or repeat.",
+        "question": "Please read the line.",
         "options": ("CLEAR", "BLURRY", "REPEAT"),
     },
     "D": {
         "response_type": "clarity_3way",
-        "question": "Distance letter chart. Read the letters, or say clear, blurry, or repeat.",
+        "question": "Please read the line.",
         "options": ("CLEAR", "BLURRY", "REPEAT"),
     },
     "E": {
         "response_type": "comparison_4way",
-        "question": "Dot chart for axis. Say first, second, same, or repeat.",
+        "question": "Please compare the two choices. Which one is clearer or sharper? say first option, second option, both same, or repeat.",
         "options": ("ONE", "TWO", "SAME", "REPEAT"),
     },
     "F": {
         "response_type": "comparison_4way",
-        "question": "Dot chart for power. Say first, second, same, or repeat.",
+        "question": "Please compare the two choices. Which one is clearer or sharper? say first option, second option, both same, or repeat.",
         "options": ("ONE", "TWO", "SAME", "REPEAT"),
     },
     "G": {
         "response_type": "duochrome_4way",
-        "question": "Red-green chart. Say red, green, same, or repeat.",
+        "question": "Please compare the red and green sides. Letters on which side look sharper and darker? Say red side, green side, both same, or repeat.",
         "options": ("RED", "GREEN", "SAME", "REPEAT"),
     },
     "H": {
         "response_type": "comparison_4way",
-        "question": "Dot chart for axis. Say first, second, same, or repeat.",
+        "question": "Please compare the two choices. Which one is clearer or sharper? say first option, second option, both same, or repeat.",
         "options": ("ONE", "TWO", "SAME", "REPEAT"),
     },
     "I": {
         "response_type": "comparison_4way",
-        "question": "Dot chart for power. Say first, second, same, or repeat.",
+        "question": "Please compare the two choices. Which one is clearer or sharper? say first option, second option, both same, or repeat.",
         "options": ("ONE", "TWO", "SAME", "REPEAT"),
     },
     "J": {
         "response_type": "duochrome_4way",
-        "question": "Red-green chart. Say red, green, same, or repeat.",
+        "question": "Please compare the red and green sides. Letters on which side look sharper and darker? Say red side, green side, both same, or repeat.",
         "options": ("RED", "GREEN", "SAME", "REPEAT"),
     },
     "K": {
         "response_type": "distance_bino_4way",
-        "question": "Top-bottom balance chart. Say top, bottom, same, or repeat.",
+        "question": "Please compare the letters on the top and the bottom line. Which line looks sharper? Say top line, bottom line, both same, or repeat.",
         "options": ("TOP", "BOTTOM", "SAME", "REPEAT"),
     },
     "P": {
         "response_type": "clarity_3way",
-        "question": "Near text chart. Say clear, blurry, or repeat.",
+        "question": "Please look at the near text. Are the letters clear, blurry, or do you want me to repeat?",
         "options": ("CLEAR", "BLURRY", "REPEAT"),
     },
     "Q": {
         "response_type": "clarity_3way",
-        "question": "Near text chart. Say clear, blurry, or repeat.",
+        "question": "Please look at the near text. Are the letters clear, blurry, or do you want me to repeat?",
         "options": ("CLEAR", "BLURRY", "REPEAT"),
     },
     "R": {
         "response_type": "clarity_3way",
-        "question": "Near text with both eyes. Say clear, blurry, or repeat.",
+        "question": "Please look at the near text. Are the letters clear, blurry, or do you want me to repeat?",
+        "options": ("CLEAR", "BLURRY", "REPEAT"),
+    },
+    "C": {
+        "response_type": "clarity_3way",
+        "question": "Please read the line.",
+        "options": ("CLEAR", "BLURRY", "REPEAT"),
+    },
+    "L": {
+        "response_type": "clarity_3way",
+        "question": "Please read the line.",
         "options": ("CLEAR", "BLURRY", "REPEAT"),
     },
 }
@@ -116,67 +129,206 @@ class RefractionFSMEngine:
     def _axis_fixed_step(self) -> float:
         return float(self.cal.get("axis_fixed_step", 5))
 
-    def _quick_axis_scan_step(self) -> float:
-        return float(self.cal.get("quick_axis_scan_step", 45))
+    def _parse_axis_step_sequence_text(self, sequence_text: str) -> list[float]:
+        sequence = []
+        for token in str(sequence_text or "").replace("|", ",").split(","):
+            token = token.strip()
+            if not token:
+                continue
+            try:
+                value = float(token)
+            except ValueError:
+                continue
+            if value > 0:
+                sequence.append(value)
+        return sequence or [self._axis_fixed_step()]
 
-    def _quick_axis_reversal_step(self) -> float:
-        return float(self.cal.get("quick_axis_reversal_step", 30))
-
-    def _quick_axis_refine_step_1(self) -> float:
-        return float(self.cal.get("quick_axis_refine_step_1", 10))
-
-    def _quick_axis_refine_step_2(self) -> float:
-        return float(self.cal.get("quick_axis_refine_step_2", 5))
-
-    def _axis_quick_search_active_for_state(self, state: str, dv) -> bool:
+    def _axis_lane_suffix(self, state: str) -> str:
         if state == "E":
-            return bool(getattr(dv, "dv_quick_axis_search_RE", False))
+            return "RE"
         if state == "H":
-            return bool(getattr(dv, "dv_quick_axis_search_LE", False))
-        return False
+            return "LE"
+        return ""
 
-    def _axis_nominal_step(self, quick_active: bool, quick_phase: str) -> float:
-        if not quick_active:
-            return self._axis_fixed_step()
-        if quick_phase == "REFINE_10":
-            return self._quick_axis_refine_step_1()
-        if quick_phase == "REFINE_5":
-            return self._quick_axis_refine_step_2()
-        return self._quick_axis_scan_step()
+    def _axis_lane_metadata_for_state(self, state: str, dv) -> dict:
+        suffix = self._axis_lane_suffix(state)
+        if not suffix:
+            return {
+                "lane_id": "",
+                "lane_name": "",
+                "confidence_label": "",
+                "source_used": "",
+                "selection_reason": "",
+                "is_near_cardinal": False,
+                "cyl_magnitude_for_lane": 0.0,
+                "step_sequence": str(int(self._axis_fixed_step())),
+            }
+        return {
+            "lane_id": getattr(dv, f"dv_axis_lane_id_{suffix}", ""),
+            "lane_name": getattr(dv, f"dv_axis_lane_name_{suffix}", ""),
+            "confidence_label": getattr(dv, f"dv_axis_confidence_label_{suffix}", ""),
+            "source_used": getattr(dv, f"dv_axis_source_used_{suffix}", ""),
+            "selection_reason": getattr(dv, f"dv_axis_selection_reason_{suffix}", ""),
+            "is_near_cardinal": bool(getattr(dv, f"dv_axis_is_near_cardinal_{suffix}", False)),
+            "cyl_magnitude_for_lane": float(getattr(dv, f"dv_axis_cyl_magnitude_for_lane_{suffix}", 0.0) or 0.0),
+            "step_sequence": getattr(dv, f"dv_axis_step_sequence_{suffix}", ""),
+        }
 
-    def _quick_axis_delta(self, current: FSMRuntimeRow, normalized_response: str) -> tuple[float, float, str, str]:
-        phase = current.axis_quick_phase or "SEEK_45"
+    def _axis_nominal_step(self, sequence_text: str, step_index: int) -> float:
+        sequence = self._parse_axis_step_sequence_text(sequence_text)
+        bounded_index = min(max(int(step_index), 0), len(sequence) - 1)
+        return float(sequence[bounded_index])
+
+    def _axis_lane_delta(
+        self,
+        current: FSMRuntimeRow,
+        normalized_response: str,
+    ) -> tuple[float, float, int, int, int, str]:
+        sequence = self._parse_axis_step_sequence_text(current.axis_step_sequence)
+        current_index = min(max(int(current.axis_step_index), 0), len(sequence) - 1)
+        last_index = len(sequence) - 1
         last_directional = current.axis_last_directional_response
 
         if normalized_response not in ("ONE", "TWO"):
-            return 0.0, self._axis_nominal_step(True, phase), phase, last_directional
+            step = float(sequence[current_index])
+            return (
+                0.0,
+                step,
+                current_index,
+                int(current.axis_flip_count),
+                int(current.axis_reversal_count),
+                last_directional,
+            )
 
-        if phase == "SEEK_45":
-            if last_directional in ("ONE", "TWO") and normalized_response != last_directional:
-                step = self._quick_axis_reversal_step()
-                next_phase = "REFINE_10"
+        reversal = (
+            last_directional in ("ONE", "TWO")
+            and normalized_response != last_directional
+        )
+        next_index = current_index
+        safety_flip_count = int(current.axis_flip_count)
+        total_reversal_count = int(current.axis_reversal_count)
+
+        if reversal:
+            total_reversal_count += 1
+            if current_index < last_index:
+                next_index = current_index + 1
             else:
-                step = self._quick_axis_scan_step()
-                next_phase = "SEEK_45"
-        elif phase == "REFINE_10":
-            # The quick-search ladder must always include one 10-degree move
-            # immediately after the 30-degree correction, regardless of which
-            # option wins on that next comparison.
-            step = self._quick_axis_refine_step_1()
-            next_phase = "REFINE_5"
-        else:
-            step = self._quick_axis_refine_step_2()
-            next_phase = "REFINE_5"
+                safety_flip_count += 1
 
+        step = float(sequence[next_index])
         delta = jcc_axis_delta(normalized_response, step, positive_for_better_1=True)
-        return delta, step, next_phase, normalized_response
+        return (
+            delta,
+            step,
+            next_index,
+            safety_flip_count,
+            total_reversal_count,
+            normalized_response,
+        )
+
+    @staticmethod
+    def _prompt_family_key(row: FSMRuntimeRow) -> str:
+        if row.state in ("B", "D", "C", "L"):
+            if row.state in ("B", "D") and row.coarse_compare_mode:
+                return "session:line_compare"
+            return "session:line_read"
+        if row.state in ("E", "F", "H", "I"):
+            return f"eye:{row.eye}:jcc_compare"
+        if row.state in ("G", "J"):
+            return "session:duochrome_compare"
+        if row.state == "K":
+            return "session:distance_bino_compare"
+        if row.state in ("P", "Q", "R"):
+            return "session:near_clarity"
+        return f"state:{row.state}"
+
+    def _is_early_prompt_for_row(self, row: FSMRuntimeRow) -> bool:
+        key = self._prompt_family_key(row)
+        seen = int((row.prompt_memory or {}).get(key, 0))
+        return seen == 0
+
+    def _remember_prompt(self, row: FSMRuntimeRow) -> None:
+        key = self._prompt_family_key(row)
+        memory = dict(row.prompt_memory or {})
+        memory[key] = int(memory.get(key, 0)) + 1
+        row.prompt_memory = memory
+
+    def _prompt_bundle_for_row(self, row: FSMRuntimeRow) -> tuple[str, tuple[str, ...]]:
+        early = self._is_early_prompt_for_row(row)
+        state = row.state
+
+        if state in ("B", "D"):
+            if row.coarse_compare_mode:
+                question = (
+                    "Did the line become clearer or more blurry?"
+                    if early
+                    else "Did the letters get clearer or more blurry?"
+                )
+                return question, ("CLEAR", "BLURRY", "REPEAT")
+            question = (
+                "Can you read all the letters in this line, or are they blurry?"
+                if early
+                else "Read the line."
+            )
+            return question, ("CLEAR", "BLURRY", "REPEAT")
+
+        if state in ("E", "H"):
+            question = (
+                "Please compare the two choices. Which one is clearer or sharper? say first option, second option, both same, or repeat."
+                if early
+                else "First, second, or both same?"
+            )
+            return question, ("ONE", "TWO", "SAME", "REPEAT")
+
+        if state in ("F", "I"):
+            question = (
+                "Please compare the two choices. Which one is clearer or sharper? say first option, second option, both same, or repeat."
+                if early
+                else "First option, second option, or both same?"
+            )
+            return question, ("ONE", "TWO", "SAME", "REPEAT")
+
+        if state in ("G", "J"):
+            question = (
+                "Please compare the red and green sides. Letters on which side look sharper and darker? Say red side, green side, both same, or repeat."
+                if early
+                else "Red side, green side, or both same?"
+            )
+            return question, ("RED", "GREEN", "SAME", "REPEAT")
+
+        if state == "K":
+            question = (
+                "Please compare the letters on the top and the bottom line. Which line looks sharper? Say top line, bottom line, both same, or repeat."
+                if early
+                else "Top line, bottom line, or both same?"
+            )
+            return question, ("TOP", "BOTTOM", "SAME", "REPEAT")
+
+        if state in ("P", "Q", "R"):
+            question = (
+                "Please look at the near text. Are the letters clear, blurry, or do you want me to repeat?"
+                if early
+                else "Clear or blurry?"
+            )
+            return question, ("CLEAR", "BLURRY", "REPEAT")
+
+        if state in ("C", "L"):
+            question = (
+                "Please read the line."
+                if early
+                else "Read the line."
+            )
+            return question, ("CLEAR", "BLURRY", "REPEAT")
+
+        cfg = COMPACT_PROMPT_CONFIG.get(state, {})
+        return str(cfg.get("question", "")), tuple(cfg.get("options", ()))
 
     def _normalize_response_value(self, state: str, response_value: str) -> str:
         value = str(response_value or "").strip().upper()
         if not value:
             return value
 
-        if state in ("B", "D", "P", "Q"):
+        if state in ("B", "C", "D", "L", "P", "Q"):
             mapping = {
                 "CLEAR": "CLEAR",
                 "READABLE": "CLEAR",
@@ -262,10 +414,29 @@ class RefractionFSMEngine:
         duo_iter: int,
         duo_flip: int,
         axis_step: float,
+        coarse_compare_mode: bool = False,
+        coarse_last_confirmed_chart_re: str = "",
+        coarse_last_confirmed_chart_le: str = "",
+        distance_va_re_chart: str = "",
+        distance_va_le_chart: str = "",
+        distance_va_re_line: str = "",
+        distance_va_le_line: str = "",
+        va_confirm_ceiling_chart: str = "",
         axis_flip_count: int = 0,
         axis_quick_search_active: bool = False,
         axis_quick_phase: str = "",
         axis_last_directional_response: str = "",
+        axis_reversal_count: int = 0,
+        axis_step_index: int = 0,
+        axis_step_sequence: str = "",
+        axis_lane_id: str = "",
+        axis_lane_name: str = "",
+        axis_confidence_label: str = "",
+        axis_source_used: str = "",
+        axis_selection_reason: str = "",
+        axis_is_near_cardinal: bool = False,
+        axis_cyl_magnitude_for_lane: float = 0.0,
+        prompt_memory: Optional[dict[str, int]] = None,
         jcc_power_start_re_cyl: Optional[float] = None,
         jcc_power_start_le_cyl: Optional[float] = None,
         near_bino_start_add_r: Optional[float] = None,
@@ -344,14 +515,33 @@ class RefractionFSMEngine:
             same_streak=same_streak,
             phase_step_count=phase_step_count,
             prev_axis_response=prev_axis_response,
+            prompt_memory=dict(prompt_memory or {}),
             duo_iter=duo_iter,
             duo_flip=duo_flip,
+            coarse_compare_mode=coarse_compare_mode,
+            coarse_last_confirmed_chart_re=coarse_last_confirmed_chart_re,
+            coarse_last_confirmed_chart_le=coarse_last_confirmed_chart_le,
+            distance_va_re_chart=distance_va_re_chart,
+            distance_va_le_chart=distance_va_le_chart,
+            distance_va_re_line=distance_va_re_line,
+            distance_va_le_line=distance_va_le_line,
+            va_confirm_ceiling_chart=va_confirm_ceiling_chart,
             next_state=state,
             row_active=True,
             axis_flip_count=axis_flip_count,
             axis_quick_search_active=axis_quick_search_active,
             axis_quick_phase=axis_quick_phase,
             axis_last_directional_response=axis_last_directional_response,
+            axis_reversal_count=axis_reversal_count,
+            axis_step_index=axis_step_index,
+            axis_step_sequence=axis_step_sequence,
+            axis_lane_id=axis_lane_id,
+            axis_lane_name=axis_lane_name,
+            axis_confidence_label=axis_confidence_label,
+            axis_source_used=axis_source_used,
+            axis_selection_reason=axis_selection_reason,
+            axis_is_near_cardinal=axis_is_near_cardinal,
+            axis_cyl_magnitude_for_lane=axis_cyl_magnitude_for_lane,
             jcc_power_start_re_cyl=jcc_power_start_re_cyl,
             jcc_power_start_le_cyl=jcc_power_start_le_cyl,
             near_bino_start_add_r=near_bino_start_add_r,
@@ -365,125 +555,116 @@ class RefractionFSMEngine:
             row.phase_type = "COARSE_SPHERE"
             row.stimulus_type = "COARSE_SPH"
             row.chart_type = "SNELLEN_FEET"
-            row.response_type = COMPACT_PROMPT_CONFIG["B"]["response_type"]
             row.eye = "RE"
-            row.question = COMPACT_PROMPT_CONFIG["B"]["question"]
-            row.opt_1, row.opt_2, row.opt_3 = COMPACT_PROMPT_CONFIG["B"]["options"]
 
         elif state == "D":
             row.phase_name = "Coarse Sphere LE"
             row.phase_type = "COARSE_SPHERE"
             row.stimulus_type = "COARSE_SPH"
             row.chart_type = "SNELLEN_FEET"
-            row.response_type = COMPACT_PROMPT_CONFIG["D"]["response_type"]
             row.eye = "LE"
-            row.question = COMPACT_PROMPT_CONFIG["D"]["question"]
-            row.opt_1, row.opt_2, row.opt_3 = COMPACT_PROMPT_CONFIG["D"]["options"]
 
         elif state == "E":
             row.phase_name = "JCC Axis RE"
             row.phase_type = "JCC_AXIS"
             row.stimulus_type = "JCC_AXIS"
             row.chart_type = "DOT_CHART_JCC"
-            row.response_type = COMPACT_PROMPT_CONFIG["E"]["response_type"]
             row.eye = "RE"
-            row.question = COMPACT_PROMPT_CONFIG["E"]["question"]
-            row.opt_1, row.opt_2, row.opt_3, row.opt_4 = COMPACT_PROMPT_CONFIG["E"]["options"]
 
         elif state == "F":
             row.phase_name = "JCC Power RE"
             row.phase_type = "JCC_POWER"
             row.stimulus_type = "JCC_POWER"
             row.chart_type = "DOT_CHART_JCC"
-            row.response_type = COMPACT_PROMPT_CONFIG["F"]["response_type"]
             row.eye = "RE"
-            row.question = COMPACT_PROMPT_CONFIG["F"]["question"]
-            row.opt_1, row.opt_2, row.opt_3, row.opt_4 = COMPACT_PROMPT_CONFIG["F"]["options"]
 
         elif state == "G":
             row.phase_name = "Duochrome RE"
             row.phase_type = "DUOCHROME"
             row.stimulus_type = "DUOCHROME"
             row.chart_type = "RED_GREEN_DUOCHROME"
-            row.response_type = COMPACT_PROMPT_CONFIG["G"]["response_type"]
             row.eye = "RE"
-            row.question = COMPACT_PROMPT_CONFIG["G"]["question"]
-            row.opt_1, row.opt_2, row.opt_3, row.opt_4 = COMPACT_PROMPT_CONFIG["G"]["options"]
 
         elif state == "H":
             row.phase_name = "JCC Axis LE"
             row.phase_type = "JCC_AXIS"
             row.stimulus_type = "JCC_AXIS"
             row.chart_type = "DOT_CHART_JCC"
-            row.response_type = COMPACT_PROMPT_CONFIG["H"]["response_type"]
             row.eye = "LE"
-            row.question = COMPACT_PROMPT_CONFIG["H"]["question"]
-            row.opt_1, row.opt_2, row.opt_3, row.opt_4 = COMPACT_PROMPT_CONFIG["H"]["options"]
 
         elif state == "I":
             row.phase_name = "JCC Power LE"
             row.phase_type = "JCC_POWER"
             row.stimulus_type = "JCC_POWER"
             row.chart_type = "DOT_CHART_JCC"
-            row.response_type = COMPACT_PROMPT_CONFIG["I"]["response_type"]
             row.eye = "LE"
-            row.question = COMPACT_PROMPT_CONFIG["I"]["question"]
-            row.opt_1, row.opt_2, row.opt_3, row.opt_4 = COMPACT_PROMPT_CONFIG["I"]["options"]
 
         elif state == "J":
             row.phase_name = "Duochrome LE"
             row.phase_type = "DUOCHROME"
             row.stimulus_type = "DUOCHROME"
             row.chart_type = "RED_GREEN_DUOCHROME"
-            row.response_type = COMPACT_PROMPT_CONFIG["J"]["response_type"]
             row.eye = "LE"
-            row.question = COMPACT_PROMPT_CONFIG["J"]["question"]
-            row.opt_1, row.opt_2, row.opt_3, row.opt_4 = COMPACT_PROMPT_CONFIG["J"]["options"]
+
+        elif state == "C":
+            row.phase_name = "Distance VA Confirm RE"
+            row.phase_type = "DISTANCE_VA_CONFIRM"
+            row.stimulus_type = "DISTANCE_VA_CONFIRM"
+            row.chart_type = "SNELLEN_FEET"
+            row.eye = "RE"
 
         elif state == "K":
             row.phase_name = "Binocular Balance"
             row.phase_type = "BINOC_BALANCE"
             row.stimulus_type = "BINOC_BALANCE"
             row.chart_type = "POLARIZED_BALANCE"
-            row.response_type = COMPACT_PROMPT_CONFIG["K"]["response_type"]
             row.eye = "BIN"
-            row.question = COMPACT_PROMPT_CONFIG["K"]["question"]
-            row.opt_1, row.opt_2, row.opt_3, row.opt_4 = COMPACT_PROMPT_CONFIG["K"]["options"]
 
         elif state == "P":
             row.phase_name = "Near Add RE"
             row.phase_type = "NEAR_ADD_RE"
             row.stimulus_type = "NEAR_ADD"
             row.chart_type = "NEAR_CHART"
-            row.response_type = COMPACT_PROMPT_CONFIG["P"]["response_type"]
             row.eye = "RE"
-            row.question = COMPACT_PROMPT_CONFIG["P"]["question"]
-            row.opt_1, row.opt_2, row.opt_3 = COMPACT_PROMPT_CONFIG["P"]["options"]
 
         elif state == "Q":
             row.phase_name = "Near Add LE"
             row.phase_type = "NEAR_ADD_LE"
             row.stimulus_type = "NEAR_ADD"
             row.chart_type = "NEAR_CHART"
-            row.response_type = COMPACT_PROMPT_CONFIG["Q"]["response_type"]
             row.eye = "LE"
-            row.question = COMPACT_PROMPT_CONFIG["Q"]["question"]
-            row.opt_1, row.opt_2, row.opt_3 = COMPACT_PROMPT_CONFIG["Q"]["options"]
 
         elif state == "R":
             row.phase_name = "Near Binocular"
             row.phase_type = "NEAR_BINOC"
             row.stimulus_type = "NEAR_BINOC"
             row.chart_type = "NEAR_CHART"
-            row.response_type = COMPACT_PROMPT_CONFIG["R"]["response_type"]
             row.eye = "BIN"
-            row.question = COMPACT_PROMPT_CONFIG["R"]["question"]
-            row.opt_1, row.opt_2, row.opt_3 = COMPACT_PROMPT_CONFIG["R"]["options"]
+
+        elif state == "L":
+            row.phase_name = "Distance VA Confirm LE"
+            row.phase_type = "DISTANCE_VA_CONFIRM"
+            row.stimulus_type = "DISTANCE_VA_CONFIRM"
+            row.chart_type = "SNELLEN_FEET"
+            row.eye = "LE"
+
+        prompt_question, prompt_options = self._prompt_bundle_for_row(row)
+        row.response_type = COMPACT_PROMPT_CONFIG.get(state, {}).get("response_type", "clarity_3way")
+        row.question = prompt_question
+        if len(prompt_options) > 0:
+            row.opt_1 = prompt_options[0]
+        if len(prompt_options) > 1:
+            row.opt_2 = prompt_options[1]
+        if len(prompt_options) > 2:
+            row.opt_3 = prompt_options[2]
+        if len(prompt_options) > 3:
+            row.opt_4 = prompt_options[3]
+        self._remember_prompt(row)
 
         return row
 
     def initialize_row(self, visit_id: str, dv, ar_re=None, ar_le=None) -> FSMRuntimeRow:
-        coarse_start_chart = str(self.cal.get("coarse_start_chart", self.cal.get("dist_chart_2", "200_150")))
+        coarse_start_chart = normalize_chart_param(self.cal.get("coarse_start_chart", "70_60_50"))
         self._re_coarse_entry_chart[visit_id] = coarse_start_chart
 
         re_start_sph = dv.dv_start_rx_RE_sph
@@ -515,11 +696,30 @@ class RefractionFSMEngine:
             prev_axis_response="",
             duo_iter=0,
             duo_flip=0,
+            coarse_compare_mode=False,
+            coarse_last_confirmed_chart_re="",
+            coarse_last_confirmed_chart_le="",
+            distance_va_re_chart="",
+            distance_va_le_chart="",
+            distance_va_re_line="",
+            distance_va_le_line="",
+            va_confirm_ceiling_chart="",
             axis_step=self._axis_fixed_step(),
             axis_flip_count=0,
             axis_quick_search_active=False,
             axis_quick_phase="",
             axis_last_directional_response="",
+            axis_reversal_count=0,
+            axis_step_index=0,
+            axis_step_sequence=str(int(self._axis_fixed_step())),
+            axis_lane_id="",
+            axis_lane_name="",
+            axis_confidence_label="",
+            axis_source_used="",
+            axis_selection_reason="",
+            axis_is_near_cardinal=False,
+            axis_cyl_magnitude_for_lane=0.0,
+            prompt_memory={},
             jcc_power_start_re_cyl=None,
             jcc_power_start_le_cyl=None,
             near_bino_start_add_r=None,
@@ -540,12 +740,21 @@ class RefractionFSMEngine:
     def _next_chart_param_from_row(self, row: FSMRuntimeRow) -> str:
 
         if row.state == "B":
+            if row.coarse_compare_mode:
+                return row.chart_param
             if row.response_value == "CLEAR" and row.next_state == "B":
                 return row.next_chart_param
             return row.chart_param
 
         if row.state == "D":
+            if row.coarse_compare_mode:
+                return row.chart_param
             if row.response_value == "CLEAR" and row.next_state == "D":
+                return row.next_chart_param
+            return row.chart_param
+
+        if row.state in ("C", "L"):
+            if row.response_value == "BLURRY" and row.next_state == row.state:
                 return row.next_chart_param
             return row.chart_param
 
@@ -568,10 +777,29 @@ class RefractionFSMEngine:
 
         next_duo_iter = row.duo_iter if row.next_state == row.state else 0
         next_duo_flip = row.duo_flip if row.next_state == row.state else 0
+        next_coarse_compare_mode = row.coarse_compare_mode if row.next_state == row.state else False
+        next_prompt_memory = dict(row.prompt_memory or {})
+        next_coarse_last_confirmed_chart_re = row.coarse_last_confirmed_chart_re
+        next_coarse_last_confirmed_chart_le = row.coarse_last_confirmed_chart_le
+        next_distance_va_re_chart = row.distance_va_re_chart
+        next_distance_va_le_chart = row.distance_va_le_chart
+        next_distance_va_re_line = row.distance_va_re_line
+        next_distance_va_le_line = row.distance_va_le_line
+        next_va_confirm_ceiling_chart = row.va_confirm_ceiling_chart if row.next_state == row.state else ""
         next_axis_flip_count = row.axis_flip_count if row.next_state == row.state else 0
         next_axis_quick_search_active = row.axis_quick_search_active if row.next_state == row.state else False
         next_axis_quick_phase = row.axis_quick_phase if row.next_state == row.state else ""
         next_axis_last_directional_response = row.axis_last_directional_response if row.next_state == row.state else ""
+        next_axis_reversal_count = row.axis_reversal_count if row.next_state == row.state else 0
+        next_axis_step_index = row.axis_step_index if row.next_state == row.state else 0
+        next_axis_step_sequence = row.axis_step_sequence if row.next_state == row.state else str(int(self._axis_fixed_step()))
+        next_axis_lane_id = row.axis_lane_id if row.next_state == row.state else ""
+        next_axis_lane_name = row.axis_lane_name if row.next_state == row.state else ""
+        next_axis_confidence_label = row.axis_confidence_label if row.next_state == row.state else ""
+        next_axis_source_used = row.axis_source_used if row.next_state == row.state else ""
+        next_axis_selection_reason = row.axis_selection_reason if row.next_state == row.state else ""
+        next_axis_is_near_cardinal = row.axis_is_near_cardinal if row.next_state == row.state else False
+        next_axis_cyl_magnitude_for_lane = row.axis_cyl_magnitude_for_lane if row.next_state == row.state else 0.0
         next_jcc_power_start_re_cyl = row.jcc_power_start_re_cyl if row.next_state == row.state else None
         next_jcc_power_start_le_cyl = row.jcc_power_start_le_cyl if row.next_state == row.state else None
 
@@ -595,7 +823,7 @@ class RefractionFSMEngine:
         next_near_bino_reversed = row.near_bino_reversed if row.next_state == row.state else False
 
         if row.next_state == "B" and row.state != "B":
-            next_chart_param = str(self.cal.get("coarse_start_chart", self.cal.get("dist_chart_2", "200_150")))
+            next_chart_param = normalize_chart_param(self.cal.get("coarse_start_chart", "70_60_50"))
             self._re_coarse_entry_chart[row.visit_id] = next_chart_param
 
             base_sph = dv.dv_start_rx_RE_sph or 0.0
@@ -609,7 +837,7 @@ class RefractionFSMEngine:
         if row.next_state == "D" and row.state != "D":
             entry_chart = self._re_coarse_entry_chart.get(row.visit_id)
             if not entry_chart:
-                entry_chart = str(self.cal.get("coarse_start_chart", self.cal.get("dist_chart_2", "200_150")))
+                entry_chart = normalize_chart_param(self.cal.get("coarse_start_chart", "70_60_50"))
 
             base_sph = dv.dv_start_rx_LE_sph or 0.0
             if getattr(dv, "dv_fogging_required", False):
@@ -620,7 +848,15 @@ class RefractionFSMEngine:
             next_le_sph = base_sph
             next_le_cyl = dv.dv_start_rx_LE_cyl
             next_le_axis = dv.dv_start_rx_LE_axis
-            next_chart_param = str(entry_chart)
+            next_chart_param = normalize_chart_param(entry_chart)
+
+        if row.next_state == "C" and row.state != "C":
+            next_chart_param = "20_20_20"
+            next_va_confirm_ceiling_chart = row.coarse_last_confirmed_chart_re or row.chart_param or "20_20_20"
+
+        if row.next_state == "L" and row.state != "L":
+            next_chart_param = "20_20_20"
+            next_va_confirm_ceiling_chart = row.coarse_last_confirmed_chart_le or row.chart_param or "20_20_20"
 
         if row.next_state == "R" and row.state != "R":
             next_near_bino_start_add_r = next_add_r
@@ -635,12 +871,23 @@ class RefractionFSMEngine:
             next_jcc_power_start_le_cyl = next_le_cyl
 
         if row.next_state in ("E", "H") and row.state != row.next_state:
-            next_axis_quick_search_active = self._axis_quick_search_active_for_state(row.next_state, dv)
-            next_axis_quick_phase = "SEEK_45" if next_axis_quick_search_active else ""
+            axis_lane = self._axis_lane_metadata_for_state(row.next_state, dv)
+            next_axis_quick_search_active = bool(axis_lane["lane_id"] == "LANE_4")
+            next_axis_quick_phase = ""
             next_axis_last_directional_response = ""
+            next_axis_reversal_count = 0
+            next_axis_step_index = 0
+            next_axis_step_sequence = axis_lane["step_sequence"] or str(int(self._axis_fixed_step()))
+            next_axis_lane_id = axis_lane["lane_id"]
+            next_axis_lane_name = axis_lane["lane_name"]
+            next_axis_confidence_label = axis_lane["confidence_label"]
+            next_axis_source_used = axis_lane["source_used"]
+            next_axis_selection_reason = axis_lane["selection_reason"]
+            next_axis_is_near_cardinal = bool(axis_lane["is_near_cardinal"])
+            next_axis_cyl_magnitude_for_lane = float(axis_lane["cyl_magnitude_for_lane"])
 
         if row.next_state in ("E", "H"):
-            next_axis_step = self._axis_nominal_step(next_axis_quick_search_active, next_axis_quick_phase)
+            next_axis_step = self._axis_nominal_step(next_axis_step_sequence, next_axis_step_index)
         elif row.next_state == row.state:
             next_axis_step = row.axis_step
         else:
@@ -665,11 +912,30 @@ class RefractionFSMEngine:
             prev_axis_response=next_prev_axis_response,
             duo_iter=next_duo_iter,
             duo_flip=next_duo_flip,
+            coarse_compare_mode=next_coarse_compare_mode,
+            coarse_last_confirmed_chart_re=next_coarse_last_confirmed_chart_re,
+            coarse_last_confirmed_chart_le=next_coarse_last_confirmed_chart_le,
+            distance_va_re_chart=next_distance_va_re_chart,
+            distance_va_le_chart=next_distance_va_le_chart,
+            distance_va_re_line=next_distance_va_re_line,
+            distance_va_le_line=next_distance_va_le_line,
+            va_confirm_ceiling_chart=next_va_confirm_ceiling_chart,
             axis_step=next_axis_step,
             axis_flip_count=next_axis_flip_count,
             axis_quick_search_active=next_axis_quick_search_active,
             axis_quick_phase=next_axis_quick_phase,
             axis_last_directional_response=next_axis_last_directional_response,
+            axis_reversal_count=next_axis_reversal_count,
+            axis_step_index=next_axis_step_index,
+            axis_step_sequence=next_axis_step_sequence,
+            axis_lane_id=next_axis_lane_id,
+            axis_lane_name=next_axis_lane_name,
+            axis_confidence_label=next_axis_confidence_label,
+            axis_source_used=next_axis_source_used,
+            axis_selection_reason=next_axis_selection_reason,
+            axis_is_near_cardinal=next_axis_is_near_cardinal,
+            axis_cyl_magnitude_for_lane=next_axis_cyl_magnitude_for_lane,
+            prompt_memory=next_prompt_memory,
             jcc_power_start_re_cyl=next_jcc_power_start_re_cyl,
             jcc_power_start_le_cyl=next_jcc_power_start_le_cyl,
             near_bino_start_add_r=next_near_bino_start_add_r,
@@ -705,42 +971,69 @@ class RefractionFSMEngine:
         row.next_chart_param = get_next_chart(str(current.chart_param))
         coarse_endpoint_reached = False
         coarse_oscillation_detected = False
+        va_confirm_completed = False
 
         if current.state == "B":
-            row.ds_re = coarse_sphere_delta(normalized_response, current.sph_step)
-            if normalized_response == "CLEAR":
-                row.next_chart_param = get_next_chart(str(current.chart_param))
+            row.next_chart_param = str(current.chart_param)
+            if current.coarse_compare_mode:
+                if normalized_response == "CLEAR":
+                    row.coarse_compare_mode = False
+                elif normalized_response == "BLURRY":
+                    row.ds_re = abs(float(current.sph_step))
+                    row.coarse_compare_mode = False
+                    coarse_endpoint_reached = True
+                else:
+                    row.coarse_compare_mode = True
             else:
-                row.next_chart_param = str(current.chart_param)
-            if current.chart_idx >= row.target_chart_idx and normalized_response == "CLEAR":
-                coarse_endpoint_reached = True
+                if normalized_response == "CLEAR":
+                    row.coarse_last_confirmed_chart_re = str(current.chart_param)
+                    row.next_chart_param = get_next_chart(str(current.chart_param))
+                    if row.next_chart_param == str(current.chart_param):
+                        coarse_endpoint_reached = True
+                elif normalized_response == "BLURRY":
+                    row.ds_re = coarse_sphere_delta(normalized_response, current.sph_step)
+                    row.coarse_compare_mode = True
 
         elif current.state == "D":
-            row.ds_le = coarse_sphere_delta(normalized_response, current.sph_step)
-            if normalized_response == "CLEAR":
-                row.next_chart_param = get_next_chart(str(current.chart_param))
+            row.next_chart_param = str(current.chart_param)
+            if current.coarse_compare_mode:
+                if normalized_response == "CLEAR":
+                    row.coarse_compare_mode = False
+                elif normalized_response == "BLURRY":
+                    row.ds_le = abs(float(current.sph_step))
+                    row.coarse_compare_mode = False
+                    coarse_endpoint_reached = True
+                else:
+                    row.coarse_compare_mode = True
             else:
-                row.next_chart_param = str(current.chart_param)
-            if current.chart_idx >= row.target_chart_idx and normalized_response == "CLEAR":
-                coarse_endpoint_reached = True
+                if normalized_response == "CLEAR":
+                    row.coarse_last_confirmed_chart_le = str(current.chart_param)
+                    row.next_chart_param = get_next_chart(str(current.chart_param))
+                    if row.next_chart_param == str(current.chart_param):
+                        coarse_endpoint_reached = True
+                elif normalized_response == "BLURRY":
+                    row.ds_le = coarse_sphere_delta(normalized_response, current.sph_step)
+                    row.coarse_compare_mode = True
 
         elif current.state == "E":
-            if current.axis_quick_search_active:
-                row.da_re, row.axis_step, row.axis_quick_phase, row.axis_last_directional_response = self._quick_axis_delta(
-                    current,
-                    normalized_response,
-                )
-            else:
-                row.da_re = jcc_axis_delta(normalized_response, current.axis_step, positive_for_better_1=True)
+            (
+                row.da_re,
+                row.axis_step,
+                row.axis_step_index,
+                row.axis_flip_count,
+                row.axis_reversal_count,
+                row.axis_last_directional_response,
+            ) = self._axis_lane_delta(current, normalized_response)
 
         elif current.state == "H":
-            if current.axis_quick_search_active:
-                row.da_le, row.axis_step, row.axis_quick_phase, row.axis_last_directional_response = self._quick_axis_delta(
-                    current,
-                    normalized_response,
-                )
-            else:
-                row.da_le = jcc_axis_delta(normalized_response, current.axis_step, positive_for_better_1=True)
+            (
+                row.da_le,
+                row.axis_step,
+                row.axis_step_index,
+                row.axis_flip_count,
+                row.axis_reversal_count,
+                row.axis_last_directional_response,
+            ) = self._axis_lane_delta(current, normalized_response)
 
         elif current.state == "F":
             proposed_dc = jcc_power_cyl_delta(normalized_response, current.cyl_step)
@@ -783,6 +1076,40 @@ class RefractionFSMEngine:
                 equal_confirmation_reached=equal_reached,
                 calibration=self.cal,
             )
+
+        elif current.state == "C":
+            row.next_chart_param = str(current.chart_param)
+            if normalized_response == "CLEAR":
+                row.distance_va_re_chart = str(current.chart_param)
+                row.distance_va_re_line = chart_to_last_line_va(current.chart_param)
+                va_confirm_completed = True
+            elif normalized_response == "BLURRY":
+                next_chart = get_previous_chart(str(current.chart_param))
+                ceiling_chart = str(current.va_confirm_ceiling_chart or current.coarse_last_confirmed_chart_re or current.chart_param)
+                if str(current.chart_param) == ceiling_chart or next_chart == str(current.chart_param):
+                    final_chart = str(current.coarse_last_confirmed_chart_re or current.chart_param)
+                    row.distance_va_re_chart = final_chart
+                    row.distance_va_re_line = chart_to_last_line_va(final_chart)
+                    va_confirm_completed = True
+                else:
+                    row.next_chart_param = next_chart
+
+        elif current.state == "L":
+            row.next_chart_param = str(current.chart_param)
+            if normalized_response == "CLEAR":
+                row.distance_va_le_chart = str(current.chart_param)
+                row.distance_va_le_line = chart_to_last_line_va(current.chart_param)
+                va_confirm_completed = True
+            elif normalized_response == "BLURRY":
+                next_chart = get_previous_chart(str(current.chart_param))
+                ceiling_chart = str(current.va_confirm_ceiling_chart or current.coarse_last_confirmed_chart_le or current.chart_param)
+                if str(current.chart_param) == ceiling_chart or next_chart == str(current.chart_param):
+                    final_chart = str(current.coarse_last_confirmed_chart_le or current.chart_param)
+                    row.distance_va_le_chart = final_chart
+                    row.distance_va_le_line = chart_to_last_line_va(final_chart)
+                    va_confirm_completed = True
+                else:
+                    row.next_chart_param = next_chart
 
         elif current.state == "K":
             row.ds_re = binocular_balance_delta(normalized_response, self.cal, top_eye=True)
@@ -871,16 +1198,15 @@ class RefractionFSMEngine:
             row.duo_flip = 0
 
         if current.state in ("E", "H"):
-            axis_flip = (
-                current.prev_axis_response in ("ONE", "TWO")
-                and normalized_response in ("ONE", "TWO")
-                and current.prev_axis_response != normalized_response
-            )
-            row.axis_flip_count = current.axis_flip_count + 1 if axis_flip else current.axis_flip_count
-            if not current.axis_quick_search_active:
-                row.axis_step = self._axis_fixed_step()
+            if normalized_response not in ("ONE", "TWO"):
+                row.axis_flip_count = current.axis_flip_count
+                row.axis_reversal_count = current.axis_reversal_count
+                row.axis_step = self._axis_nominal_step(current.axis_step_sequence, current.axis_step_index)
+                row.axis_step_index = current.axis_step_index
+                row.axis_last_directional_response = current.axis_last_directional_response
         else:
             row.axis_flip_count = 0
+            row.axis_reversal_count = 0
 
         re_escalate = should_escalate_re(
             anomaly_watch=bool(dv.dv_anomaly_watch),
@@ -904,6 +1230,15 @@ class RefractionFSMEngine:
 
         phase_max = compute_phase_max(current.state, dv.dv_expected_convergence_time, self.cal)
         timeout = phase_timeout_reached(current.phase_step_count, phase_max)
+
+        if current.state == "C" and timeout and not row.distance_va_re_line:
+            final_chart = str(current.coarse_last_confirmed_chart_re or current.chart_param)
+            row.distance_va_re_chart = final_chart
+            row.distance_va_re_line = chart_to_last_line_va(final_chart)
+        if current.state == "L" and timeout and not row.distance_va_le_line:
+            final_chart = str(current.coarse_last_confirmed_chart_le or current.chart_param)
+            row.distance_va_le_chart = final_chart
+            row.distance_va_le_line = chart_to_last_line_va(final_chart)
 
         power_same_n = self._power_same_required(dv.dv_confidence_requirement)
         duo_equal_n = int(self.cal.get("duochrome_equal_confirmations", 2))
@@ -941,6 +1276,8 @@ class RefractionFSMEngine:
             "target_chart_idx": get_chart_index(target_line_to_chart(dv.dv_target_distance_va, self.cal)),
             "coarse_endpoint_reached": coarse_endpoint_reached,
             "coarse_oscillation_detected": coarse_oscillation_detected,
+            "coarse_compare_mode": bool(current.coarse_compare_mode),
+            "va_confirm_completed": bool(va_confirm_completed),
             "jcc_power_flip_limit_hit": row.duo_flip >= int(self.cal.get("jcc_power_max_flips", 4)),
             "jcc_cyl_at_zero": (
                 (current.state == "F" and abs(((current.re_cyl or 0.0) + (row.dc_re or 0.0))) < 1e-9)

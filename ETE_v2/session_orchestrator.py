@@ -26,7 +26,17 @@ import requests as http_requests
 
 logger = logging.getLogger(__name__)
 
+APP_ROOT = Path(__file__).resolve().parent
+
+
+def _resolve_runtime_path(raw_path: str | Path) -> Path:
+    path = Path(raw_path).expanduser()
+    if path.is_absolute():
+        return path
+    return APP_ROOT / path
+
 from fsm.config.calibration_loader import CalibrationLoader
+from fsm.charts.chart_scale import chart_to_last_line_item
 from fsm.engines.refraction_fsm_engine import COMPACT_PROMPT_CONFIG, RefractionFSMEngine
 from fsm.engines.derived_variables_engine import DerivedVariablesEngine
 from fsm.models.patient import PatientInput
@@ -38,13 +48,14 @@ from fsm.models.fsm_runtime import FSMRuntimeRow
 # ── FSM State → Phoropter Mapping ───────────────────────────────────
 
 STATE_EYE_MAP = {
-    "B": "RE", "E": "RE", "F": "RE", "G": "RE",
-    "D": "LE", "H": "LE", "I": "LE", "J": "LE",
+    "B": "RE", "C": "RE", "E": "RE", "F": "RE", "G": "RE",
+    "D": "LE", "H": "LE", "I": "LE", "J": "LE", "L": "LE",
     "K": "BIN", "P": "RE", "Q": "LE", "R": "BIN",
 }
 
 STATE_AUX_LENS_MAP = {
     "B": "AuxLensL",   # Occlude left → test right
+    "C": "AuxLensL",
     "E": "AuxLensL",
     "F": "AuxLensL",
     "G": "AuxLensL",
@@ -52,6 +63,7 @@ STATE_AUX_LENS_MAP = {
     "H": "AuxLensR",
     "I": "AuxLensR",
     "J": "AuxLensR",
+    "L": "AuxLensR",
     "K": "BINO",
     "P": "AuxLensL",
     "Q": "AuxLensR",
@@ -60,6 +72,7 @@ STATE_AUX_LENS_MAP = {
 
 STATE_CHART_MAP = {
     "B": "snellen",      # Chart from chart_param
+    "C": "snellen",
     "D": "snellen",
     "E": "jcc",           # chart_19
     "F": "jcc",           # chart_19
@@ -67,6 +80,7 @@ STATE_CHART_MAP = {
     "H": "jcc",
     "I": "jcc",
     "J": "duochrome",
+    "L": "snellen",
     "K": "bino",          # chart_20
     "P": "near",          # Chart5
     "Q": "near",
@@ -102,6 +116,7 @@ SPECIAL_CHART_ITEMS = {
 # Phase display names
 STATE_PHASE_DISPLAY = {
     "B": "Coarse Sphere RE",
+    "C": "Distance VA Confirm RE",
     "D": "Coarse Sphere LE",
     "E": "JCC Axis RE",
     "F": "JCC Power RE",
@@ -109,12 +124,28 @@ STATE_PHASE_DISPLAY = {
     "H": "JCC Axis LE",
     "I": "JCC Power LE",
     "J": "Duochrome LE",
+    "L": "Distance VA Confirm LE",
     "K": "Binocular Balance",
     "P": "Near Add RE",
     "Q": "Near Add LE",
     "R": "Near Binocular",
     "END": "Test Complete",
     "ESCALATE": "Escalation Required",
+}
+
+# Non-functional or compatibility-only DV fields are kept in the internal
+# dataclass/schema for backward compatibility, but hidden from the debug API so
+# the frontend/backend DV views emphasize variables that actively influence the
+# current runtime behavior.
+HIDDEN_DEBUG_DV_KEYS = {
+    "dv_axis_tolerance_deg",
+    "dv_cyl_tolerance_D",
+    "dv_fogging_required_confirmation",
+    "dv_axis_step_policy",
+    "dv_accommodation_level",
+    "dv_fogging_stop_at_target_va",
+    "dv_quick_axis_search_RE",
+    "dv_quick_axis_search_LE",
 }
 
 
@@ -131,9 +162,12 @@ def _snap_ar_pd_mm(raw: Any) -> float:
 class SessionOrchestrator:
     """Drives a single eye test session using the FSMv3.1 engine."""
 
-    def __init__(self, calibration_path: str = "config/calibration.csv",
+    def __init__(self, calibration_path: str | Path = APP_ROOT / "config" / "calibration.csv",
                  phoropter_base_url: str = ""):
-        self.calibration = CalibrationLoader(calibration_path)
+        self.calibration_path = _resolve_runtime_path(calibration_path)
+        self.log_base = _resolve_runtime_path(os.environ.get("LOG_DIR", "logs"))
+        self.audio_dir = self.log_base / "sessions" / "audio"
+        self.calibration = CalibrationLoader(self.calibration_path)
         self.engine = RefractionFSMEngine(self.calibration)
         self.dv_engine = DerivedVariablesEngine(self.calibration)
         self.phoropter_base_url = phoropter_base_url or os.environ.get(
@@ -354,17 +388,63 @@ class SessionOrchestrator:
         # Track phase entry if new state
         if next_state != prev_state:
             self._track_phase_entry(next_state)
+            if next_state in ("E", "H"):
+                self._log_conversation(
+                    "system",
+                    (
+                        f"Axis lane selected: {self.current_row.axis_lane_name or self.current_row.axis_lane_id} "
+                        f"[source={self.current_row.axis_source_used}, "
+                        f"sequence={self.current_row.axis_step_sequence or self.current_row.axis_step}]"
+                    ),
+                    state=next_state,
+                    step=self.current_row.step,
+                    axis_lane_id=self.current_row.axis_lane_id,
+                    axis_selection_reason=self.current_row.axis_selection_reason,
+                )
+            self.current_row.preface_prompt = self._build_transition_preface(
+                prev_state=prev_state,
+                next_state=next_state,
+                skip_bino_balance=bool(finalized.skip_bino_balance),
+            )
+            if self.current_row.preface_prompt:
+                self._log_conversation(
+                    "system",
+                    self.current_row.preface_prompt,
+                    state=next_state,
+                    step=self.current_row.step,
+                )
 
         # ── STEP 2: Send ENTRY/STEP commands for the NEW state ──
         # IMPORTANT: prev-state is NOT updated yet — so the broker sees the correct delta
         phase_changed = next_state != prev_state
         if phase_changed:
+            pre_entry_power_sync = self._needs_pre_entry_power_sync(prev_state, next_state, finalized)
+            if pre_entry_power_sync:
+                self._log_conversation(
+                    "system",
+                    (
+                        f"Pre-entry power sync before {next_state}: "
+                        f"RE {self.current_row.re_sph}/{self.current_row.re_cyl} x {self.current_row.re_axis}, "
+                        f"LE {self.current_row.le_sph}/{self.current_row.le_cyl} x {self.current_row.le_axis}"
+                    ),
+                    state=next_state,
+                    step=self.current_row.step,
+                )
+                self._send_power_with_prev(include_add=False)
             self.dispatch_phoropter_commands(
                 is_phase_entry=True,
                 prev_response=response_value,
                 prev_state=prev_state,
             )
-        elif next_state in ("B", "D", "K", "P", "Q", "R"):
+            if (
+                not pre_entry_power_sync
+                and
+                not self._entry_dispatch_includes_power(next_state)
+                and prev_state in {"B", "D", "K", "P", "Q", "R"}
+                and self._row_has_power_delta(finalized)
+            ):
+                self._send_power_with_prev(include_add=next_state in {"P", "Q", "R"})
+        elif next_state in ("B", "C", "D", "K", "L", "P", "Q", "R"):
             # Coarse/bino/near: send power update on each step within the phase
             self.dispatch_phoropter_commands(
                 is_phase_entry=False,
@@ -425,7 +505,12 @@ class SessionOrchestrator:
         """Return all derived variables for debug display."""
         if self.derived_variables is None:
             return {}
-        return asdict(self.derived_variables)
+        dv = asdict(self.derived_variables)
+        return {
+            key: value
+            for key, value in dv.items()
+            if key not in HIDDEN_DEBUG_DV_KEYS
+        }
 
     def get_phoropter_commands(self) -> dict:
         """Build phoropter command summary for the API response (informational)."""
@@ -469,7 +554,7 @@ class SessionOrchestrator:
             symptoms_text=data.get("symptoms_text", ""),
             satisfaction_with_current_rx=data.get("satisfaction", "No current Rx"),
             wear_type=data.get("wear_type", "None"),
-            distance_target_preference=data.get("distance_target", "6/6_target"),
+            distance_target_preference="",
             priority=data.get("priority", "Standard"),
             near_priority_declared=data.get("near_priority", "Medium"),
             last_eye_test_months_ago=data.get("last_test_months"),
@@ -549,6 +634,17 @@ class SessionOrchestrator:
             "auto_flip": state in ("E", "F", "H", "I") and not is_terminal,
             "flip_wait_seconds": 1,
             "flip_state": "flip1",  # Always starts at flip1; frontend sends handle after delay
+            "preface_prompt": row.preface_prompt if not is_terminal else "",
+            "distance_va": {
+                "right": {
+                    "chart": row.distance_va_re_chart,
+                    "line": row.distance_va_re_line,
+                },
+                "left": {
+                    "chart": row.distance_va_le_chart,
+                    "line": row.distance_va_le_line,
+                },
+            },
             "exam_clock_start_iso": (
                 self.exam_clock_start.isoformat() if self.exam_clock_start else None
             ),
@@ -601,12 +697,11 @@ class SessionOrchestrator:
     def _save_audio_blob(self, audio_base64: str, step: int, timestamp: str) -> str:
         """Decode base64 audio and save to disk. Returns the filename."""
         import base64
-        audio_dir = Path("logs/sessions/audio")
-        audio_dir.mkdir(parents=True, exist_ok=True)
+        self.audio_dir.mkdir(parents=True, exist_ok=True)
         # Clean timestamp for filename
         ts_clean = timestamp.replace(":", "").replace("-", "").replace("T", "_").split(".")[0]
         filename = f"{self.session_id}_step{step}_{ts_clean}.webm"
-        filepath = audio_dir / filename
+        filepath = self.audio_dir / filename
         try:
             raw = base64.b64decode(audio_base64)
             filepath.write_bytes(raw)
@@ -653,6 +748,34 @@ class SessionOrchestrator:
 
         return max(1, int(round(abs(delta) / base_step)))
 
+    @staticmethod
+    def _row_has_power_delta(row: Optional[FSMRuntimeRow]) -> bool:
+        if row is None:
+            return False
+        return any(
+            abs(float(value or 0.0)) > 1e-9
+            for value in (
+                row.ds_re,
+                row.dc_re,
+                row.ds_le,
+                row.dc_le,
+                row.dadd_r,
+                row.dadd_l,
+            )
+        )
+
+    @staticmethod
+    def _entry_dispatch_includes_power(state: str) -> bool:
+        return state in {"B", "D", "K", "P"}
+
+    @staticmethod
+    def _needs_pre_entry_power_sync(prev_state: str, next_state: str, row: Optional[FSMRuntimeRow]) -> bool:
+        return (
+            prev_state in {"B", "D"}
+            and next_state in {"E", "H"}
+            and SessionOrchestrator._row_has_power_delta(row)
+        )
+
     def _track_phase_entry(self, state: str) -> None:
         self.phase_start_times[state] = time.time()
 
@@ -669,6 +792,96 @@ class SessionOrchestrator:
             **extra,
         }
         self.conversation_log.append(entry)
+
+    def _remaining_phase_sequence(self, start_state: str, *, skip_bino_balance: bool) -> List[str]:
+        near_required = bool(getattr(self.derived_variables, "dv_near_test_required", False))
+        sequence: List[str] = []
+        state = start_state
+        guard = 0
+        while state not in ("", "END", "ESCALATE") and guard < 24:
+            sequence.append(state)
+            if state == "E":
+                state = "F"
+            elif state == "F":
+                state = "G"
+            elif state == "G":
+                state = "C"
+            elif state == "C":
+                state = "D"
+            elif state == "D":
+                state = "H"
+            elif state == "H":
+                state = "I"
+            elif state == "I":
+                state = "J"
+            elif state == "J":
+                state = "L"
+            elif state == "L":
+                if skip_bino_balance:
+                    state = "P" if near_required else "END"
+                else:
+                    state = "K"
+            elif state == "K":
+                state = "P" if near_required else "END"
+            elif state == "P":
+                state = "Q"
+            elif state == "Q":
+                state = "R"
+            elif state == "R":
+                state = "END"
+            else:
+                state = "END"
+            guard += 1
+        return sequence
+
+    def _estimate_minutes_remaining(self, start_state: str, *, skip_bino_balance: bool) -> int:
+        per_phase_minutes = {
+            "B": 1.0,
+            "C": 0.5,
+            "D": 1.0,
+            "E": 0.8,
+            "F": 0.8,
+            "G": 0.5,
+            "H": 0.8,
+            "I": 0.8,
+            "J": 0.5,
+            "K": 0.5,
+            "L": 0.5,
+            "P": 0.8,
+            "Q": 0.8,
+            "R": 0.6,
+        }
+        remaining = self._remaining_phase_sequence(
+            start_state,
+            skip_bino_balance=skip_bino_balance,
+        )
+        total_minutes = sum(per_phase_minutes.get(state, 0.5) for state in remaining)
+        return max(1, int(round(total_minutes)))
+
+    def _build_transition_preface(
+        self,
+        *,
+        prev_state: str,
+        next_state: str,
+        skip_bino_balance: bool,
+    ) -> str:
+        if prev_state not in {"B", "D", "F", "I", "K"}:
+            return ""
+        if next_state in {"END", "ESCALATE", ""}:
+            return ""
+
+        minutes_left = self._estimate_minutes_remaining(
+            next_state,
+            skip_bino_balance=skip_bino_balance,
+        )
+        patient_name = ""
+        if self.patient_input and self.patient_input.patient_name:
+            patient_name = f" {self.patient_input.patient_name.strip()}"
+        minute_label = "minute" if minutes_left == 1 else "minutes"
+        return (
+            f"You are doing great{patient_name}. Please blink a few times. "
+            f"About {minutes_left} {minute_label} left."
+        )
 
     def log_curl_command(self, method: str, url: str, body: Optional[dict] = None,
                         screenshot: Optional[str] = None) -> None:
@@ -743,6 +956,10 @@ class SessionOrchestrator:
             if is_phase_entry:
                 results["chart"] = self._send_chart("Chart1", ["chart_17"])
             # Response commands (RED→decrease, GREEN→increase) handled by _dispatch_response_commands
+
+        # ── Distance VA Confirmation (C, L) ──
+        elif state in ("C", "L"):
+            results["chart"] = self._send_chart_for_state(state)
 
         # ── Binocular Balance (K) ──
         elif state == "K":
@@ -885,15 +1102,27 @@ class SessionOrchestrator:
             "test_cases": [{"chart": {"tab": tab, "chart_items": chart_items}}]
         })
 
-    def _send_chart_for_state(self, state: str) -> dict:
-        """Send the correct chart for the current FSM state."""
+    def _chart_selection_for_state(self, state: str) -> dict:
         chart_type = STATE_CHART_MAP.get(state, "snellen")
         if chart_type in SPECIAL_CHART_ITEMS:
             info = SPECIAL_CHART_ITEMS[chart_type]
-            return self._send_chart(info["tab"], info["chart_items"])
+            return {"tab": info["tab"], "chart_items": list(info["chart_items"])}
+
         chart_param = self.current_row.chart_param or "20_20_20"
         info = CHART_PARAM_TO_ITEMS.get(chart_param, {"tab": "Chart1", "chart_items": ["chart_15"]})
-        return self._send_chart(info["tab"], info["chart_items"])
+        selection = {"tab": info["tab"], "chart_items": list(info["chart_items"])}
+
+        if state in {"B", "C", "D", "L"}:
+            last_line_item = chart_to_last_line_item(chart_param)
+            if last_line_item:
+                selection["chart_items"] = [selection["chart_items"][0], last_line_item]
+
+        return selection
+
+    def _send_chart_for_state(self, state: str) -> dict:
+        """Send the correct chart for the current FSM state."""
+        selection = self._chart_selection_for_state(state)
+        return self._send_chart(selection["tab"], selection["chart_items"])
 
     def _send_power_with_prev(self, include_add: bool = False) -> dict:
         """Send run-tests with prev_state for delta calculation (matching v1 set_power_with_prev_state)."""

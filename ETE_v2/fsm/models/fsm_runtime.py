@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 
@@ -82,8 +82,18 @@ class FSMRuntimeRow:
     same_streak: int = 0
     phase_step_count: int = 0
     prev_axis_response: str = ""
+    prompt_memory: dict[str, int] = field(default_factory=dict)
     duo_iter: int = 0
     duo_flip: int = 0
+    coarse_compare_mode: bool = False
+    coarse_last_confirmed_chart_re: str = ""
+    coarse_last_confirmed_chart_le: str = ""
+    distance_va_re_chart: str = ""
+    distance_va_le_chart: str = ""
+    distance_va_re_line: str = ""
+    distance_va_le_line: str = ""
+    va_confirm_ceiling_chart: str = ""
+    preface_prompt: str = ""
 
     next_state: str = ""
     row_active: bool = True
@@ -97,6 +107,16 @@ class FSMRuntimeRow:
     axis_quick_search_active: bool = False
     axis_quick_phase: str = ""
     axis_last_directional_response: str = ""
+    axis_reversal_count: int = 0
+    axis_step_index: int = 0
+    axis_step_sequence: str = ""
+    axis_lane_id: str = ""
+    axis_lane_name: str = ""
+    axis_confidence_label: str = ""
+    axis_source_used: str = ""
+    axis_selection_reason: str = ""
+    axis_is_near_cardinal: bool = False
+    axis_cyl_magnitude_for_lane: float = 0.0
 
     # JCC Power entry cylinder (used for relative cylinder displacement compensation)
     jcc_power_start_re_cyl: Optional[float] = None

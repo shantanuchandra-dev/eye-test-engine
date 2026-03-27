@@ -929,6 +929,121 @@ LOCALIZED_OPTION_LABELS = {
 }
 
 
+HINDI_QUESTION_TRANSLATIONS = {
+    "Can you read all the letters in this line, or are they blurry?": "क्या आप इस लाइन के सभी अक्षर पढ़ पा रहे हैं, या वे धुंधले हैं?",
+    "Read the line.": "लाइन पढ़िए।",
+    "Did the line become clearer or more blurry?": "क्या लाइन ज़्यादा साफ हुई या और धुंधली हुई?",
+    "Did the letters get clearer or more blurry?": "क्या अक्षर ज़्यादा साफ हुए या और धुंधले हुए?",
+    "Please compare the two choices. Which one is clearer or sharper? say first option, second option, both same, or repeat.": "कृपया दोनों विकल्पों की तुलना कीजिए। कौन सा ज़्यादा साफ या शार्प दिख रहा है? पहला विकल्प, दूसरा विकल्प, दोनों समान, या फिर से कहिए।",
+    "First, second, or both same?": "पहला, दूसरा, या दोनों समान?",
+    "First option, second option, or both same?": "पहला विकल्प, दूसरा विकल्प, या दोनों समान?",
+    "Please compare the red and green sides. Letters on which side look sharper and darker? Say red side, green side, both same, or repeat.": "कृपया लाल और हरे साइड की तुलना कीजिए। अक्षर किस साइड पर ज़्यादा शार्प और गहरे दिख रहे हैं? लाल साइड, हरा साइड, दोनों समान, या फिर से कहिए।",
+    "Red side, green side, or both same?": "लाल साइड, हरा साइड, या दोनों समान?",
+    "Please compare the letters on the top and the bottom line. Which line looks sharper? Say top line, bottom line, both same, or repeat.": "कृपया ऊपर और नीचे की लाइन के अक्षरों की तुलना कीजिए। कौन सी लाइन ज़्यादा शार्प दिख रही है? ऊपर की लाइन, नीचे की लाइन, दोनों समान, या फिर से कहिए।",
+    "Top line, bottom line, or both same?": "ऊपर की लाइन, नीचे की लाइन, या दोनों समान?",
+    "Please look at the near text. Are the letters clear, blurry, or do you want me to repeat?": "कृपया पास के टेक्स्ट को देखिए। क्या अक्षर साफ हैं, धुंधले हैं, या क्या आप चाहते हैं कि मैं फिर से कहूँ?",
+    "Clear or blurry?": "साफ या धुंधला?",
+    "Please read the line.": "कृपया लाइन पढ़िए।",
+}
+
+
+LOCALIZED_REPROMPT_TEXTS = {
+    "hi": {
+        "clarity_3way": "कृपया केवल यह कहें: साफ, धुंधला, या फिर से।",
+        "comparison_4way": "कृपया केवल यह कहें: पहला विकल्प, दूसरा विकल्प, दोनों समान, या फिर से।",
+        "duochrome_4way": "कृपया केवल यह कहें: लाल साइड, हरा साइड, दोनों समान, या फिर से।",
+        "distance_bino_4way": "कृपया केवल यह कहें: ऊपर की लाइन, नीचे की लाइन, दोनों समान, या फिर से।",
+    },
+}
+
+
+def _localized_reprompt_text(response_type: str, language: Optional[str]) -> str:
+    if language and language not in {"auto", "en"}:
+        localized = LOCALIZED_REPROMPT_TEXTS.get(language, {}).get(response_type)
+        if localized:
+            return localized
+    return _reprompt_text(response_type)
+
+
+def _localized_hindi_question(*, state: str, fallback_question: str, retry: bool) -> str:
+    compact_cfg = COMPACT_INTERACTIVE_STATE_MAP.get(state)
+    if retry and compact_cfg is not None:
+        return _localized_reprompt_text(compact_cfg["response_type"], "hi")
+
+    prompt = str(fallback_question or "").strip()
+    if not prompt:
+        return ""
+
+    translated = HINDI_QUESTION_TRANSLATIONS.get(prompt)
+    if translated:
+        return translated
+
+    prompt_lc = prompt.lower()
+    if state in {"B", "D"} and "clearer or more blurry" in prompt_lc:
+        return "क्या अक्षर ज़्यादा साफ हुए या और धुंधले हुए?"
+    if state in {"B", "C", "D", "L"} and "read the line" in prompt_lc:
+        return "लाइन पढ़िए।"
+    if state in {"E", "F", "H", "I"} and "both same" in prompt_lc:
+        return "पहला विकल्प, दूसरा विकल्प, या दोनों समान?"
+    if state in {"G", "J"} and "both same" in prompt_lc:
+        return "लाल साइड, हरा साइड, या दोनों समान?"
+    if state == "K" and "both same" in prompt_lc:
+        return "ऊपर की लाइन, नीचे की लाइन, या दोनों समान?"
+    if state in {"P", "Q", "R"} and ("clear or blurry" in prompt_lc or "letters clear" in prompt_lc):
+        return "साफ या धुंधला?"
+    return ""
+
+
+def _hindi_option_label(option: str, *, state: str, question: str) -> str:
+    prompt = str(question or "").lower()
+    if state in {"B", "D"} and "clearer or more blurry" in prompt:
+        return {
+            "CLEAR": "ज़्यादा साफ",
+            "BLURRY": "और धुंधला",
+            "REPEAT": "फिर से",
+        }.get(option, option)
+
+    if state in {"B", "C", "D", "L"}:
+        return {
+            "CLEAR": "लाइन पढ़ी",
+            "BLURRY": "धुंधला",
+            "REPEAT": "फिर से",
+        }.get(option, option)
+
+    if state in {"E", "F", "H", "I"}:
+        return {
+            "ONE": "पहला विकल्प",
+            "TWO": "दूसरा विकल्प",
+            "SAME": "दोनों समान",
+            "REPEAT": "फिर से",
+        }.get(option, option)
+
+    if state in {"G", "J"}:
+        return {
+            "RED": "लाल साइड",
+            "GREEN": "हरा साइड",
+            "SAME": "दोनों समान",
+            "REPEAT": "फिर से",
+        }.get(option, option)
+
+    if state == "K":
+        return {
+            "TOP": "ऊपर की लाइन",
+            "BOTTOM": "नीचे की लाइन",
+            "SAME": "दोनों समान",
+            "REPEAT": "फिर से",
+        }.get(option, option)
+
+    if state in {"P", "Q", "R"}:
+        return {
+            "CLEAR": "अक्षर साफ",
+            "BLURRY": "अक्षर धुंधले",
+            "REPEAT": "फिर से",
+        }.get(option, option)
+
+    return LOCALIZED_OPTION_LABELS.get("hi", {}).get(option, option)
+
+
 COMPACT_INTERACTIVE_STATE_MAP = {
     "B": {
         "family": "coarse_clarity",
@@ -983,6 +1098,16 @@ COMPACT_INTERACTIVE_STATE_MAP = {
             "REPEAT": "__REPEAT__",
         },
     },
+    "C": {
+        "family": "coarse_clarity",
+        "response_type": "clarity_3way",
+        "allowed_labels": ["CLEAR", "BLURRY", "REPEAT"],
+        "label_to_response": {
+            "CLEAR": "READABLE",
+            "BLURRY": "BLURRY",
+            "REPEAT": "__REPEAT__",
+        },
+    },
     "H": {
         "family": "comparison_4way",
         "response_type": "comparison_4way",
@@ -1013,6 +1138,16 @@ COMPACT_INTERACTIVE_STATE_MAP = {
             "RED": "RED_CLEARER",
             "GREEN": "GREEN_CLEARER",
             "SAME": "EQUAL",
+            "REPEAT": "__REPEAT__",
+        },
+    },
+    "L": {
+        "family": "coarse_clarity",
+        "response_type": "clarity_3way",
+        "allowed_labels": ["CLEAR", "BLURRY", "REPEAT"],
+        "label_to_response": {
+            "CLEAR": "READABLE",
+            "BLURRY": "BLURRY",
             "REPEAT": "__REPEAT__",
         },
     },
@@ -1063,12 +1198,12 @@ COMPACT_INTERACTIVE_STATE_MAP = {
 COMPACT_LOCALIZED_VOICE_PROMPTS = {
     "coarse_clarity": {
         "en": {
-            "initial": "Distance letter chart. Read the letters, or say clear, blurry, or repeat.",
-            "retry": "Distance letter chart. Say clear, blurry, or repeat.",
+            "initial": "Distance letter chart. Read the line.",
+            "retry": "Distance letter chart. Read the line.",
         },
         "hi": {
-            "initial": "अक्षर चार्ट। अक्षर पढ़िए, या साफ, धुंधला, या फिर से कहिए।",
-            "retry": "अक्षर चार्ट। केवल साफ, धुंधला, या फिर से कहिए।",
+            "initial": "अक्षर चार्ट। लाइन पढ़िए।",
+            "retry": "अक्षर चार्ट। लाइन पढ़िए।",
         },
     },
     "near_clarity": {
@@ -1132,6 +1267,7 @@ COMPACT_MATCH_ALIASES = {
                 "it is clear", "looks clear", "very clear", "fully clear", "i can read", "i can read it", "i can see it",
                 "readable hai", "साफ है", "साफ दिख रहा है", "दिख रहा है", "पढ़ पा रहा हूं", "padh pa raha", "saaf dikh raha",
                 "comfortable", "clear and comfortable", "आराम है",
+                "letters clear", "last line clear", "read last line", "got clearer", "became clearer",
             ],
             "fuzzy": ["bloody clear", "cleer", "clar", "cler", "clir", "klear", "kleer", "saaf", "saf", "theek", "thik", "पड़बारा हूं", "पढ़वाराएं", "here", "hear", "cheers", "cheer"],
         },
@@ -1143,6 +1279,7 @@ COMPACT_MATCH_ALIASES = {
                 "hard to read", "difficult to read", "nahi clear", "clear nahi",
                 "धुंधला है", "ब्लर है", "थोड़ा blur है", "साफ नहीं",
                 "not comfortable", "eye strain", "still blurry", "not good", "not proper",
+                "letters blurry", "more blurry", "got more blurry", "became more blurry",
             ],
             "fuzzy": ["blurr", "blury", "blr", "bluddy", "bladi", "dhundla", "dhundhla", "bilari", "blari", "blairy", "larry"],
         },
@@ -1161,17 +1298,17 @@ COMPACT_MATCH_ALIASES = {
     "comparison_4way": {
         "ONE": {
             "exact": ["1", "one", "first", "ek", "एक"],
-            "phrases": ["option one", "first one", "number one", "one is better", "first is better", "एक बेहतर", "पहला"],
+            "phrases": ["option one", "first one", "number one", "one is better", "first is better", "first option", "एक बेहतर", "पहला"],
             "fuzzy": ["won", "wan", "wahn", "on", "ik", "yek", "pahla"],
         },
         "TWO": {
             "exact": ["2", "two", "second", "do", "दो"],
-            "phrases": ["option two", "second one", "number two", "two is better", "second is better", "दो बेहतर", "दूसरा"],
+            "phrases": ["option two", "second one", "number two", "two is better", "second is better", "second option", "दो बेहतर", "दूसरा"],
             "fuzzy": ["to", "too", "tu", "doo", "dusra"],
         },
         "SAME": {
             "exact": ["same", "equal", "बराबर", "barabar"],
-            "phrases": ["both same", "no difference", "about the same", "दोनों same", "कोई फर्क नहीं"],
+            "phrases": ["both same", "both are same", "no difference", "about the same", "दोनों same", "कोई फर्क नहीं"],
             "fuzzy": ["barabr"],
         },
         "REPEAT": {
@@ -1183,17 +1320,17 @@ COMPACT_MATCH_ALIASES = {
     "duochrome_4way": {
         "RED": {
             "exact": ["red", "लाल", "lal"],
-            "phrases": ["red side", "red is clearer", "लाल साफ है"],
+            "phrases": ["red side", "red is clearer", "red side clearer", "लाल साफ है"],
             "fuzzy": ["redd", "laal"],
         },
         "GREEN": {
             "exact": ["green", "हरा", "hara"],
-            "phrases": ["green side", "green is clearer", "हरा साफ है"],
+            "phrases": ["green side", "green is clearer", "green side clearer", "हरा साफ है"],
             "fuzzy": ["grean", "haraa"],
         },
         "SAME": {
             "exact": ["same", "equal", "बराबर", "barabar"],
-            "phrases": ["both same", "no difference", "दोनों same"],
+            "phrases": ["both same", "both are same", "no difference", "दोनों same"],
             "fuzzy": ["barabr"],
         },
         "REPEAT": {
@@ -1205,17 +1342,17 @@ COMPACT_MATCH_ALIASES = {
     "distance_bino_4way": {
         "TOP": {
             "exact": ["top", "upper", "ऊपर", "upar"],
-            "phrases": ["top is clearer", "top better", "ऊपर साफ है"],
+            "phrases": ["top is clearer", "top better", "top line", "top line clearer", "ऊपर साफ है"],
             "fuzzy": ["topp", "uparr"],
         },
         "BOTTOM": {
             "exact": ["bottom", "lower", "नीचे", "neeche"],
-            "phrases": ["bottom is clearer", "bottom better", "नीचे साफ है"],
+            "phrases": ["bottom is clearer", "bottom better", "bottom line", "bottom line clearer", "नीचे साफ है"],
             "fuzzy": ["botom", "niche"],
         },
         "SAME": {
             "exact": ["same", "equal", "बराबर", "barabar"],
-            "phrases": ["both same", "no difference", "दोनों same"],
+            "phrases": ["both same", "both are same", "no difference", "दोनों same"],
             "fuzzy": ["barabr"],
         },
         "REPEAT": {
@@ -1227,7 +1364,7 @@ COMPACT_MATCH_ALIASES = {
 }
 
 
-COARSE_RESPONSE_STATES = {"B", "D"}
+COARSE_RESPONSE_STATES = {"B", "C", "D", "L"}
 
 
 CHART_LETTER_ALIASES = {
@@ -1458,9 +1595,9 @@ def _semantic_similarity(a: str, b: str) -> float:
 def _reprompt_text(response_type: str) -> str:
     compact_map = {
         "clarity_3way": "Please say only: clear, blurry, or repeat.",
-        "comparison_4way": "Please say only: one, two, same, or repeat.",
-        "duochrome_4way": "Please say only: red, green, same, or repeat.",
-        "distance_bino_4way": "Please say only: top, bottom, same, or repeat.",
+        "comparison_4way": "Please say only: first option, second option, both same, or repeat.",
+        "duochrome_4way": "Please say only: red side, green side, both same, or repeat.",
+        "distance_bino_4way": "Please say only: top line, bottom line, both same, or repeat.",
     }
     if response_type in compact_map:
         return compact_map[response_type]
@@ -1477,8 +1614,21 @@ def localized_voice_prompt(
     retry: bool,
     fallback_question: str,
 ) -> str:
+    if language == "hi":
+        translated = _localized_hindi_question(
+            state=state,
+            fallback_question=fallback_question,
+            retry=retry,
+        )
+        if translated:
+            return translated
+
     compact_cfg = COMPACT_INTERACTIVE_STATE_MAP.get(state)
     if compact_cfg is not None:
+        if not language or language in {"auto", "en"}:
+            if retry:
+                return _reprompt_text(compact_cfg["response_type"])
+            return fallback_question
         family = compact_cfg["family"]
         localized_prompt = COMPACT_LOCALIZED_VOICE_PROMPTS.get(family, {}).get(language or "en")
         if localized_prompt is None:
@@ -1507,9 +1657,61 @@ def localized_language_selection_prompt(*, retry: bool = False) -> str:
     return LOCALIZED_LANGUAGE_SELECTION_PROMPTS["retry" if retry else "initial"]
 
 
-def localized_option_label(option: str, language: Optional[str]) -> str:
+def _english_option_label(option: str, *, state: str, question: str) -> str:
+    prompt = str(question or "").lower()
+    if state in {"B", "D"} and "clearer or more blurry" in prompt:
+        return {
+            "CLEAR": "Got clearer",
+            "BLURRY": "More blurry",
+            "REPEAT": "Repeat",
+        }.get(option, option)
+
+    if state in {"B", "C", "D", "L"}:
+        return {
+            "CLEAR": "Read line",
+            "BLURRY": "Blurry",
+            "REPEAT": "Repeat",
+        }.get(option, option)
+
+    if state in {"E", "F", "H", "I"}:
+        return {
+            "ONE": "First option",
+            "TWO": "Second option",
+            "SAME": "Both same",
+            "REPEAT": "Repeat",
+        }.get(option, option)
+
+    if state in {"G", "J"}:
+        return {
+            "RED": "Red side",
+            "GREEN": "Green side",
+            "SAME": "Both same",
+            "REPEAT": "Repeat",
+        }.get(option, option)
+
+    if state == "K":
+        return {
+            "TOP": "Top line",
+            "BOTTOM": "Bottom line",
+            "SAME": "Both same",
+            "REPEAT": "Repeat",
+        }.get(option, option)
+
+    if state in {"P", "Q", "R"}:
+        return {
+            "CLEAR": "Letters clear",
+            "BLURRY": "Letters blurry",
+            "REPEAT": "Repeat",
+        }.get(option, option)
+
+    return option
+
+
+def localized_option_label(option: str, language: Optional[str], *, state: str = "", question: str = "") -> str:
     if not language or language in {"auto", "en"}:
-        return option
+        return _english_option_label(option, state=state, question=question)
+    if language == "hi":
+        return _hindi_option_label(option, state=state, question=question)
     return LOCALIZED_OPTION_LABELS.get(language, {}).get(option, option)
 
 
@@ -2064,8 +2266,8 @@ def _match_chart_letters(
     if accuracy >= 0.8:
         return "CLEAR", accuracy, "letter_reading"
     if accuracy >= 0.3:
-        return "BLURRY", accuracy, "letter_reading"
-    return "REPEAT", accuracy, "letter_reading"
+        return "BLURRY", accuracy, "letter_reading_partial_blurry"
+    return "REPEAT", accuracy, "letter_reading_partial_repeat"
 
 
 def _compact_exact_phrase_fuzzy_match(
@@ -2317,6 +2519,35 @@ def _compact_clarity_intent_match(normalized_text: str) -> Optional[str]:
         r"\bकुछ नहीं दिख\b",
         r"\bபடிக்க முடியல\b",
     ]
+
+    comparative_blurry_patterns = [
+        r"\bmore blurry\b",
+        r"\bgot more blurry\b",
+        r"\bbecame more blurry\b",
+        r"\bblurrier\b",
+        r"\bgot worse\b",
+        r"\bbecame worse\b",
+        r"\bworse now\b",
+    ]
+    comparative_clear_patterns = [
+        r"\bclearer\b",
+        r"\bgot clearer\b",
+        r"\bbecame clearer\b",
+        r"\bgot clear\b",
+        r"\bbecame clear\b",
+        r"\bmore clear\b",
+        r"\bless blurry\b",
+        r"\bbetter now\b",
+        r"\bgot better\b",
+        r"\bbecame better\b",
+        r"\bimproved\b",
+    ]
+
+    if any(re.search(pattern, normalized_text) for pattern in comparative_blurry_patterns):
+        return "BLURRY"
+
+    if any(re.search(pattern, normalized_text) for pattern in comparative_clear_patterns):
+        return "CLEAR"
 
     if any(re.search(pattern, normalized_text) for pattern in blurry_patterns):
         return "BLURRY"

@@ -31,6 +31,146 @@ const COMING_SOON_VOICES = [
   { label: 'Google Marathi',   group: '🇮🇳 Indian' },
 ];
 
+const ENGLISH_VOICE_PREFERENCE_ORDER = [
+  'Samantha',
+  'Ava',
+  'Allison',
+  'Karen',
+  'Moira',
+  'Tessa',
+  'Veena',
+  'Rishi',
+  'Daniel',
+  'Alex',
+  'Google UK English Female',
+  'Google US English',
+];
+
+const HINDI_VOICE_PREFERENCE_ORDER = [
+  'Google हिन्दी',
+];
+
+function scoreVoiceForTTS(voice, lang = 'en') {
+  if (!voice) return Number.NEGATIVE_INFINITY;
+
+  const name = (voice.name || '').toLowerCase();
+  const voiceLang = (voice.lang || '').toLowerCase();
+  let score = 0;
+
+  if (lang === 'hi') {
+    const idx = HINDI_VOICE_PREFERENCE_ORDER.findIndex(pref => pref.toLowerCase() === name);
+    if (idx >= 0) score += 500 - idx * 25;
+    if (voiceLang === 'hi-in') score += 120;
+    else if (voiceLang.startsWith('hi')) score += 90;
+    if (voice.default) score += 15;
+    if (voice.localService) score += 10;
+    return score;
+  }
+
+  const idx = ENGLISH_VOICE_PREFERENCE_ORDER.findIndex(pref => pref.toLowerCase() === name);
+  if (idx >= 0) score += 600 - idx * 20;
+  if (voiceLang === 'en-in') score += 120;
+  else if (voiceLang === 'en-us') score += 110;
+  else if (voiceLang === 'en-gb') score += 100;
+  else if (voiceLang.startsWith('en')) score += 80;
+  if (voice.default) score += 15;
+  if (voice.localService) score += 10;
+  if (name.includes('google us english')) score -= 30;
+  return score;
+}
+
+function getBestAvailableVoice(voices, lang = 'en') {
+  const pool = (voices || []).filter(v => (v.lang || '').toLowerCase().startsWith(lang === 'hi' ? 'hi' : 'en'));
+  if (!pool.length) return null;
+
+  let best = null;
+  let bestScore = Number.NEGATIVE_INFINITY;
+  for (const voice of pool) {
+    const score = scoreVoiceForTTS(voice, lang);
+    if (score > bestScore) {
+      best = voice;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+function getTTSProfile(profileKey = 'default', lang = 'en') {
+  const englishProfiles = {
+    default: { rate: 0.86, pitch: 1.02, volume: 0.95 },
+    guide: { rate: 0.85, pitch: 1.03, volume: 0.96 },
+    reading: { rate: 0.84, pitch: 1.01, volume: 0.95 },
+    comparison: { rate: 0.87, pitch: 1.0, volume: 0.95 },
+    retry: { rate: 0.83, pitch: 1.0, volume: 0.95 },
+    flip1: { rate: 0.82, pitch: 0.99, volume: 0.95 },
+    flip2: { rate: 0.86, pitch: 1.0, volume: 0.95 },
+    terminal: { rate: 0.88, pitch: 1.05, volume: 0.97 },
+  };
+  const hindiProfiles = {
+    default: { rate: 0.9, pitch: 1.0, volume: 0.97 },
+    guide: { rate: 0.89, pitch: 1.01, volume: 0.97 },
+    reading: { rate: 0.88, pitch: 1.0, volume: 0.97 },
+    comparison: { rate: 0.91, pitch: 1.0, volume: 0.97 },
+    retry: { rate: 0.88, pitch: 1.0, volume: 0.97 },
+    flip1: { rate: 0.87, pitch: 0.99, volume: 0.97 },
+    flip2: { rate: 0.9, pitch: 1.0, volume: 0.97 },
+    terminal: { rate: 0.92, pitch: 1.03, volume: 0.98 },
+  };
+  const profiles = lang === 'hi' ? hindiProfiles : englishProfiles;
+  return profiles[profileKey] || profiles.default;
+}
+
+function ensureSpeechEnding(text) {
+  const trimmed = (text || '').replace(/\s+/g, ' ').trim();
+  if (!trimmed) return '';
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+
+function joinSpeechParts(...parts) {
+  const cleaned = parts
+    .map((part, index) => {
+      const normalized = (part || '').replace(/\s+/g, ' ').trim();
+      if (!normalized) return '';
+      return index < parts.length - 1 ? ensureSpeechEnding(normalized) : normalized;
+    })
+    .filter(Boolean);
+  return cleaned.join(' ').replace(/\s+/g, ' ').trim();
+}
+
+function getQuestionTTSProfile(data) {
+  if (!data) return 'default';
+  if (['B', 'C', 'D', 'L'].includes(data.state)) return 'reading';
+  if (['E', 'F', 'G', 'H', 'I', 'J', 'K'].includes(data.state)) return 'comparison';
+  return 'default';
+}
+
+function buildSpokenQuestionText(data, localizedQuestion, prefacePrompt = '') {
+  let spoken = (localizedQuestion || '').replace(/\s+/g, ' ').trim();
+  const lang = sessionLanguage || 'en';
+
+  if (lang !== 'hi') {
+    if (/^(please )?read the line\.$/i.test(spoken) || /^last line only\.$/i.test(spoken)) {
+      spoken = 'Please read the line.';
+    } else if (/^did the line become clearer or more blurry\?$/i.test(spoken)) {
+      spoken = 'Did that look clearer, or more blurry?';
+    } else if (/^first, second, or both same\?$/i.test(spoken) || /^first option, second option, or both same\?$/i.test(spoken)) {
+      spoken = 'Which looks clearer: first option, second option, or both same?';
+    } else if (/^red side, green side, or both same\?$/i.test(spoken)) {
+      spoken = 'Which side looks clearer: red side, green side, or both same?';
+    } else if (/^top line or bottom line\?$/i.test(spoken)) {
+      spoken = 'Which line looks clearer: top line, bottom line, or both same?';
+    } else if (/^clear or blurry\?$/i.test(spoken)) {
+      spoken = 'Do the letters look clear, or blurry?';
+    } else if (/^please compare the two choices\./i.test(spoken)) {
+      spoken = spoken.replace('Which one is clearer or sharper?', 'Which one looks clearer or sharper?');
+    } else if (/^please compare the red and green sides\./i.test(spoken)) {
+      spoken = spoken.replace('Letters on which side look sharper and darker?', 'Which side looks sharper and darker?');
+    }
+  }
+
+  return joinSpeechParts(prefacePrompt, spoken);
+}
+
 function populateTTSVoiceDropdown() {
   const sel = document.getElementById('ttsVoiceSelect');
   if (!sel) return;
@@ -76,8 +216,8 @@ function populateTTSVoiceDropdown() {
 
   // Default: Samantha
   if (!ttsSelectedVoiceName) {
-    const samantha = voices.find(v => v.name === 'Samantha');
-    ttsSelectedVoiceName = samantha ? samantha.name : null;
+    const preferred = getBestAvailableVoice(voices, 'en');
+    ttsSelectedVoiceName = preferred ? preferred.name : null;
     if (ttsSelectedVoiceName) sel.value = ttsSelectedVoiceName;
   }
 
@@ -113,31 +253,33 @@ function showComingSoonToast() {
   setTimeout(() => toast.remove(), 2200);
 }
 
-function speakQuestion(text, langOverride, onEnd) {
+function speakQuestion(text, langOverride, onEnd, profileKey = 'default') {
   if (!ttsEnabled || !('speechSynthesis' in window)) {
     console.log('[TTS] Disabled or unavailable');
     if (onEnd) onEnd();
     return;
   }
 
-  // Chrome fix: cancel + resume to clear any stuck state
-  speechSynthesis.cancel();
+  // Clear only active/pending utterances so transitions sound less clipped.
+  if (speechSynthesis.speaking || speechSynthesis.pending) {
+    speechSynthesis.cancel();
+  }
   speechSynthesis.resume();
 
   const doSpeak = () => {
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 0.9;
-    utterance.pitch = 1.0;
-    utterance.volume = 1.0;
-
     const lang = langOverride || sessionLanguage || 'en';
+    const speechText = (text || '').replace(/\s+/g, ' ').trim();
+    const utterance = new SpeechSynthesisUtterance(speechText);
+    const profile = getTTSProfile(profileKey, lang);
+    utterance.rate = profile.rate;
+    utterance.pitch = profile.pitch;
+    utterance.volume = profile.volume;
     const voices = speechSynthesis.getVoices();
-    console.log(`[TTS] Speaking (${lang}): "${text.substring(0, 50)}..." [${voices.length} voices available]`);
+    console.log(`[TTS] Speaking (${lang}, ${profileKey}): "${speechText.substring(0, 50)}..." [${voices.length} voices available]`);
 
     if (lang === 'hi') {
       utterance.lang = 'hi-IN';
-      const hiVoice = voices.find(v => v.lang === 'hi-IN')
-        || voices.find(v => v.lang.startsWith('hi'));
+      const hiVoice = getBestAvailableVoice(voices, 'hi');
       if (hiVoice) { utterance.voice = hiVoice; console.log(`[TTS] Hindi voice: ${hiVoice.name}`); }
     } else {
       // Use pinned voice from dropdown; set utterance.lang to match voice locale
@@ -149,9 +291,7 @@ function speakQuestion(text, langOverride, onEnd) {
         utterance.lang = pinned.lang;
         console.log(`[TTS] Using pinned voice: ${pinned.name} (${pinned.lang})`);
       } else {
-        // Fallback: first available en-US voice, else any English
-        const fallback = voices.find(v => v.lang === 'en-US')
-          || voices.find(v => v.lang.startsWith('en'));
+        const fallback = getBestAvailableVoice(voices, 'en');
         if (fallback) { utterance.voice = fallback; utterance.lang = fallback.lang; }
         console.log(`[TTS] Fallback voice: ${fallback ? fallback.name : 'browser default'}`);
       }
@@ -240,9 +380,32 @@ const DISTANCE_CHART_STIMULI = {
   '252015':      [['D','F','N','P','T'], ['P','H','U','N','T'], ['F','D','S','L','N']],
 };
 
+function getDisplayedDistanceChartLines(state, chartParam) {
+  const normalized = (chartParam || '').replace(/[-\/]/g, '_').replace(/_+/g, '_');
+  const letters = DISTANCE_CHART_STIMULI[normalized] || DISTANCE_CHART_STIMULI[normalized.replace(/_/g, '')];
+  if (!letters) return null;
+  if (['B', 'C', 'D', 'L'].includes(state)) {
+    return [letters[letters.length - 1]];
+  }
+  return letters;
+}
+
+function getDisplayedDistanceChartSizes(state, chartParam) {
+  const normalized = (chartParam || '').replace(/[-\/]/g, '_').replace(/_+/g, '_');
+  if (!normalized) return null;
+  const parts = normalized.split('_').filter(Boolean);
+  if (!parts.length) return null;
+  const labels = parts.map(part => `20/${part}`);
+  if (['B', 'C', 'D', 'L'].includes(state)) {
+    return [labels[labels.length - 1]];
+  }
+  return labels;
+}
+
 // ── Stimulus descriptions per state ──
 const STIMULUS_DESCRIPTIONS = {
   'B': 'Distance letter chart',
+  'C': 'Distance vision confirmation',
   'D': 'Distance letter chart',
   'E': 'Dot chart for axis comparison',
   'F': 'Dot chart for power comparison',
@@ -250,11 +413,49 @@ const STIMULUS_DESCRIPTIONS = {
   'H': 'Dot chart for axis comparison',
   'I': 'Dot chart for power comparison',
   'J': 'Red-green chart',
+  'L': 'Distance vision confirmation',
   'K': 'Top-bottom balance chart',
   'P': 'Near text chart',
   'Q': 'Near text chart',
   'R': 'Near text with both eyes',
 };
+
+const STIMULUS_DESCRIPTIONS_HI = {
+  'B': 'दूरी का अक्षर चार्ट',
+  'C': 'दूरी की दृष्टि की पुष्टि',
+  'D': 'दूरी का अक्षर चार्ट',
+  'E': 'अक्ष तुलना के लिए डॉट चार्ट',
+  'F': 'पावर तुलना के लिए डॉट चार्ट',
+  'G': 'लाल-हरा चार्ट',
+  'H': 'अक्ष तुलना के लिए डॉट चार्ट',
+  'I': 'पावर तुलना के लिए डॉट चार्ट',
+  'J': 'लाल-हरा चार्ट',
+  'L': 'दूरी की दृष्टि की पुष्टि',
+  'K': 'ऊपर-नीचे बैलेंस चार्ट',
+  'P': 'पास का टेक्स्ट चार्ट',
+  'Q': 'पास का टेक्स्ट चार्ट',
+  'R': 'दोनों आँखों से पास का टेक्स्ट',
+};
+
+function localizeStimulusDescription(state, description, lang) {
+  const activeLang = lang || sessionLanguage || 'en';
+  if (activeLang === 'hi') return STIMULUS_DESCRIPTIONS_HI[state] || description || '';
+  return description || '';
+}
+
+function localizePrefacePrompt(prefacePrompt, lang) {
+  const activeLang = lang || sessionLanguage || 'en';
+  const text = (prefacePrompt || '').trim();
+  if (!text || activeLang !== 'hi') return text;
+
+  const match = text.match(/^You are doing great(?:\s+(.+?))?\. Please blink a few times\. About (\d+) (minute|minutes) left\.$/i);
+  if (match) {
+    const name = (match[1] || '').trim();
+    const minutes = match[2];
+    return `आप बहुत अच्छा कर रहे हैं${name ? ` ${name}` : ''}। कृपया कुछ बार पलक झपकाइए। लगभग ${minutes} मिनट बाकी हैं।`;
+  }
+  return text;
+}
 
 // ── Voice input state ──
 let voiceEnabled = true; // ON by default, like FSMv3.1_R2
@@ -312,10 +513,12 @@ const ALL_PHASES = [
   { state: 'E', name: 'JCC Axis RE', eye: 'RE' },
   { state: 'F', name: 'JCC Power RE', eye: 'RE' },
   { state: 'G', name: 'Duochrome RE', eye: 'RE' },
+  { state: 'C', name: 'Distance VA Confirm RE', eye: 'RE' },
   { state: 'D', name: 'Coarse Sphere LE', eye: 'LE' },
   { state: 'H', name: 'JCC Axis LE', eye: 'LE' },
   { state: 'I', name: 'JCC Power LE', eye: 'LE' },
   { state: 'J', name: 'Duochrome LE', eye: 'LE' },
+  { state: 'L', name: 'Distance VA Confirm LE', eye: 'LE' },
   { state: 'K', name: 'Binocular Balance', eye: 'BIN' },
   { state: 'P', name: 'Near Add RE', eye: 'RE' },
   { state: 'Q', name: 'Near Add LE', eye: 'LE' },
@@ -332,7 +535,7 @@ const OPTION_STYLES = {
   'RED': 'red', 'RED_CLEARER': 'red',
   'GREEN': 'green', 'GREEN_CLEARER': 'green',
   'EQUAL': 'same',
-  'TOP_CLEARER': '', 'BOTTOM_CLEARER': '',
+  'TOP': '', 'BOTTOM': '', 'TOP_CLEARER': '', 'BOTTOM_CLEARER': '',
   'TARGET_OK': 'clear', 'NOT_CLEAR': 'blurry',
 };
 
@@ -417,6 +620,7 @@ async function restoreSession() {
 
       // Auto-resume: start immediately, enable TTS via a one-time user interaction listener
       await handleSessionUpdate(data);
+      schedulePipRefreshSequence({ forceFresh: true, reason: 'Syncing phoropter...' });
       document.getElementById('endBtn').style.display = '';
       updatePhoropBtn();
       startHeartbeat();
@@ -487,6 +691,7 @@ function selectLanguage(lang, pendingData) {
 
   // Now show the actual first question
   handleSessionUpdate(pendingData);
+  schedulePipRefreshSequence({ forceFresh: true, reason: 'Syncing phoropter...' });
   document.getElementById('endBtn').style.display = '';
   updatePhoropBtn();
   startHeartbeat();
@@ -642,19 +847,22 @@ async function showQuestion(data) {
 
   // Display stimulus description
   const stimDesc = STIMULUS_DESCRIPTIONS[data.state] || '';
+  const prefacePrompt = localizePrefacePrompt(data.preface_prompt || '');
   const stimEl = document.getElementById('stimulusDescription');
-  if (stimEl) stimEl.textContent = stimDesc;
+  const localizedStimDesc = localizeStimulusDescription(data.state, stimDesc);
+  if (stimEl) stimEl.textContent = prefacePrompt ? `${prefacePrompt} ${localizedStimDesc}`.trim() : localizedStimDesc;
 
   // Display letter chart for coarse sphere states (B, D)
   const chartEl = document.getElementById('letterChart');
   if (chartEl) {
-    const chartParam = (data.chart_param || '').replace(/[-\/]/g, '_').replace(/_+/g, '_');
-    const letters = DISTANCE_CHART_STIMULI[chartParam] || DISTANCE_CHART_STIMULI[chartParam.replace(/_/g, '')];
-    if ((data.state === 'B' || data.state === 'D') && letters) {
+    const letters = getDisplayedDistanceChartLines(data.state, data.chart_param);
+    const sizes = getDisplayedDistanceChartSizes(data.state, data.chart_param);
+    if ((data.state === 'B' || data.state === 'C' || data.state === 'D' || data.state === 'L') && letters) {
       chartEl.style.display = '';
       chartEl.innerHTML = letters.map((line, i) => {
         const fontSize = Math.max(1.0, 2.4 - i * 0.4);
-        return `<div class="chart-line" style="font-size:${fontSize}rem;letter-spacing:${fontSize * 0.4}rem">${line.join(' ')}</div>`;
+        const sizeLabel = sizes && sizes[i] ? `<span style="display:inline-block;min-width:70px;margin-right:14px;font-size:0.95rem;letter-spacing:normal;color:var(--ink-secondary);font-weight:700;">${sizes[i]}</span>` : '';
+        return `<div class="chart-line" style="font-size:${fontSize}rem;letter-spacing:${fontSize * 0.4}rem">${sizeLabel}${line.join(' ')}</div>`;
       }).join('');
     } else {
       chartEl.style.display = 'none';
@@ -674,7 +882,7 @@ async function showQuestion(data) {
     const resp = await fetch(`${API}/api/voice/labels`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ state: data.state, language: sessionLanguage, question: data.question }),
+      body: JSON.stringify({ state: data.state, language: sessionLanguage, question: data.question, options: data.options || [] }),
     });
     if (resp.ok) {
       const locData = await resp.json();
@@ -721,13 +929,14 @@ async function showQuestion(data) {
   //    For all other states: TTS → beep → listen immediately
   const canListen = voiceEnabled && (voiceMode === 'whisper' || SpeechRecognition);
   const isAutoFlip = data.auto_flip;
+  const spokenPrompt = buildSpokenQuestionText(data, localizedQuestion, prefacePrompt);
 
   if (ttsEnabled && !isAutoFlip) {
-    speakQuestion(localizedQuestion, null, async () => {
+    speakQuestion(spokenPrompt, null, async () => {
       await playBeep();
       _inputEnabled = true; // Enable ALL input (voice, gamepad, keyboard) after beep
       if (canListen) startVoiceCapture(data.state, data.options || [], data.step);
-    });
+    }, getQuestionTTSProfile(data));
   } else if (!isAutoFlip) {
     playBeep().then(() => {
       _inputEnabled = true;
@@ -820,7 +1029,7 @@ function startVoiceCapture(state, options, step) {
     try {
       const SpeechGrammarList = window.SpeechGrammarList || window.webkitSpeechGrammarList;
       if (SpeechGrammarList) {
-        const grammar = '#JSGF V1.0; grammar r; public <r> = clear | blurry | repeat | one | two | same | red | green | top | bottom | first | second ;';
+        const grammar = '#JSGF V1.0; grammar r; public <r> = clear | blurry | repeat | first option | second option | both same | red side | green side | top line | bottom line | clearer | more blurry ;';
         const list = new SpeechGrammarList();
         list.addFromString(grammar, 1);
         recognition.grammars = list;
@@ -936,7 +1145,7 @@ function startVoiceCapture(state, options, step) {
             : `Let me repeat. ${questionText}`;
           speakQuestion(retryPrompt, null, () => {
             playBeep().then(() => setTimeout(() => startVoiceCapture(capturedState, capturedOptions, capturedStep), 200));
-          });
+          }, 'retry');
         }
       } else if (event.error === 'aborted') {
         // Intentional abort — don't restart
@@ -990,7 +1199,7 @@ function startVoiceCapture(state, options, step) {
           : `I could not hear you. ${questionText}`;
         speakQuestion(retryPrompt, null, () => {
           playBeep().then(() => setTimeout(() => startVoiceCapture(capturedState, capturedOptions, capturedStep), 200));
-        });
+        }, 'retry');
       }
     };
 
@@ -1024,10 +1233,11 @@ async function startWhisperCapture(state, options, step) {
 
   // ── VAD parameters (matching FSMv3.1_R2 record_audio_until_silence) ──
   const VAD_SILENCE_THRESHOLD = 0.015;  // RMS level to consider as speech
-  const VAD_START_TIMEOUT = (state === 'B' || state === 'D') ? 5.0 : 2.5; // seconds to wait for first speech
-  const VAD_END_SILENCE = (state === 'B' || state === 'D') ? 2.0 : 0.8;   // trailing silence to stop
+  const isDistanceReadingState = ['B', 'C', 'D', 'L'].includes(state);
+  const VAD_START_TIMEOUT = isDistanceReadingState ? 5.0 : 2.5; // seconds to wait for first speech
+  const VAD_END_SILENCE = isDistanceReadingState ? 2.0 : 0.8;   // trailing silence to stop
   const VAD_MIN_SPEECH = 0.25;  // minimum speech duration before silence can end
-  const VAD_MAX_DURATION = (state === 'B' || state === 'D') ? 15 : 5;     // hard max
+  const VAD_MAX_DURATION = isDistanceReadingState ? 15 : 5;     // hard max
 
   // Use MediaRecorder to capture audio
   const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
@@ -1239,16 +1449,15 @@ function repeatAndListen(state, options, step) {
     : `I didn't catch that. ${questionText}`;
   speakQuestion(retryPrompt, null, () => {
     playBeep().then(() => setTimeout(() => startVoiceCapture(state, options, step), 200));
-  });
+  }, 'retry');
 }
 
 function getCurrentStimulusLetters() {
   // Get the displayed chart letters for the current coarse sphere state
   if (!currentState) return null;
   const state = currentState.state;
-  if (state !== 'B' && state !== 'D') return null;
-  const chartParam = (currentState.chart_param || '').replace(/[-\/]/g, '_').replace(/_+/g, '_');
-  const letters = DISTANCE_CHART_STIMULI[chartParam] || DISTANCE_CHART_STIMULI[chartParam.replace(/_/g, '')];
+  if (!['B', 'C', 'D', 'L'].includes(state)) return null;
+  const letters = getDisplayedDistanceChartLines(state, currentState.chart_param);
   if (!letters) return null;
   // Format as space-separated letters per line (matching FSMv3.1_R2 format)
   return letters.map(line => line.join(' ')).join('\n');
@@ -1286,10 +1495,12 @@ async function matchVoiceResponseWithAlternatives(primary, alternatives, state, 
 
   // Try the primary transcript first, then each alternative
   const transcriptsToTry = [primary, ...alternatives.filter(a => a !== primary)];
+  let lastFailure = null;
 
   for (const transcript of transcriptsToTry) {
     const result = await matchVoiceResponse(transcript, state, options);
-    if (result) return; // Matched and submitted
+    if (result && result.matched) return; // Matched and submitted
+    if (result && !result.matched) lastFailure = result;
   }
 
   // None matched — track failed attempt
@@ -1308,6 +1519,11 @@ async function matchVoiceResponseWithAlternatives(primary, alternatives, state, 
     available_options: options,
     attempt_number: voiceAttemptCount,
     language: sessionLanguage,
+    match_confidence: lastFailure ? (lastFailure.confidence ?? '') : '',
+    match_method: lastFailure ? (lastFailure.method || '') : '',
+    canonical_label: lastFailure ? (lastFailure.canonical_label || '') : '',
+    reason: lastFailure ? (lastFailure.reason || '') : '',
+    stimulus_letters: getCurrentStimulusLetters(),
   });
 
   addVoiceToConversation(primary, null, 0, `no match (attempt ${voiceAttemptCount}/${VOICE_REPROMPT_LIMIT})`);
@@ -1329,7 +1545,7 @@ async function matchVoiceResponseWithAlternatives(primary, alternatives, state, 
         : `I didn't catch that. ${questionText}`;
       speakQuestion(retryPrompt, null, () => {
         playBeep().then(() => setTimeout(() => startVoiceCapture(state, options, 0), 200));
-      });
+      }, 'retry');
     }
   }
 }
@@ -1348,6 +1564,13 @@ async function matchVoiceResponse(transcript, state, options) {
   // Try server-side matching first (uses fsm/audio/response_matching.py)
   let matched = null;
   let voiceMeta = null;
+  let lastFailure = {
+    matched: false,
+    confidence: 0,
+    method: '',
+    canonical_label: '',
+    reason: 'no_match',
+  };
   try {
     const resp = await fetch(`${API}/api/voice/match`, {
       method: 'POST',
@@ -1380,10 +1603,24 @@ async function matchVoiceResponse(transcript, state, options) {
         addVoiceToConversation(transcript, matched, result.confidence);
       } else {
         console.log(`[Voice] Server no match: ${result.reason}`);
+        lastFailure = {
+          matched: false,
+          confidence: result.confidence || 0,
+          method: result.method || 'server_side',
+          canonical_label: result.canonical_label || '',
+          reason: result.reason || 'server_no_match',
+        };
       }
     }
   } catch (e) {
     console.log('[Voice] Server match unavailable, using client-side fallback');
+    lastFailure = {
+      matched: false,
+      confidence: 0,
+      method: 'server_error',
+      canonical_label: '',
+      reason: 'server_match_unavailable',
+    };
   }
 
   // Client-side fallback if server didn't match
@@ -1408,11 +1645,11 @@ async function matchVoiceResponse(transcript, state, options) {
   if (matched) {
     await submitResponse(matched, voiceMeta);
     voiceSubmitting = false;
-    return true; // Successfully matched
+    return { matched: true }; // Successfully matched
   }
 
   voiceSubmitting = false;
-  return false; // Not matched — caller will try alternatives
+  return lastFailure; // Not matched — caller will try alternatives
 }
 
 function clientSideMatch(transcript, options) {
@@ -1422,30 +1659,32 @@ function clientSideMatch(transcript, options) {
   const KEYWORD_MAP = {
     // Clarity + misrecognitions
     'clear': 'CLEAR', 'clearly': 'CLEAR', 'yes': 'CLEAR', 'readable': 'CLEAR',
+    'clearer': 'CLEAR', 'got clearer': 'CLEAR', 'letters clear': 'CLEAR', 'read line': 'CLEAR', 'read last line': 'CLEAR',
     'here': 'CLEAR', 'beer': 'CLEAR', 'cheer': 'CLEAR', 'dear': 'CLEAR', 'near': 'CLEAR',
     'saaf': 'CLEAR', 'saaf hai': 'CLEAR', 'haan': 'CLEAR',
     'blurry': 'BLURRY', 'blurred': 'BLURRY', 'blur': 'BLURRY', 'not clear': 'BLURRY',
+    'more blurry': 'BLURRY', 'got more blurry': 'BLURRY', 'letters blurry': 'BLURRY',
     'blare': 'BLURRY', 'blaring': 'BLURRY', 'glory': 'BLURRY',
     'dhundhla': 'BLURRY', 'nahi dikh raha': 'BLURRY',
     'repeat': 'REPEAT', 'again': 'REPEAT', 'dobara': 'REPEAT', 'phir se': 'REPEAT',
     // Comparison + misrecognitions
-    'one': 'ONE', 'first': 'ONE', 'option 1': 'ONE', 'ek': 'ONE', 'pehla': 'ONE', '1': 'ONE',
+    'one': 'ONE', 'first': 'ONE', 'first option': 'ONE', 'option 1': 'ONE', 'ek': 'ONE', 'pehla': 'ONE', '1': 'ONE',
     'won': 'ONE', 'want': 'ONE', 'on': 'ONE', 'wan': 'ONE', 'wand': 'ONE',
-    'two': 'TWO', 'second': 'TWO', 'option 2': 'TWO', 'do': 'TWO', 'doosra': 'TWO', '2': 'TWO',
+    'two': 'TWO', 'second': 'TWO', 'second option': 'TWO', 'option 2': 'TWO', 'do': 'TWO', 'doosra': 'TWO', '2': 'TWO',
     'to': 'TWO', 'too': 'TWO', 'tu': 'TWO', 'who': 'TWO', 'through': 'TWO',
-    'same': 'SAME', 'both same': 'SAME', 'equal': 'SAME', 'barabar': 'SAME', 'dono same': 'SAME',
+    'same': 'SAME', 'both same': 'SAME', 'both are same': 'SAME', 'equal': 'SAME', 'barabar': 'SAME', 'dono same': 'SAME',
     "can't tell": 'SAME', 'cant tell': 'SAME',
     'sane': 'SAME', 'saint': 'SAME', 'shame': 'SAME', 'came': 'SAME',
     // Duochrome + misrecognitions
-    'red': 'RED', 'red one': 'RED', 'laal': 'RED',
+    'red': 'RED', 'red one': 'RED', 'red side': 'RED', 'laal': 'RED',
     'read': 'RED', 'bread': 'RED', 'wed': 'RED', 'said': 'RED', 'bed': 'RED', 'dead': 'RED',
-    'green': 'GREEN', 'green one': 'GREEN', 'hara': 'GREEN',
+    'green': 'GREEN', 'green one': 'GREEN', 'green side': 'GREEN', 'hara': 'GREEN',
     'queen': 'GREEN', 'cream': 'GREEN', 'gene': 'GREEN', 'lean': 'GREEN', 'mean': 'GREEN',
     // Binocular + misrecognitions
-    'top': 'TOP_CLEARER', 'top one': 'TOP_CLEARER', 'upar': 'TOP_CLEARER',
-    'talk': 'TOP_CLEARER', 'tall': 'TOP_CLEARER', 'stop': 'TOP_CLEARER',
-    'bottom': 'BOTTOM_CLEARER', 'bottom one': 'BOTTOM_CLEARER', 'neeche': 'BOTTOM_CLEARER',
-    'button': 'BOTTOM_CLEARER', 'bought him': 'BOTTOM_CLEARER',
+    'top': 'TOP', 'top one': 'TOP', 'top line': 'TOP', 'upar': 'TOP',
+    'talk': 'TOP', 'tall': 'TOP', 'stop': 'TOP',
+    'bottom': 'BOTTOM', 'bottom one': 'BOTTOM', 'bottom line': 'BOTTOM', 'neeche': 'BOTTOM',
+    'button': 'BOTTOM', 'bought him': 'BOTTOM',
     // Near
     'target ok': 'TARGET_OK', 'ok': 'TARGET_OK', 'fine': 'TARGET_OK',
     'not clear': 'NOT_CLEAR',
@@ -1486,6 +1725,13 @@ function updateVoiceStatus(status) {
   console.log(`[Voice] ${status}`);
 }
 
+function fmtAxisDisplay(axis) {
+  if (axis == null) return '—';
+  const rounded = Math.round(Number(axis) / 5) * 5;
+  const wrapped = ((rounded % 180) + 180) % 180;
+  return String(wrapped === 0 ? 180 : wrapped);
+}
+
 // ── Terminal display ──
 function showTerminal(data) {
   stopExamTimer();
@@ -1497,32 +1743,35 @@ function showTerminal(data) {
 
   if (data.state === 'END') {
     const rx = data.prescription || {};
+    const va = data.distance_va || {};
     const r = rx.right || {};
     const l = rx.left || {};
+    const rVa = (va.right || {}).line || '—';
+    const lVa = (va.left || {}).line || '—';
     const fmt = (v) => v != null ? (v >= 0 ? '+' : '') + parseFloat(v).toFixed(2) : '—';
-    const fmtRx = (eye) => `${fmt(eye.sph)} / ${fmt(eye.cyl)} x ${Math.round(eye.axis||180)}${eye.add ? ` ADD ${fmt(eye.add)}` : ''}`;
+    const fmtRx = (eye) => `${fmt(eye.sph)} / ${fmt(eye.cyl)} x ${fmtAxisDisplay(eye.axis ?? 180)}${eye.add ? ` ADD ${fmt(eye.add)}` : ''}`;
 
     document.getElementById('terminalIcon').textContent = '✅';
     document.getElementById('terminalTitle').textContent = 'Congratulations! Your eye test is complete.';
     document.getElementById('terminalSubtitle').innerHTML =
       `<div style="margin-bottom:12px">Here is your final prescription:</div>` +
       `<div style="display:flex;gap:24px;justify-content:center;margin-bottom:16px;">` +
-        `<div style="text-align:center"><div style="font-size:0.75rem;color:var(--re-color);font-weight:700;margin-bottom:4px;">RIGHT EYE (RE)</div><div style="font:600 1.1rem var(--font-mono)">${fmtRx(r)}</div></div>` +
-        `<div style="text-align:center"><div style="font-size:0.75rem;color:var(--le-color);font-weight:700;margin-bottom:4px;">LEFT EYE (LE)</div><div style="font:600 1.1rem var(--font-mono)">${fmtRx(l)}</div></div>` +
+        `<div style="text-align:center"><div style="font-size:0.75rem;color:var(--re-color);font-weight:700;margin-bottom:4px;">RIGHT EYE (RE)</div><div style="font:600 1.1rem var(--font-mono)">${fmtRx(r)}</div><div style="margin-top:6px;font-size:0.84rem;color:var(--ink-secondary)">Distance VA: ${rVa}</div></div>` +
+        `<div style="text-align:center"><div style="font-size:0.75rem;color:var(--le-color);font-weight:700;margin-bottom:4px;">LEFT EYE (LE)</div><div style="font:600 1.1rem var(--font-mono)">${fmtRx(l)}</div><div style="margin-top:6px;font-size:0.84rem;color:var(--ink-secondary)">Distance VA: ${lVa}</div></div>` +
       `</div>` +
       `<div style="font-size:0.85rem;color:var(--ink-secondary)">Please review and sign off below.</div>`;
 
     // Speak congratulations (no power details)
     speakQuestion(sessionLanguage === 'hi'
       ? 'बधाई हो! आपका आई टेस्ट पूरा हो गया है। धन्यवाद।'
-      : 'Congratulations! Your eye test is complete. Thank you.');
+      : 'Congratulations. Your eye test is complete. Thank you.', null, null, 'terminal');
   } else {
     document.getElementById('terminalIcon').textContent = '⚠️';
     document.getElementById('terminalTitle').textContent = 'Escalation Required';
     document.getElementById('terminalSubtitle').textContent = 'This test requires optometrist review. Please consult with a qualified optometrist.';
     speakQuestion(sessionLanguage === 'hi'
       ? 'इस टेस्ट को ऑप्टोमेट्रिस्ट की समीक्षा की आवश्यकता है।'
-      : 'This test requires optometrist review.');
+      : 'This test requires optometrist review.', null, null, 'terminal');
   }
 }
 
@@ -1533,11 +1782,11 @@ function updateRxTable(rx) {
   const l = rx.left || {};
   document.getElementById('rxReSph').textContent = fmtD(r.sph);
   document.getElementById('rxReCyl').textContent = fmtD(r.cyl);
-  document.getElementById('rxReAxis').textContent = r.axis != null ? Math.round(r.axis) : '—';
+  document.getElementById('rxReAxis').textContent = fmtAxisDisplay(r.axis);
   document.getElementById('rxReAdd').textContent = r.add ? fmtD(r.add) : '—';
   document.getElementById('rxLeSph').textContent = fmtD(l.sph);
   document.getElementById('rxLeCyl').textContent = fmtD(l.cyl);
-  document.getElementById('rxLeAxis').textContent = l.axis != null ? Math.round(l.axis) : '—';
+  document.getElementById('rxLeAxis').textContent = fmtAxisDisplay(l.axis);
   document.getElementById('rxLeAdd').textContent = l.add ? fmtD(l.add) : '—';
 }
 
@@ -1595,10 +1844,16 @@ function updatePhaseProgress(activeState) {
 // ── Input method tracking ──
 let _lastInputMethod = 'Button'; // Default; overridden by keyboard/gamepad/voice paths
 
+function prescriptionsEqual(a, b) {
+  return JSON.stringify(a || null) === JSON.stringify(b || null);
+}
+
 // ── Submit response ──
 async function submitResponse(responseValue, voiceMeta) {
   if (!sessionId) return;
-
+  const prevStateId = currentState ? currentState.state : '';
+  const prevPrescription = currentState ? currentState.prescription : null;
+	
   // Track completed phase before it potentially changes
   if (currentState && currentState.state) {
     const prevState = currentState.state;
@@ -1650,7 +1905,10 @@ async function submitResponse(responseValue, voiceMeta) {
     }
 
     // Auto-update screenshot PIP
-    autoUpdatePip();
+    autoUpdatePip({
+      powerChanged: !prescriptionsEqual(prevPrescription, data.prescription),
+      phaseChanged: !!prevStateId && data.state !== prevStateId,
+    });
   } catch (e) {
     alert('Error: ' + e.message);
   } finally {
@@ -2068,8 +2326,27 @@ async function loadDvSummary() {
       'AR / Lenso Mismatch': ['dv_ar_lenso_mismatch_level_RE', 'dv_ar_lenso_mismatch_level_LE', 'dv_start_source_policy'],
       'Starting Rx': ['dv_start_rx_RE_sph', 'dv_start_rx_RE_cyl', 'dv_start_rx_RE_axis', 'dv_start_rx_LE_sph', 'dv_start_rx_LE_cyl', 'dv_start_rx_LE_axis'],
       'Test Config': ['dv_target_distance_va', 'dv_endpoint_bias_policy', 'dv_step_size_policy', 'dv_confidence_requirement', 'dv_expected_convergence_time', 'dv_branching_guardrails'],
-      'Fogging': ['dv_fogging_policy', 'dv_fogging_amount_D', 'dv_fogging_clearance_mode', 'dv_fogging_required_confirmation', 'dv_fogging_required', 'dv_fogging_stop_at_target_va', 'dv_accommodation_level'],
-      'Axis / Cylinder': ['dv_axis_step_policy', 'dv_axis_tolerance_deg', 'dv_cyl_tolerance_D', 'dv_jcc_axis_same_required', 'dv_jcc_axis_max_flips'],
+      'Fogging': ['dv_fogging_policy', 'dv_fogging_amount_D', 'dv_fogging_clearance_mode', 'dv_fogging_required'],
+      'Axis / Cylinder': [
+        'dv_jcc_axis_same_required',
+        'dv_jcc_axis_max_flips',
+        'dv_axis_source_used_RE',
+        'dv_axis_source_used_LE',
+        'dv_axis_cyl_magnitude_for_lane_RE',
+        'dv_axis_cyl_magnitude_for_lane_LE',
+        'dv_axis_is_near_cardinal_RE',
+        'dv_axis_is_near_cardinal_LE',
+        'dv_axis_lane_id_RE',
+        'dv_axis_lane_id_LE',
+        'dv_axis_lane_name_RE',
+        'dv_axis_lane_name_LE',
+        'dv_axis_step_sequence_RE',
+        'dv_axis_step_sequence_LE',
+        'dv_axis_confidence_label_RE',
+        'dv_axis_confidence_label_LE',
+        'dv_axis_selection_reason_RE',
+        'dv_axis_selection_reason_LE',
+      ],
       'Duochrome': ['dv_duochrome_max_flips'],
       'Near Vision': ['dv_add_expected', 'dv_near_test_required', 'dv_near_binoc_step_D', 'dv_near_binoc_max_plus_steps', 'dv_near_binoc_max_minus_steps'],
       'Safety / Escalation': ['dv_max_delta_from_start_sph', 'dv_max_delta_from_ar_sph'],
@@ -2202,6 +2479,29 @@ document.addEventListener('keydown', (e) => {
 
 // ── Auto-screenshot toggle + PIP ──
 let autoScreenshot = true; // ON by default
+let _pipRefreshToken = 0;
+let _pipRefreshTimers = [];
+
+function clearPendingPipRefreshes() {
+  _pipRefreshTimers.forEach(timerId => clearTimeout(timerId));
+  _pipRefreshTimers = [];
+}
+
+function setPipLoadingState(message) {
+  const loading = document.getElementById('pipLoading');
+  const img = document.getElementById('pipImg');
+  const footer = document.getElementById('pipFooter');
+  if (loading) {
+    loading.style.display = 'flex';
+    loading.textContent = message;
+  }
+  if (img) {
+    img.style.opacity = '0.45';
+  }
+  if (footer && message) {
+    footer.textContent = message;
+  }
+}
 
 async function toggleAutoScreenshot() {
   autoScreenshot = !autoScreenshot;
@@ -2226,26 +2526,31 @@ async function toggleAutoScreenshot() {
   }
 
   // Take initial screenshot
-  if (autoScreenshot) refreshPipScreenshot();
+  if (autoScreenshot) schedulePipRefreshSequence({ forceFresh: true, reason: 'Initial capture' });
 }
 
-async function refreshPipScreenshot() {
+async function refreshPipScreenshot(refreshToken = _pipRefreshToken) {
   if (!sessionId) return;
   const loading = document.getElementById('pipLoading');
   const img = document.getElementById('pipImg');
   const footer = document.getElementById('pipFooter');
-  if (loading) { loading.style.display = 'flex'; loading.textContent = 'Capturing...'; }
+  if (loading) {
+    loading.style.display = 'flex';
+    loading.textContent = 'Capturing...';
+  }
 
   try {
     const resp = await fetch(`${API}/api/session/${sessionId}/screenshot`, {
       method: 'POST',
       signal: AbortSignal.timeout(8000), // 8s timeout
     });
+    if (refreshToken !== _pipRefreshToken) return;
     if (resp.ok) {
       const data = await resp.json();
       if (data.screenshot) {
         img.src = 'data:image/jpeg;base64,' + data.screenshot;
         img.style.display = '';
+        img.style.opacity = '1';
         if (loading) loading.style.display = 'none';
         if (footer) footer.textContent = new Date().toLocaleTimeString();
         return;
@@ -2254,18 +2559,44 @@ async function refreshPipScreenshot() {
     // Non-OK or no screenshot
     if (loading) loading.textContent = 'Device not connected';
     if (footer) footer.textContent = 'Phoropter offline';
+    if (img) img.style.opacity = '0.45';
   } catch (e) {
     console.warn('PIP screenshot failed:', e);
+    if (refreshToken !== _pipRefreshToken) return;
     if (loading) loading.textContent = 'Device not reachable';
     if (footer) footer.textContent = 'Connection timeout';
+    if (img) img.style.opacity = '0.45';
   }
 }
 
-// Auto-update PIP after each response (called from submitResponse)
-async function autoUpdatePip() {
+function schedulePipRefreshSequence({ powerChanged = false, phaseChanged = false, forceFresh = false, reason = '' } = {}) {
   if (!autoScreenshot) return;
-  // Small delay to let phoropter finish physical movement
-  setTimeout(refreshPipScreenshot, 500);
+  _pipRefreshToken += 1;
+  const token = _pipRefreshToken;
+  clearPendingPipRefreshes();
+
+  const delays = forceFresh
+    ? [700, 1700]
+    : powerChanged
+      ? [900, 1900, 3200]
+      : phaseChanged
+        ? [800, 1800]
+        : [900];
+
+  setPipLoadingState(reason || (powerChanged ? 'Syncing phoropter...' : 'Refreshing...'));
+  delays.forEach((delayMs) => {
+    const timerId = setTimeout(() => refreshPipScreenshot(token), delayMs);
+    _pipRefreshTimers.push(timerId);
+  });
+}
+
+// Auto-update PIP after each response (called from submitResponse)
+async function autoUpdatePip({ powerChanged = false, phaseChanged = false } = {}) {
+  schedulePipRefreshSequence({
+    powerChanged,
+    phaseChanged,
+    reason: powerChanged ? 'Syncing phoropter...' : 'Refreshing phoropter...',
+  });
 }
 
 function expandPip() {
@@ -2388,25 +2719,25 @@ function handleAutoFlip(data) {
   }
 
   const isAxis = data.state === 'E' || data.state === 'H';
-  const phaseLabel = isAxis ? 'axis' : 'power';
-  const eyeLabel = (data.state === 'E' || data.state === 'F') ? 'right eye' : 'left eye';
-  const eyeLabelHi = (data.state === 'E' || data.state === 'F') ? 'दाईं आँख' : 'बाईं आँख';
+  const prefacePrompt = data.preface_prompt || '';
+  const promptQuestion = (document.getElementById('questionText')?.textContent || data.question || '').trim();
 
   // ── Flip 1: Show + speak "This is Flip 1", WAIT for TTS, THEN start 2s timer ──
   _flipState = 'flip1';
   updateFlipIndicator('flip1');
   setOptionsEnabled(false);
 
-  const flip1Text = sessionLanguage === 'hi'
-    ? `यह विकल्प 1 है। ध्यान से देखिए।`
-    : `This is Dot Chart. First option. Look carefully.`;
-  document.getElementById('questionText').textContent = flip1Text;
+  const baseFlip1Text = sessionLanguage === 'hi'
+    ? `यह पहला विकल्प है। आराम से ध्यान से देखिए।`
+    : `Here is the first option. Take your time and look carefully.`;
+  const flip1Text = joinSpeechParts(prefacePrompt, baseFlip1Text);
+  document.getElementById('questionText').textContent = baseFlip1Text;
   const waitSeconds = data.flip_wait_seconds || 2;
 
   // Wait for Flip 1 TTS to finish via onEnd callback, THEN wait the observation period
   speakQuestion(flip1Text, null, () => {
     _autoFlipTimer = setTimeout(doFlip2, waitSeconds * 1000);
-  });
+  }, 'flip1');
 
   async function doFlip2() {
     // Send handle command to flip to position 2
@@ -2423,10 +2754,15 @@ function handleAutoFlip(data) {
     _flipState = 'flip2';
     updateFlipIndicator('flip2');
 
+    const flip2Prompt = promptQuestion || (
+      sessionLanguage === 'hi'
+        ? `पहला, दूसरा, समान, या फिर से कहिए।`
+        : `Say first option, second option, both same, or repeat.`
+    );
     const flip2Text = sessionLanguage === 'hi'
-      ? `यह विकल्प 2 है। कौन सा बेहतर है? पहला, दूसरा, समान, या फिर से कहिए।`
-      : `This is second option. Which is better? Say first, second, same, or repeat.`;
-    document.getElementById('questionText').textContent = flip2Text;
+      ? `अब दूसरा विकल्प है। ${flip2Prompt}`
+      : `And now the second option. ${flip2Prompt}`;
+    document.getElementById('questionText').textContent = flip2Prompt;
     // Wait for Flip 2 TTS to finish via onEnd callback, then beep + enable buttons + listen
     speakQuestion(flip2Text, null, () => {
       setOptionsEnabled(true);
@@ -2436,7 +2772,7 @@ function handleAutoFlip(data) {
           startVoiceCapture(currentState.state, currentState.options || [], currentState.step);
         }
       });
-    });
+    }, 'flip2');
   }
 }
 
