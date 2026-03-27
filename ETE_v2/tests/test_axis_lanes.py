@@ -488,7 +488,24 @@ class AxisLanePolicyTests(unittest.TestCase):
             duo_flip=0,
             axis_step=5.0,
         )
-        self.assertEqual(le_row.question, "Read the line.")
+        self.assertEqual(le_row.question, "Read the line, or say blurry.")
+
+    def test_new_chart_line_first_exposure_keeps_blurry_instruction(self):
+        dv = self._derive(
+            self._patient(
+                visit_id="new-chart-line-prompt",
+                ar_re=self._rx(-1.50, -0.75, 45),
+                lenso_re=None,
+            )
+        )
+        engine = RefractionFSMEngine(self.calibration)
+        current = engine.initialize_row("new-chart-line-prompt", dv)
+
+        confirmed = engine.apply_response(current, "CLEAR", dv)
+        next_row = engine._build_next_row(confirmed, dv)
+        self.assertIsNotNone(next_row)
+        self.assertEqual(next_row.chart_param, "40_30_25")
+        self.assertEqual(next_row.question, "Read the line, or say blurry.")
 
     def test_coarse_step_back_transition_pushes_power_to_phoropter(self):
         orchestrator = SessionOrchestrator(calibration_path=str(CALIBRATION_PATH))
@@ -643,7 +660,7 @@ class AxisLanePolicyTests(unittest.TestCase):
         first_repeat = engine.apply_response(current, "REPEAT", dv)
         second_row = engine._build_next_row(first_repeat, dv)
         self.assertIsNotNone(second_row)
-        self.assertEqual(second_row.question, "First, second, or both same?")
+        self.assertEqual(second_row.question, "First option, second option, both same, or repeat?")
 
     def test_jcc_power_prompt_is_short_after_axis_on_same_eye(self):
         dv = self._derive(
@@ -661,7 +678,22 @@ class AxisLanePolicyTests(unittest.TestCase):
         self.assertEqual(axis_done.next_state, "F")
         power_row = engine._build_next_row(axis_done, dv)
         self.assertIsNotNone(power_row)
-        self.assertEqual(power_row.question, "First option, second option, or both same?")
+        self.assertEqual(power_row.question, "First option, second option, both same, or repeat?")
+
+    def test_both_alone_maps_to_same_in_comparison_phases(self):
+        for state, options in [
+            ("E", ["ONE", "TWO", "SAME", "REPEAT"]),
+            ("G", ["RED", "GREEN", "SAME", "REPEAT"]),
+            ("K", ["TOP", "BOTTOM", "SAME", "REPEAT"]),
+        ]:
+            with self.subTest(state=state):
+                result = match_response(
+                    transcript="both",
+                    state=state,
+                    available_options=options,
+                )
+                self.assertTrue(result.accepted)
+                self.assertEqual(result.response_value, "SAME")
 
     def test_duochrome_short_prompt_mentions_both_same(self):
         dv = self._derive(
@@ -854,6 +886,15 @@ class HindiLocalizationTests(unittest.TestCase):
         )
         self.assertEqual(prompt, "क्या आप इस लाइन के सभी अक्षर पढ़ पा रहे हैं, या वे धुंधले हैं?")
 
+    def test_hindi_localizes_short_coarse_read_prompt(self):
+        prompt = localized_voice_prompt(
+            state="B",
+            language="hi",
+            retry=False,
+            fallback_question="Read the line, or say blurry.",
+        )
+        self.assertEqual(prompt, "लाइन पढ़िए, या धुंधला कहिए।")
+
     def test_hindi_localizes_coarse_compare_prompt(self):
         prompt = localized_voice_prompt(
             state="B",
@@ -877,9 +918,9 @@ class HindiLocalizationTests(unittest.TestCase):
             state="F",
             language="hi",
             retry=False,
-            fallback_question="First option, second option, or both same?",
+            fallback_question="First option, second option, both same, or repeat?",
         )
-        self.assertEqual(prompt, "पहला विकल्प, दूसरा विकल्प, या दोनों समान?")
+        self.assertEqual(prompt, "पहला विकल्प, दूसरा विकल्प, दोनों समान, या फिर से?")
 
     def test_hindi_localizes_duochrome_and_bino_short_prompts(self):
         duo_prompt = localized_voice_prompt(

@@ -931,6 +931,7 @@ LOCALIZED_OPTION_LABELS = {
 
 HINDI_QUESTION_TRANSLATIONS = {
     "Can you read all the letters in this line, or are they blurry?": "क्या आप इस लाइन के सभी अक्षर पढ़ पा रहे हैं, या वे धुंधले हैं?",
+    "Read the line, or say blurry.": "लाइन पढ़िए, या धुंधला कहिए।",
     "Read the line.": "लाइन पढ़िए।",
     "Did it get better now? Say yes or no.": "क्या अब यह बेहतर हुआ? हाँ या नहीं कहिए।",
     "Better now, yes or no?": "अब बेहतर है, हाँ या नहीं?",
@@ -938,6 +939,7 @@ HINDI_QUESTION_TRANSLATIONS = {
     "Read it now, or is it still blurry?": "अब इसे पढ़िए, या क्या यह अभी भी धुंधली है?",
     "Please compare the two choices. Which one is clearer or sharper? say first option, second option, both same, or repeat.": "कृपया दोनों विकल्पों की तुलना कीजिए। कौन सा ज़्यादा साफ या शार्प दिख रहा है? पहला विकल्प, दूसरा विकल्प, दोनों समान, या फिर से कहिए।",
     "First, second, or both same?": "पहला, दूसरा, या दोनों समान?",
+    "First option, second option, both same, or repeat?": "पहला विकल्प, दूसरा विकल्प, दोनों समान, या फिर से?",
     "First option, second option, or both same?": "पहला विकल्प, दूसरा विकल्प, या दोनों समान?",
     "Please compare the red and green sides. Letters on which side look sharper and darker? Say red side, green side, both same, or repeat.": "कृपया लाल और हरे साइड की तुलना कीजिए। अक्षर किस साइड पर ज़्यादा शार्प और गहरे दिख रहे हैं? लाल साइड, हरा साइड, दोनों समान, या फिर से कहिए।",
     "Red side, green side, or both same?": "लाल साइड, हरा साइड, या दोनों समान?",
@@ -985,6 +987,8 @@ def _localized_hindi_question(*, state: str, fallback_question: str, retry: bool
         return "अब बेहतर है, हाँ या नहीं?"
     if state in {"B", "D"} and "still blurry" in prompt_lc:
         return "क्या अब आप लाइन पढ़ पा रहे हैं, या यह अभी भी धुंधली है?"
+    if state in {"B", "D"} and "read the line" in prompt_lc and "say blurry" in prompt_lc:
+        return "लाइन पढ़िए, या धुंधला कहिए।"
     if state in {"B", "C", "D", "L"} and "read the line" in prompt_lc:
         return "लाइन पढ़िए।"
     if state in {"E", "F", "H", "I"} and "both same" in prompt_lc:
@@ -1320,7 +1324,7 @@ COMPACT_MATCH_ALIASES = {
             "fuzzy": ["to", "too", "tu", "doo", "dusra"],
         },
         "SAME": {
-            "exact": ["same", "equal", "बराबर", "barabar"],
+            "exact": ["same", "equal", "both", "बराबर", "barabar", "दोनों", "dono"],
             "phrases": ["both same", "both are same", "no difference", "about the same", "दोनों same", "कोई फर्क नहीं"],
             "fuzzy": ["barabr"],
         },
@@ -1342,7 +1346,7 @@ COMPACT_MATCH_ALIASES = {
             "fuzzy": ["grean", "haraa"],
         },
         "SAME": {
-            "exact": ["same", "equal", "बराबर", "barabar"],
+            "exact": ["same", "equal", "both", "बराबर", "barabar", "दोनों", "dono"],
             "phrases": ["both same", "both are same", "no difference", "दोनों same"],
             "fuzzy": ["barabr"],
         },
@@ -1364,7 +1368,7 @@ COMPACT_MATCH_ALIASES = {
             "fuzzy": ["botom", "niche"],
         },
         "SAME": {
-            "exact": ["same", "equal", "बराबर", "barabar"],
+            "exact": ["same", "equal", "both", "बराबर", "barabar", "दोनों", "dono"],
             "phrases": ["both same", "both are same", "no difference", "दोनों same"],
             "fuzzy": ["barabr"],
         },
@@ -2354,7 +2358,7 @@ def _compact_comparison_token_label(normalized_text: str) -> Optional[str]:
     tokens = set(normalized_text.split())
     one_terms = {"one", "first", "ek", "एक", "pehla", "पहला"}
     two_terms = {"two", "second", "do", "to", "too", "tu", "दो", "dusra", "दूसरा"}
-    same_terms = {"same", "equal", "similar", "barabar", "बराबर"}
+    same_terms = {"same", "equal", "similar", "both", "dono", "दोनों", "barabar", "बराबर"}
     repeat_terms = {"repeat", "again", "dubara", "दोबारा"}
 
     if tokens & repeat_terms:
@@ -2405,7 +2409,7 @@ def _compact_comparison_intent_match(normalized_text: str) -> Optional[str]:
 
 def _compact_direction_token_label(normalized_text: str, *, family: str) -> Optional[str]:
     tokens = set(normalized_text.split())
-    same_terms = {"same", "equal", "similar", "barabar", "बराबर"}
+    same_terms = {"same", "equal", "similar", "both", "dono", "दोनों", "barabar", "बराबर"}
     repeat_terms = {"repeat", "again", "dubara", "दोबारा"}
     if tokens & repeat_terms:
         return "REPEAT"

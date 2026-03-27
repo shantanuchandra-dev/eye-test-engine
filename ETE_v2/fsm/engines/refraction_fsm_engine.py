@@ -249,10 +249,27 @@ class RefractionFSMEngine:
         seen = int((row.prompt_memory or {}).get(key, 0))
         return seen == 0
 
+    @staticmethod
+    def _coarse_chart_memory_key(row: FSMRuntimeRow) -> str:
+        if row.state not in ("B", "D") or row.coarse_compare_mode or row.coarse_recheck_mode:
+            return ""
+        eye = row.eye or row.state
+        return f"eye:{eye}:coarse_chart:{row.chart_param}"
+
+    def _is_first_chart_exposure_for_row(self, row: FSMRuntimeRow) -> bool:
+        key = self._coarse_chart_memory_key(row)
+        if not key:
+            return False
+        seen = int((row.prompt_memory or {}).get(key, 0))
+        return seen == 0
+
     def _remember_prompt(self, row: FSMRuntimeRow) -> None:
         key = self._prompt_family_key(row)
         memory = dict(row.prompt_memory or {})
         memory[key] = int(memory.get(key, 0)) + 1
+        chart_key = self._coarse_chart_memory_key(row)
+        if chart_key:
+            memory[chart_key] = int(memory.get(chart_key, 0)) + 1
         row.prompt_memory = memory
 
     def _prompt_bundle_for_row(self, row: FSMRuntimeRow) -> tuple[str, tuple[str, ...]]:
@@ -274,9 +291,12 @@ class RefractionFSMEngine:
                     else "Read it now, or is it still blurry?"
                 )
                 return question, ("CLEAR", "BLURRY", "REPEAT")
+            first_chart_exposure = self._is_first_chart_exposure_for_row(row)
             question = (
                 "Can you read all the letters in this line, or are they blurry?"
                 if early
+                else "Read the line, or say blurry."
+                if first_chart_exposure
                 else "Read the line."
             )
             return question, ("CLEAR", "BLURRY", "REPEAT")
@@ -285,7 +305,7 @@ class RefractionFSMEngine:
             question = (
                 "Please compare the two choices. Which one is clearer or sharper? say first option, second option, both same, or repeat."
                 if early
-                else "First, second, or both same?"
+                else "First option, second option, both same, or repeat?"
             )
             return question, ("ONE", "TWO", "SAME", "REPEAT")
 
@@ -293,7 +313,7 @@ class RefractionFSMEngine:
             question = (
                 "Please compare the two choices. Which one is clearer or sharper? say first option, second option, both same, or repeat."
                 if early
-                else "First option, second option, or both same?"
+                else "First option, second option, both same, or repeat?"
             )
             return question, ("ONE", "TWO", "SAME", "REPEAT")
 

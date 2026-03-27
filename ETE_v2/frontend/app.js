@@ -159,8 +159,8 @@ function buildSpokenQuestionText(data, localizedQuestion, prefacePrompt = '') {
       spoken = 'Did that look better now? Say yes or no.';
     } else if (/^better now, yes or no\?$/i.test(spoken)) {
       spoken = 'Better now? Say yes or no.';
-    } else if (/^first, second, or both same\?$/i.test(spoken) || /^first option, second option, or both same\?$/i.test(spoken)) {
-      spoken = 'Which looks clearer: first option, second option, or both same?';
+    } else if (/^first, second, or both same\?$/i.test(spoken) || /^first option, second option, or both same\?$/i.test(spoken) || /^first option, second option, both same, or repeat\?$/i.test(spoken)) {
+      spoken = 'Which looks clearer: first option, second option, both same, or repeat?';
     } else if (/^red side, green side, or both same\?$/i.test(spoken)) {
       spoken = 'Which side looks clearer: red side, green side, or both same?';
     } else if (/^top line or bottom line\?$/i.test(spoken)) {
