@@ -948,6 +948,12 @@ HINDI_QUESTION_TRANSLATIONS = {
     "Please look at the near text. Are the letters clear, blurry, or do you want me to repeat?": "कृपया पास के टेक्स्ट को देखिए। क्या अक्षर साफ हैं, धुंधले हैं, या क्या आप चाहते हैं कि मैं फिर से कहूँ?",
     "Clear or blurry?": "साफ या धुंधला?",
     "Please read the line.": "कृपया लाइन पढ़िए।",
+    "This is the final confirmation before I finish your eye test. This is option 1. Please observe the line carefully.": "आई टेस्ट समाप्त करने से पहले यह अंतिम पुष्टि है। यह विकल्प 1 है। कृपया लाइन को ध्यान से देखिए।",
+    "Option 1. Please observe the line carefully.": "विकल्प 1। कृपया लाइन को ध्यान से देखिए।",
+    "Now this is option 2. Please observe the line carefully.": "अब यह विकल्प 2 है। कृपया लाइन को ध्यान से देखिए।",
+    "Option 2. Please observe the line carefully.": "विकल्प 2। कृपया लाइन को ध्यान से देखिए।",
+    "Which option was better, first option or second option? Say first option, second option, or repeat.": "कौन सा विकल्प बेहतर था, पहला विकल्प या दूसरा विकल्प? पहला विकल्प, दूसरा विकल्प, या फिर से कहिए।",
+    "Which was better, first option, second option, or repeat?": "कौन बेहतर था, पहला विकल्प, दूसरा विकल्प, या फिर से?",
 }
 
 
@@ -989,10 +995,14 @@ def _localized_hindi_question(*, state: str, fallback_question: str, retry: bool
         return "क्या अब आप लाइन पढ़ पा रहे हैं, या यह अभी भी धुंधली है?"
     if state in {"B", "D"} and "read the line" in prompt_lc and "say blurry" in prompt_lc:
         return "लाइन पढ़िए, या धुंधला कहिए।"
-    if state in {"B", "C", "D", "L"} and "read the line" in prompt_lc:
+    if state in {"S", "T"} and ("look carefully at the line" in prompt_lc or "observe the line carefully" in prompt_lc):
+        return "कृपया लाइन को ध्यान से देखिए।"
+    if state in {"B", "C", "D", "L", "S", "T"} and "read the line" in prompt_lc:
         return "लाइन पढ़िए।"
-    if state in {"E", "F", "H", "I"} and "both same" in prompt_lc:
+    if state in {"E", "F", "H", "I", "U"} and "both same" in prompt_lc:
         return "पहला विकल्प, दूसरा विकल्प, या दोनों समान?"
+    if state == "U" and "first option" in prompt_lc and "second option" in prompt_lc:
+        return "कौन बेहतर था, पहला विकल्प, दूसरा विकल्प, या फिर से?"
     if state in {"G", "J"} and "both same" in prompt_lc:
         return "लाल साइड, हरा साइड, या दोनों समान?"
     if state == "K" and "both same" in prompt_lc:
@@ -1018,14 +1028,14 @@ def _hindi_option_label(option: str, *, state: str, question: str) -> str:
             "REPEAT": "फिर से",
         }.get(option, option)
 
-    if state in {"B", "C", "D", "L"}:
+    if state in {"B", "C", "D", "L", "S", "T"}:
         return {
             "CLEAR": "लाइन पढ़ी",
             "BLURRY": "धुंधला",
             "REPEAT": "फिर से",
         }.get(option, option)
 
-    if state in {"E", "F", "H", "I"}:
+    if state in {"E", "F", "H", "I", "U"}:
         return {
             "ONE": "पहला विकल्प",
             "TWO": "दूसरा विकल्प",
@@ -1053,6 +1063,21 @@ def _hindi_option_label(option: str, *, state: str, question: str) -> str:
         return {
             "CLEAR": "अक्षर साफ",
             "BLURRY": "अक्षर धुंधले",
+            "REPEAT": "फिर से",
+        }.get(option, option)
+
+    if state in {"S", "T"}:
+        return {
+            "CLEAR": "लाइन पढ़ी",
+            "BLURRY": "धुंधला",
+            "REPEAT": "फिर से",
+        }.get(option, option)
+
+    if state == "U":
+        return {
+            "ONE": "पहला विकल्प",
+            "TWO": "दूसरा विकल्प",
+            "SAME": "दोनों समान",
             "REPEAT": "फिर से",
         }.get(option, option)
 
@@ -1204,6 +1229,28 @@ COMPACT_INTERACTIVE_STATE_MAP = {
         "label_to_response": {
             "CLEAR": "TARGET_OK",
             "BLURRY": "NOT_CLEAR",
+            "REPEAT": "__REPEAT__",
+        },
+    },
+    "S": {
+        "family": "observe_only",
+        "response_type": "observe_only",
+        "allowed_labels": [],
+        "label_to_response": {},
+    },
+    "T": {
+        "family": "observe_only",
+        "response_type": "observe_only",
+        "allowed_labels": [],
+        "label_to_response": {},
+    },
+    "U": {
+        "family": "comparison_4way",
+        "response_type": "comparison_4way",
+        "allowed_labels": ["ONE", "TWO", "REPEAT"],
+        "label_to_response": {
+            "ONE": "BETTER_1",
+            "TWO": "BETTER_2",
             "REPEAT": "__REPEAT__",
         },
     },
@@ -1690,14 +1737,14 @@ def _english_option_label(option: str, *, state: str, question: str) -> str:
             "REPEAT": "Repeat",
         }.get(option, option)
 
-    if state in {"B", "C", "D", "L"}:
+    if state in {"B", "C", "D", "L", "S", "T"}:
         return {
             "CLEAR": "Read line",
             "BLURRY": "Blurry",
             "REPEAT": "Repeat",
         }.get(option, option)
 
-    if state in {"E", "F", "H", "I"}:
+    if state in {"E", "F", "H", "I", "U"}:
         return {
             "ONE": "First option",
             "TWO": "Second option",

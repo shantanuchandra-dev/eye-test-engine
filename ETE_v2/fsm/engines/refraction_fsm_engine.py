@@ -94,6 +94,21 @@ COMPACT_PROMPT_CONFIG = {
         "question": "Please look at the near text. Are the letters clear, blurry, or do you want me to repeat?",
         "options": ("CLEAR", "BLURRY", "REPEAT"),
     },
+    "S": {
+        "response_type": "observe_only",
+        "question": "This is the final confirmation before I finish your eye test. This is option 1. Please observe the line carefully.",
+        "options": (),
+    },
+    "T": {
+        "response_type": "observe_only",
+        "question": "Now this is option 2. Please observe the line carefully.",
+        "options": (),
+    },
+    "U": {
+        "response_type": "comparison_4way",
+        "question": "Which option was better, first option or second option? Say first option, second option, or repeat.",
+        "options": ("ONE", "TWO", "REPEAT"),
+    },
     "C": {
         "response_type": "clarity_3way",
         "question": "Please read the line.",
@@ -227,6 +242,14 @@ class RefractionFSMEngine:
         )
 
     @staticmethod
+    def _final_compare_outcome(choice_1: str, choice_2: str) -> str:
+        if choice_1 == "ONE" and choice_2 == "ONE":
+            return "Yes"
+        if choice_1 or choice_2:
+            return "No"
+        return ""
+
+    @staticmethod
     def _prompt_family_key(row: FSMRuntimeRow) -> str:
         if row.state in ("B", "D", "C", "L"):
             if row.state in ("B", "D") and row.coarse_compare_mode:
@@ -234,6 +257,12 @@ class RefractionFSMEngine:
             if row.state in ("B", "D") and row.coarse_recheck_mode:
                 return "session:line_recheck"
             return "session:line_read"
+        if row.state == "S":
+            return "session:final_compare_option_1"
+        if row.state == "T":
+            return "session:final_compare_option_2"
+        if row.state == "U":
+            return "session:final_compare_choice"
         if row.state in ("E", "F", "H", "I"):
             return f"eye:{row.eye}:jcc_compare"
         if row.state in ("G", "J"):
@@ -341,6 +370,30 @@ class RefractionFSMEngine:
             )
             return question, ("CLEAR", "BLURRY", "REPEAT")
 
+        if state == "S":
+            question = (
+                "This is the final confirmation before I finish your eye test. This is option 1. Please observe the line carefully."
+                if early
+                else "Option 1. Please observe the line carefully."
+            )
+            return question, ()
+
+        if state == "T":
+            question = (
+                "Now this is option 2. Please observe the line carefully."
+                if early
+                else "Option 2. Please observe the line carefully."
+            )
+            return question, ()
+
+        if state == "U":
+            question = (
+                "Which option was better, first option or second option? Say first option, second option, or repeat."
+                if early
+                else "Which was better, first option, second option, or repeat?"
+            )
+            return question, ("ONE", "TWO", "REPEAT")
+
         if state in ("C", "L"):
             question = (
                 "Please read the line."
@@ -369,13 +422,19 @@ class RefractionFSMEngine:
             }
             return mapping.get(value, value)
 
-        if state in ("E", "F", "H", "I"):
+        if state in ("S", "T"):
+            mapping = {
+                "AUTO_ADVANCE": "AUTO_ADVANCE",
+                "OBSERVED": "AUTO_ADVANCE",
+            }
+            return mapping.get(value, value)
+
+        if state in ("E", "F", "H", "I", "U"):
             mapping = {
                 "ONE": "ONE",
                 "BETTER_1": "ONE",
                 "TWO": "TWO",
                 "BETTER_2": "TWO",
-                "SAME": "SAME",
                 "REPEAT": "REPEAT",
                 "CANT_TELL": "REPEAT",
             }
@@ -452,6 +511,28 @@ class RefractionFSMEngine:
         distance_va_re_line: str = "",
         distance_va_le_line: str = "",
         va_confirm_ceiling_chart: str = "",
+        final_compare_enabled: bool = False,
+        final_compare_round: int = 0,
+        final_compare_option_source: str = "",
+        final_compare_choice_round_1: str = "",
+        final_compare_choice_round_2: str = "",
+        patient_accepted_achieved_over_current_rx: str = "",
+        final_compare_current_re_sph: Optional[float] = None,
+        final_compare_current_re_cyl: Optional[float] = None,
+        final_compare_current_re_axis: Optional[float] = None,
+        final_compare_current_le_sph: Optional[float] = None,
+        final_compare_current_le_cyl: Optional[float] = None,
+        final_compare_current_le_axis: Optional[float] = None,
+        final_compare_current_add_r: Optional[float] = None,
+        final_compare_current_add_l: Optional[float] = None,
+        final_compare_achieved_re_sph: Optional[float] = None,
+        final_compare_achieved_re_cyl: Optional[float] = None,
+        final_compare_achieved_re_axis: Optional[float] = None,
+        final_compare_achieved_le_sph: Optional[float] = None,
+        final_compare_achieved_le_cyl: Optional[float] = None,
+        final_compare_achieved_le_axis: Optional[float] = None,
+        final_compare_achieved_add_r: Optional[float] = None,
+        final_compare_achieved_add_l: Optional[float] = None,
         axis_flip_count: int = 0,
         axis_quick_search_active: bool = False,
         axis_quick_phase: str = "",
@@ -557,6 +638,28 @@ class RefractionFSMEngine:
             distance_va_re_line=distance_va_re_line,
             distance_va_le_line=distance_va_le_line,
             va_confirm_ceiling_chart=va_confirm_ceiling_chart,
+            final_compare_enabled=final_compare_enabled,
+            final_compare_round=final_compare_round,
+            final_compare_option_source=final_compare_option_source,
+            final_compare_choice_round_1=final_compare_choice_round_1,
+            final_compare_choice_round_2=final_compare_choice_round_2,
+            patient_accepted_achieved_over_current_rx=patient_accepted_achieved_over_current_rx,
+            final_compare_current_re_sph=final_compare_current_re_sph,
+            final_compare_current_re_cyl=final_compare_current_re_cyl,
+            final_compare_current_re_axis=final_compare_current_re_axis,
+            final_compare_current_le_sph=final_compare_current_le_sph,
+            final_compare_current_le_cyl=final_compare_current_le_cyl,
+            final_compare_current_le_axis=final_compare_current_le_axis,
+            final_compare_current_add_r=final_compare_current_add_r,
+            final_compare_current_add_l=final_compare_current_add_l,
+            final_compare_achieved_re_sph=final_compare_achieved_re_sph,
+            final_compare_achieved_re_cyl=final_compare_achieved_re_cyl,
+            final_compare_achieved_re_axis=final_compare_achieved_re_axis,
+            final_compare_achieved_le_sph=final_compare_achieved_le_sph,
+            final_compare_achieved_le_cyl=final_compare_achieved_le_cyl,
+            final_compare_achieved_le_axis=final_compare_achieved_le_axis,
+            final_compare_achieved_add_r=final_compare_achieved_add_r,
+            final_compare_achieved_add_l=final_compare_achieved_add_l,
             next_state=state,
             row_active=True,
             axis_flip_count=axis_flip_count,
@@ -672,6 +775,27 @@ class RefractionFSMEngine:
             row.chart_type = "NEAR_CHART"
             row.eye = "BIN"
 
+        elif state == "S":
+            row.phase_name = "Final Compare Option 1 Achieved Rx"
+            row.phase_type = "FINAL_RX_COMPARE"
+            row.stimulus_type = "FINAL_RX_COMPARE"
+            row.chart_type = "SNELLEN_FEET"
+            row.eye = "BIN"
+
+        elif state == "T":
+            row.phase_name = "Final Compare Option 2 PGP"
+            row.phase_type = "FINAL_RX_COMPARE"
+            row.stimulus_type = "FINAL_RX_COMPARE"
+            row.chart_type = "SNELLEN_FEET"
+            row.eye = "BIN"
+
+        elif state == "U":
+            row.phase_name = "Final Compare Decision"
+            row.phase_type = "FINAL_RX_COMPARE"
+            row.stimulus_type = "FINAL_RX_COMPARE"
+            row.chart_type = "SNELLEN_FEET"
+            row.eye = "BIN"
+
         elif state == "L":
             row.phase_name = "Distance VA Confirm LE"
             row.phase_type = "DISTANCE_VA_CONFIRM"
@@ -736,6 +860,28 @@ class RefractionFSMEngine:
             distance_va_re_line="",
             distance_va_le_line="",
             va_confirm_ceiling_chart="",
+            final_compare_enabled=False,
+            final_compare_round=0,
+            final_compare_option_source="",
+            final_compare_choice_round_1="",
+            final_compare_choice_round_2="",
+            patient_accepted_achieved_over_current_rx="",
+            final_compare_current_re_sph=None,
+            final_compare_current_re_cyl=None,
+            final_compare_current_re_axis=None,
+            final_compare_current_le_sph=None,
+            final_compare_current_le_cyl=None,
+            final_compare_current_le_axis=None,
+            final_compare_current_add_r=None,
+            final_compare_current_add_l=None,
+            final_compare_achieved_re_sph=None,
+            final_compare_achieved_re_cyl=None,
+            final_compare_achieved_re_axis=None,
+            final_compare_achieved_le_sph=None,
+            final_compare_achieved_le_cyl=None,
+            final_compare_achieved_le_axis=None,
+            final_compare_achieved_add_r=None,
+            final_compare_achieved_add_l=None,
             axis_step=self._axis_fixed_step(),
             axis_flip_count=0,
             axis_quick_search_active=False,
@@ -819,6 +965,28 @@ class RefractionFSMEngine:
         next_distance_va_re_line = row.distance_va_re_line
         next_distance_va_le_line = row.distance_va_le_line
         next_va_confirm_ceiling_chart = row.va_confirm_ceiling_chart if row.next_state == row.state else ""
+        next_final_compare_enabled = row.final_compare_enabled
+        next_final_compare_round = row.final_compare_round if row.next_state == row.state else row.final_compare_round
+        next_final_compare_option_source = row.final_compare_option_source
+        next_final_compare_choice_round_1 = row.final_compare_choice_round_1
+        next_final_compare_choice_round_2 = row.final_compare_choice_round_2
+        next_patient_accepted_achieved = row.patient_accepted_achieved_over_current_rx
+        next_final_compare_current_re_sph = row.final_compare_current_re_sph
+        next_final_compare_current_re_cyl = row.final_compare_current_re_cyl
+        next_final_compare_current_re_axis = row.final_compare_current_re_axis
+        next_final_compare_current_le_sph = row.final_compare_current_le_sph
+        next_final_compare_current_le_cyl = row.final_compare_current_le_cyl
+        next_final_compare_current_le_axis = row.final_compare_current_le_axis
+        next_final_compare_current_add_r = row.final_compare_current_add_r
+        next_final_compare_current_add_l = row.final_compare_current_add_l
+        next_final_compare_achieved_re_sph = row.final_compare_achieved_re_sph
+        next_final_compare_achieved_re_cyl = row.final_compare_achieved_re_cyl
+        next_final_compare_achieved_re_axis = row.final_compare_achieved_re_axis
+        next_final_compare_achieved_le_sph = row.final_compare_achieved_le_sph
+        next_final_compare_achieved_le_cyl = row.final_compare_achieved_le_cyl
+        next_final_compare_achieved_le_axis = row.final_compare_achieved_le_axis
+        next_final_compare_achieved_add_r = row.final_compare_achieved_add_r
+        next_final_compare_achieved_add_l = row.final_compare_achieved_add_l
         next_axis_flip_count = row.axis_flip_count if row.next_state == row.state else 0
         next_axis_quick_search_active = row.axis_quick_search_active if row.next_state == row.state else False
         next_axis_quick_phase = row.axis_quick_phase if row.next_state == row.state else ""
@@ -897,6 +1065,56 @@ class RefractionFSMEngine:
             next_near_bino_direction = ""
             next_near_bino_reversed = False
 
+        if row.next_state == "S":
+            if row.state != "S":
+                if row.state == "U" and row.response_value == "REPEAT":
+                    next_final_compare_round = max(1, int(row.final_compare_round or 1))
+                else:
+                    next_final_compare_round = 1 if int(row.final_compare_round or 0) == 0 else max(1, int(row.final_compare_round or 0) + 1)
+            next_final_compare_option_source = "Achieved"
+            if int(row.final_compare_round or 0) == 0:
+                next_final_compare_achieved_re_sph = next_re_sph
+                next_final_compare_achieved_re_cyl = next_re_cyl
+                next_final_compare_achieved_re_axis = next_re_axis
+                next_final_compare_achieved_le_sph = next_le_sph
+                next_final_compare_achieved_le_cyl = next_le_cyl
+                next_final_compare_achieved_le_axis = next_le_axis
+                next_final_compare_achieved_add_r = next_add_r
+                next_final_compare_achieved_add_l = next_add_l
+            next_re_sph = next_final_compare_achieved_re_sph
+            next_re_cyl = next_final_compare_achieved_re_cyl
+            next_re_axis = next_final_compare_achieved_re_axis
+            next_le_sph = next_final_compare_achieved_le_sph
+            next_le_cyl = next_final_compare_achieved_le_cyl
+            next_le_axis = next_final_compare_achieved_le_axis
+            next_add_r = next_final_compare_achieved_add_r
+            next_add_l = next_final_compare_achieved_add_l
+            next_chart_param = "20_20_20"
+
+        if row.next_state == "T":
+            next_final_compare_option_source = "PGP"
+            next_re_sph = next_final_compare_current_re_sph
+            next_re_cyl = next_final_compare_current_re_cyl
+            next_re_axis = next_final_compare_current_re_axis
+            next_le_sph = next_final_compare_current_le_sph
+            next_le_cyl = next_final_compare_current_le_cyl
+            next_le_axis = next_final_compare_current_le_axis
+            next_add_r = next_final_compare_current_add_r
+            next_add_l = next_final_compare_current_add_l
+            next_chart_param = "20_20_20"
+
+        if row.next_state == "U":
+            next_final_compare_option_source = "PGP"
+            next_re_sph = next_final_compare_current_re_sph
+            next_re_cyl = next_final_compare_current_re_cyl
+            next_re_axis = next_final_compare_current_re_axis
+            next_le_sph = next_final_compare_current_le_sph
+            next_le_cyl = next_final_compare_current_le_cyl
+            next_le_axis = next_final_compare_current_le_axis
+            next_add_r = next_final_compare_current_add_r
+            next_add_l = next_final_compare_current_add_l
+            next_chart_param = "20_20_20"
+
         if row.next_state == "F" and row.state != "F":
             next_jcc_power_start_re_cyl = next_re_cyl
 
@@ -954,6 +1172,28 @@ class RefractionFSMEngine:
             distance_va_re_line=next_distance_va_re_line,
             distance_va_le_line=next_distance_va_le_line,
             va_confirm_ceiling_chart=next_va_confirm_ceiling_chart,
+            final_compare_enabled=next_final_compare_enabled,
+            final_compare_round=next_final_compare_round,
+            final_compare_option_source=next_final_compare_option_source,
+            final_compare_choice_round_1=next_final_compare_choice_round_1,
+            final_compare_choice_round_2=next_final_compare_choice_round_2,
+            patient_accepted_achieved_over_current_rx=next_patient_accepted_achieved,
+            final_compare_current_re_sph=next_final_compare_current_re_sph,
+            final_compare_current_re_cyl=next_final_compare_current_re_cyl,
+            final_compare_current_re_axis=next_final_compare_current_re_axis,
+            final_compare_current_le_sph=next_final_compare_current_le_sph,
+            final_compare_current_le_cyl=next_final_compare_current_le_cyl,
+            final_compare_current_le_axis=next_final_compare_current_le_axis,
+            final_compare_current_add_r=next_final_compare_current_add_r,
+            final_compare_current_add_l=next_final_compare_current_add_l,
+            final_compare_achieved_re_sph=next_final_compare_achieved_re_sph,
+            final_compare_achieved_re_cyl=next_final_compare_achieved_re_cyl,
+            final_compare_achieved_re_axis=next_final_compare_achieved_re_axis,
+            final_compare_achieved_le_sph=next_final_compare_achieved_le_sph,
+            final_compare_achieved_le_cyl=next_final_compare_achieved_le_cyl,
+            final_compare_achieved_le_axis=next_final_compare_achieved_le_axis,
+            final_compare_achieved_add_r=next_final_compare_achieved_add_r,
+            final_compare_achieved_add_l=next_final_compare_achieved_add_l,
             axis_step=next_axis_step,
             axis_flip_count=next_axis_flip_count,
             axis_quick_search_active=next_axis_quick_search_active,
@@ -1198,6 +1438,20 @@ class RefractionFSMEngine:
                 row.near_bino_direction = "MINUS"
                 row.near_bino_reversed = True
 
+        elif current.state in ("S", "T"):
+            pass
+
+        elif current.state == "U":
+            if normalized_response in ("ONE", "TWO"):
+                if int(current.final_compare_round or 0) <= 1:
+                    row.final_compare_choice_round_1 = normalized_response
+                else:
+                    row.final_compare_choice_round_2 = normalized_response
+                row.patient_accepted_achieved_over_current_rx = self._final_compare_outcome(
+                    row.final_compare_choice_round_1,
+                    row.final_compare_choice_round_2,
+                )
+
         if current.state in ("G", "J"):
             if normalized_response == "SAME":
                 row.same_streak = current.same_streak + 1 if current.same_streak > 0 else 1
@@ -1335,6 +1589,8 @@ class RefractionFSMEngine:
             "near_binoc_reversed": bool(row.near_bino_reversed),
             "near_binoc_max_plus_steps": int(dv.dv_near_binoc_max_plus_steps),
             "near_binoc_max_minus_steps": int(dv.dv_near_binoc_max_minus_steps),
+            "final_compare_enabled": bool(current.final_compare_enabled),
+            "final_compare_round": int(current.final_compare_round or 0),
         }
 
         row.next_state = compute_next_state(context)

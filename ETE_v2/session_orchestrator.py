@@ -51,6 +51,7 @@ STATE_EYE_MAP = {
     "B": "RE", "C": "RE", "E": "RE", "F": "RE", "G": "RE",
     "D": "LE", "H": "LE", "I": "LE", "J": "LE", "L": "LE",
     "K": "BIN", "P": "RE", "Q": "LE", "R": "BIN",
+    "S": "BIN", "T": "BIN", "U": "BIN",
 }
 
 STATE_AUX_LENS_MAP = {
@@ -68,6 +69,9 @@ STATE_AUX_LENS_MAP = {
     "P": "AuxLensL",
     "Q": "AuxLensR",
     "R": "BINO",
+    "S": "BINO",
+    "T": "BINO",
+    "U": "BINO",
 }
 
 STATE_CHART_MAP = {
@@ -85,6 +89,9 @@ STATE_CHART_MAP = {
     "P": "near",          # Chart5
     "Q": "near",
     "R": "near",
+    "S": "snellen",
+    "T": "snellen",
+    "U": "snellen",
 }
 
 # chart_param → phoropter chart_items
@@ -129,6 +136,9 @@ STATE_PHASE_DISPLAY = {
     "P": "Near Add RE",
     "Q": "Near Add LE",
     "R": "Near Binocular",
+    "S": "Final Compare Option 1 Achieved Rx",
+    "T": "Final Compare Option 2 PGP",
+    "U": "Final Compare Decision",
     "END": "Test Complete",
     "ESCALATE": "Escalation Required",
 }
@@ -252,6 +262,7 @@ class SessionOrchestrator:
             ar_re=self.ar_re,
             ar_le=self.ar_le,
         )
+        self._seed_final_compare_context()
 
         # Track phase entry
         self._track_phase_entry(self.current_row.state)
@@ -324,7 +335,7 @@ class SessionOrchestrator:
         # Intercept REPEAT before apply_response (matching FSMv3.1_R2 behavior)
         # REPEAT re-displays the same question without recording a row or advancing counters
         normalized = str(response_value or "").strip().upper()
-        if normalized in ("REPEAT", "__REPEAT__"):
+        if normalized in ("REPEAT", "__REPEAT__") and prev_state != "U":
             # JCC states: send handle (back to flip1), frontend does auto-flip to flip2 after 2s
             if prev_state in ("E", "F", "H", "I") and self.phoropter_auto_dispatch and self.phoropter_id:
                 self._send_jcc("handle")  # → flip1
@@ -336,13 +347,20 @@ class SessionOrchestrator:
             )
             return self._build_response()  # auto_flip=True in response triggers frontend flip
 
-        # Log the response
-        self._log_conversation(
-            "patient",
-            response_value,
-            state=prev_state,
-            step=self.current_row.step,
-        )
+        if normalized == "AUTO_ADVANCE" and prev_state in {"S", "T"}:
+            self._log_conversation(
+                "system",
+                f"Observe window complete for option {1 if prev_state == 'S' else 2}.",
+                state=prev_state,
+                step=self.current_row.step,
+            )
+        else:
+            self._log_conversation(
+                "patient",
+                response_value,
+                state=prev_state,
+                step=self.current_row.step,
+            )
 
         # Apply response to FSM
         finalized = self.engine.apply_response(
@@ -352,6 +370,19 @@ class SessionOrchestrator:
             ar_re=self.ar_re,
             ar_le=self.ar_le,
         )
+
+        if prev_state == "U" and finalized.response_value in {"ONE", "TWO"}:
+            self._log_conversation(
+                "system",
+                (
+                    f"Final Rx comparison round {int(finalized.final_compare_round or 0)} "
+                    f"choice: {finalized.response_value}"
+                ),
+                state=prev_state,
+                step=self.current_row.step,
+                final_compare_round=int(finalized.final_compare_round or 0),
+                accepted_achieved_over_current_rx=finalized.patient_accepted_achieved_over_current_rx,
+            )
 
         # Record the finalized row
         self._record_row(finalized, voice_meta=voice_meta, input_method=input_method)
@@ -400,6 +431,13 @@ class SessionOrchestrator:
                     step=self.current_row.step,
                     axis_lane_id=self.current_row.axis_lane_id,
                     axis_selection_reason=self.current_row.axis_selection_reason,
+                )
+            if next_state == "S":
+                self._log_conversation(
+                    "system",
+                    "Final comparison starting: option 1 is achieved prescription, option 2 is PGP.",
+                    state=next_state,
+                    step=self.current_row.step,
                 )
             self.current_row.preface_prompt = self._build_transition_preface(
                 prev_state=prev_state,
@@ -552,7 +590,7 @@ class SessionOrchestrator:
             driving_hours=data.get("driving_hours"),
             primary_reason=data.get("primary_reason", "Routine check"),
             symptoms_text=data.get("symptoms_text", ""),
-            satisfaction_with_current_rx=data.get("satisfaction", "No current Rx"),
+            satisfaction_with_current_rx=data.get("satisfaction", "No PGP"),
             wear_type=data.get("wear_type", "None"),
             distance_target_preference="",
             priority=data.get("priority", "Standard"),
@@ -582,6 +620,139 @@ class SessionOrchestrator:
             lenso_add_l=data.get("lenso_add_l"),
         )
 
+    def _has_final_compare_current_rx(self) -> bool:
+        if not self.patient_input:
+            return False
+        return bool(
+            self.patient_input.lenso_re
+            and self.patient_input.lenso_le
+            and self.patient_input.lenso_re.has_full_rx()
+            and self.patient_input.lenso_le.has_full_rx()
+        )
+
+    def _seed_final_compare_context(self) -> None:
+        if self.current_row is None:
+            return
+
+        enabled = self._has_final_compare_current_rx()
+        self.current_row.final_compare_enabled = enabled
+        self.current_row.final_compare_option_source = "Achieved"
+        self.current_row.final_compare_round = 0
+        self.current_row.final_compare_choice_round_1 = ""
+        self.current_row.final_compare_choice_round_2 = ""
+        self.current_row.patient_accepted_achieved_over_current_rx = ""
+
+        if not enabled or not self.patient_input:
+            return
+
+        lenso_re = self.patient_input.lenso_re
+        lenso_le = self.patient_input.lenso_le
+        self.current_row.final_compare_current_re_sph = lenso_re.sphere if lenso_re else None
+        self.current_row.final_compare_current_re_cyl = lenso_re.cylinder if lenso_re else None
+        self.current_row.final_compare_current_re_axis = lenso_re.axis if lenso_re else None
+        self.current_row.final_compare_current_le_sph = lenso_le.sphere if lenso_le else None
+        self.current_row.final_compare_current_le_cyl = lenso_le.cylinder if lenso_le else None
+        self.current_row.final_compare_current_le_axis = lenso_le.axis if lenso_le else None
+        self.current_row.final_compare_current_add_r = self.patient_input.lenso_add_r
+        self.current_row.final_compare_current_add_l = self.patient_input.lenso_add_l
+
+    @staticmethod
+    def _rx_payload(
+        re_sph: Optional[float],
+        re_cyl: Optional[float],
+        re_axis: Optional[float],
+        add_r: Optional[float],
+        le_sph: Optional[float],
+        le_cyl: Optional[float],
+        le_axis: Optional[float],
+        add_l: Optional[float],
+    ) -> dict:
+        return {
+            "right": {
+                "sph": re_sph,
+                "cyl": re_cyl,
+                "axis": re_axis,
+                "add": add_r,
+            },
+            "left": {
+                "sph": le_sph,
+                "cyl": le_cyl,
+                "axis": le_axis,
+                "add": add_l,
+            },
+        }
+
+    @staticmethod
+    def _rx_has_any_values(payload: dict) -> bool:
+        for eye in ("right", "left"):
+            eye_payload = payload.get(eye, {})
+            if any(eye_payload.get(key) is not None for key in ("sph", "cyl", "axis", "add")):
+                return True
+        return False
+
+    def _resolved_final_compare_payloads(self, row: FSMRuntimeRow) -> dict:
+        achieved = self._rx_payload(
+            row.final_compare_achieved_re_sph,
+            row.final_compare_achieved_re_cyl,
+            row.final_compare_achieved_re_axis,
+            row.final_compare_achieved_add_r,
+            row.final_compare_achieved_le_sph,
+            row.final_compare_achieved_le_cyl,
+            row.final_compare_achieved_le_axis,
+            row.final_compare_achieved_add_l,
+        )
+        current = self._rx_payload(
+            row.final_compare_current_re_sph,
+            row.final_compare_current_re_cyl,
+            row.final_compare_current_re_axis,
+            row.final_compare_current_add_r,
+            row.final_compare_current_le_sph,
+            row.final_compare_current_le_cyl,
+            row.final_compare_current_le_axis,
+            row.final_compare_current_add_l,
+        )
+        fallback = self._rx_payload(
+            row.re_sph,
+            row.re_cyl,
+            row.re_axis,
+            row.add_r,
+            row.le_sph,
+            row.le_cyl,
+            row.le_axis,
+            row.add_l,
+        )
+
+        acceptance_flag = str(row.patient_accepted_achieved_over_current_rx or "").strip()
+        accepted_achieved = acceptance_flag == "Yes"
+        achieved_available = self._rx_has_any_values(achieved)
+        current_available = self._rx_has_any_values(current)
+
+        if acceptance_flag == "Yes" and achieved_available:
+            prescribed = achieved
+            selected_source = "Achieved"
+        elif acceptance_flag == "No" and current_available:
+            prescribed = current
+            selected_source = "PGP"
+        elif accepted_achieved and achieved_available:
+            prescribed = achieved
+            selected_source = "Achieved"
+        elif achieved_available:
+            prescribed = achieved
+            selected_source = ""
+        elif current_available:
+            prescribed = current
+            selected_source = ""
+        else:
+            prescribed = fallback
+            selected_source = ""
+
+        return {
+            "achieved": achieved,
+            "current": current,
+            "prescribed": prescribed,
+            "selected_source": selected_source,
+        }
+
     def _build_response(self, force_end: bool = False) -> dict:
         """Build API response from current FSM state."""
         if self.current_row is None:
@@ -589,6 +760,21 @@ class SessionOrchestrator:
 
         row = self.current_row
         state = row.state if not force_end else "END"
+        final_compare_payloads = self._resolved_final_compare_payloads(row)
+        active_prescription = (
+            final_compare_payloads["prescribed"]
+            if state == "END"
+            else self._rx_payload(
+                row.re_sph,
+                row.re_cyl,
+                row.re_axis,
+                row.add_r,
+                row.le_sph,
+                row.le_cyl,
+                row.le_axis,
+                row.add_l,
+            )
+        )
 
         # Get options from the row
         options = [
@@ -612,20 +798,10 @@ class SessionOrchestrator:
             "chart_param": row.chart_param,
             "chart_type": STATE_CHART_MAP.get(state, ""),
             "is_terminal": is_terminal,
-            "prescription": {
-                "right": {
-                    "sph": row.re_sph,
-                    "cyl": row.re_cyl,
-                    "axis": row.re_axis,
-                    "add": row.add_r,
-                },
-                "left": {
-                    "sph": row.le_sph,
-                    "cyl": row.le_cyl,
-                    "axis": row.le_axis,
-                    "add": row.add_l,
-                },
-            },
+            "prescription": active_prescription,
+            "achieved_prescription": final_compare_payloads["achieved"],
+            "pgp_rx": final_compare_payloads["current"],
+            "current_rx": final_compare_payloads["current"],
             "aux_lens": STATE_AUX_LENS_MAP.get(state, "BINO"),
             "fog_active": getattr(row, "fog_active", False),
             "same_streak": row.same_streak,
@@ -634,6 +810,8 @@ class SessionOrchestrator:
             "auto_flip": state in ("E", "F", "H", "I") and not is_terminal,
             "flip_wait_seconds": 1,
             "flip_state": "flip1",  # Always starts at flip1; frontend sends handle after delay
+            "auto_advance_seconds": 3 if state in ("S", "T") and not is_terminal else 0,
+            "auto_advance_response": "AUTO_ADVANCE" if state in ("S", "T") and not is_terminal else "",
             "preface_prompt": row.preface_prompt if not is_terminal else "",
             "distance_va": {
                 "right": {
@@ -644,6 +822,15 @@ class SessionOrchestrator:
                     "chart": row.distance_va_le_chart,
                     "line": row.distance_va_le_line,
                 },
+            },
+            "final_compare": {
+                "enabled": bool(row.final_compare_enabled),
+                "round": int(row.final_compare_round or 0),
+                "option_source": row.final_compare_option_source,
+                "choice_round_1": row.final_compare_choice_round_1,
+                "choice_round_2": row.final_compare_choice_round_2,
+                "accepted_achieved_over_current_rx": row.patient_accepted_achieved_over_current_rx,
+                "selected_prescribed_rx_source": final_compare_payloads["selected_source"],
             },
             "exam_clock_start_iso": (
                 self.exam_clock_start.isoformat() if self.exam_clock_start else None
@@ -766,7 +953,7 @@ class SessionOrchestrator:
 
     @staticmethod
     def _entry_dispatch_includes_power(state: str) -> bool:
-        return state in {"B", "D", "K", "P"}
+        return state in {"B", "D", "K", "P", "S", "T"}
 
     @staticmethod
     def _needs_pre_entry_power_sync(prev_state: str, next_state: str, row: Optional[FSMRuntimeRow]) -> bool:
@@ -795,6 +982,7 @@ class SessionOrchestrator:
 
     def _remaining_phase_sequence(self, start_state: str, *, skip_bino_balance: bool) -> List[str]:
         near_required = bool(getattr(self.derived_variables, "dv_near_test_required", False))
+        final_compare_enabled = self._has_final_compare_current_rx()
         sequence: List[str] = []
         state = start_state
         guard = 0
@@ -818,16 +1006,28 @@ class SessionOrchestrator:
                 state = "L"
             elif state == "L":
                 if skip_bino_balance:
-                    state = "P" if near_required else "END"
+                    if near_required:
+                        state = "P"
+                    else:
+                        state = "S" if final_compare_enabled else "END"
                 else:
                     state = "K"
             elif state == "K":
-                state = "P" if near_required else "END"
+                if near_required:
+                    state = "P"
+                else:
+                    state = "S" if final_compare_enabled else "END"
             elif state == "P":
                 state = "Q"
             elif state == "Q":
                 state = "R"
             elif state == "R":
+                state = "S" if final_compare_enabled else "END"
+            elif state == "S":
+                state = "T"
+            elif state == "T":
+                state = "U"
+            elif state == "U":
                 state = "END"
             else:
                 state = "END"
@@ -850,6 +1050,9 @@ class SessionOrchestrator:
             "P": 0.8,
             "Q": 0.8,
             "R": 0.6,
+            "S": 0.4,
+            "T": 0.4,
+            "U": 0.4,
         }
         remaining = self._remaining_phase_sequence(
             start_state,
@@ -997,6 +1200,16 @@ class SessionOrchestrator:
             else:
                 results["power"] = self._send_add_bino_delta()
 
+        # ── Final Rx Comparison (S, T) ──
+        elif state in ("S", "T"):
+            if is_phase_entry:
+                results["power"] = self._send_power_with_prev(include_add=False)
+                results["chart"] = self._send_chart_for_state(state)
+
+        # ── Final Rx Comparison Decision (U) ──
+        elif state == "U":
+            pass
+
         # Capture screenshot after commands and attach to last curl log entry
         if results and self.auto_screenshot:
             screenshot = self._capture_screenshot()
@@ -1112,7 +1325,7 @@ class SessionOrchestrator:
         info = CHART_PARAM_TO_ITEMS.get(chart_param, {"tab": "Chart1", "chart_items": ["chart_15"]})
         selection = {"tab": info["tab"], "chart_items": list(info["chart_items"])}
 
-        if state in {"B", "C", "D", "L"}:
+        if state in {"B", "C", "D", "L", "S", "T"}:
             last_line_item = chart_to_last_line_item(chart_param)
             if last_line_item:
                 selection["chart_items"] = [selection["chart_items"][0], last_line_item]

@@ -2,6 +2,7 @@ import sys
 import unittest
 import csv
 import tempfile
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -21,7 +22,7 @@ from fsm.engines.refraction_fsm_engine import RefractionFSMEngine
 from fsm.models.fsm_runtime import FSMRuntimeRow
 from fsm.models.patient import PatientInput
 from fsm.models.prescription import EyePrescription
-from ete_io.outputs import write_voice_utterances_csv
+from ete_io.outputs import build_session_metadata, write_voice_utterances_csv
 from session_orchestrator import SessionOrchestrator
 from api_server import app, sessions
 
@@ -77,6 +78,41 @@ class AxisLanePolicyTests(unittest.TestCase):
             current = next_row
             guard += 1
         return current
+
+    def _final_compare_seed_row(self, dv) -> FSMRuntimeRow:
+        engine = RefractionFSMEngine(self.calibration)
+        return engine._row_for_state(
+            step=30,
+            visit_id="final-compare",
+            state="K",
+            dv=dv,
+            re_sph=-1.00,
+            re_cyl=-0.50,
+            re_axis=45,
+            le_sph=-1.25,
+            le_cyl=-0.75,
+            le_axis=80,
+            add_r=0.75,
+            add_l=0.75,
+            chart_param="20_20_20",
+            phase_step_count=1,
+            same_streak=0,
+            prev_axis_response="",
+            duo_iter=0,
+            duo_flip=0,
+            axis_step=5.0,
+            final_compare_enabled=True,
+            final_compare_round=0,
+            final_compare_option_source="Achieved",
+            final_compare_current_re_sph=-2.00,
+            final_compare_current_re_cyl=-0.50,
+            final_compare_current_re_axis=50,
+            final_compare_current_le_sph=-1.50,
+            final_compare_current_le_cyl=-0.25,
+            final_compare_current_le_axis=180,
+            final_compare_current_add_r=0.5,
+            final_compare_current_add_l=0.5,
+        )
 
     def test_lane_1_selected_when_lenso_axis_available_with_meaningful_cylinder(self):
         dv = self._derive(
@@ -777,6 +813,290 @@ class AxisLanePolicyTests(unittest.TestCase):
         self.assertEqual(confirmed.next_state, "D")
         self.assertEqual(confirmed.distance_va_re_chart, "40_30_25")
         self.assertEqual(confirmed.distance_va_re_line, "20/25")
+
+    def test_final_compare_starts_after_binocular_completion_when_lenso_is_available(self):
+        dv = self._derive(
+            self._patient(
+                visit_id="final-compare-start",
+                ar_re=self._rx(-1.50, -0.75, 45),
+                lenso_re=self._rx(-2.00, -0.50, 50),
+                ar_le=self._rx(-1.25, -0.75, 80),
+                lenso_le=self._rx(-1.50, -0.25, 180),
+                satisfaction="Satisfied",
+                primary_reason="Routine check",
+            )
+        )
+        engine = RefractionFSMEngine(self.calibration)
+        current = self._final_compare_seed_row(dv)
+
+        finalized = engine.apply_response(current, "SAME", dv)
+        self.assertEqual(finalized.next_state, "S")
+        next_row = engine._build_next_row(finalized, dv)
+        self.assertIsNotNone(next_row)
+        self.assertEqual(next_row.state, "S")
+        self.assertEqual(next_row.final_compare_round, 1)
+        self.assertEqual(next_row.re_sph, -1.00)
+        self.assertEqual(next_row.re_axis, 45)
+        self.assertEqual(next_row.final_compare_achieved_re_sph, -1.00)
+        self.assertEqual(next_row.final_compare_achieved_le_axis, 80)
+        self.assertEqual(next_row.chart_param, "20_20_20")
+
+    def test_final_compare_two_confirmations_accept_achieved_rx(self):
+        dv = self._derive(
+            self._patient(
+                visit_id="final-compare-accept",
+                ar_re=self._rx(-1.50, -0.75, 45),
+                lenso_re=self._rx(-2.00, -0.50, 50),
+                ar_le=self._rx(-1.25, -0.75, 80),
+                lenso_le=self._rx(-1.50, -0.25, 180),
+                satisfaction="Satisfied",
+                primary_reason="Routine check",
+            )
+        )
+        engine = RefractionFSMEngine(self.calibration)
+
+        current = self._final_compare_seed_row(dv)
+        finalized = engine.apply_response(current, "SAME", dv)
+        current = engine._build_next_row(finalized, dv)
+        self.assertEqual(current.state, "S")
+
+        finalized = engine.apply_response(current, "AUTO_ADVANCE", dv)
+        current = engine._build_next_row(finalized, dv)
+        self.assertEqual(current.state, "T")
+        self.assertEqual(current.re_sph, -2.00)
+
+        finalized = engine.apply_response(current, "AUTO_ADVANCE", dv)
+        current = engine._build_next_row(finalized, dv)
+        self.assertEqual(current.state, "U")
+
+        finalized = engine.apply_response(current, "ONE", dv)
+        self.assertEqual(finalized.next_state, "S")
+        self.assertEqual(finalized.final_compare_choice_round_1, "ONE")
+        current = engine._build_next_row(finalized, dv)
+        self.assertEqual(current.final_compare_round, 2)
+        self.assertEqual(current.state, "S")
+        self.assertEqual(current.re_sph, -1.00)
+
+        finalized = engine.apply_response(current, "AUTO_ADVANCE", dv)
+        current = engine._build_next_row(finalized, dv)
+        finalized = engine.apply_response(current, "AUTO_ADVANCE", dv)
+        current = engine._build_next_row(finalized, dv)
+
+        finalized = engine.apply_response(current, "ONE", dv)
+        self.assertEqual(finalized.next_state, "END")
+        self.assertEqual(finalized.final_compare_choice_round_2, "ONE")
+        self.assertEqual(finalized.patient_accepted_achieved_over_current_rx, "Yes")
+
+    def test_final_compare_repeat_restarts_same_round_from_option_one(self):
+        dv = self._derive(
+            self._patient(
+                visit_id="final-compare-repeat",
+                ar_re=self._rx(-1.50, -0.75, 45),
+                lenso_re=self._rx(-2.00, -0.50, 50),
+                ar_le=self._rx(-1.25, -0.75, 80),
+                lenso_le=self._rx(-1.50, -0.25, 180),
+            )
+        )
+        engine = RefractionFSMEngine(self.calibration)
+
+        current = self._final_compare_seed_row(dv)
+        finalized = engine.apply_response(current, "SAME", dv)
+        current = engine._build_next_row(finalized, dv)
+        finalized = engine.apply_response(current, "AUTO_ADVANCE", dv)
+        current = engine._build_next_row(finalized, dv)
+        finalized = engine.apply_response(current, "AUTO_ADVANCE", dv)
+        current = engine._build_next_row(finalized, dv)
+
+        self.assertEqual(current.state, "U")
+        self.assertEqual(current.final_compare_round, 1)
+
+        finalized = engine.apply_response(current, "REPEAT", dv)
+        self.assertEqual(finalized.next_state, "S")
+        next_row = engine._build_next_row(finalized, dv)
+        self.assertIsNotNone(next_row)
+        self.assertEqual(next_row.state, "S")
+        self.assertEqual(next_row.final_compare_round, 1)
+        self.assertEqual(next_row.re_sph, -1.00)
+        self.assertEqual(next_row.final_compare_choice_round_1, "")
+
+    def test_orchestrator_final_compare_repeat_restarts_step_instead_of_reasking_u(self):
+        dv = self._derive(
+            self._patient(
+                visit_id="final-compare-orch-repeat",
+                ar_re=self._rx(-1.50, -0.75, 45),
+                lenso_re=self._rx(-2.00, -0.50, 50),
+                ar_le=self._rx(-1.25, -0.75, 80),
+                lenso_le=self._rx(-1.50, -0.25, 180),
+            )
+        )
+        engine = RefractionFSMEngine(self.calibration)
+        orchestrator = SessionOrchestrator(calibration_path=str(CALIBRATION_PATH))
+        orchestrator.phoropter_auto_dispatch = False
+        orchestrator.derived_variables = dv
+
+        current = self._final_compare_seed_row(dv)
+        current = engine._build_next_row(engine.apply_response(current, "SAME", dv), dv)
+        current = engine._build_next_row(engine.apply_response(current, "AUTO_ADVANCE", dv), dv)
+        current = engine._build_next_row(engine.apply_response(current, "AUTO_ADVANCE", dv), dv)
+        orchestrator.current_row = current
+
+        response = orchestrator.process_response("REPEAT", input_method="Button")
+        self.assertEqual(response["state"], "S")
+        self.assertEqual(response["final_compare"]["round"], 1)
+        self.assertEqual(response["prescription"]["right"]["sph"], -1.00)
+
+    def test_final_compare_chart_dispatch_uses_20_20_last_line(self):
+        dv = self._derive(
+            self._patient(
+                visit_id="final-compare-chart",
+                ar_re=self._rx(-1.50, -0.75, 45),
+                lenso_re=self._rx(-2.00, -0.50, 50),
+                ar_le=self._rx(-1.25, -0.75, 80),
+                lenso_le=self._rx(-1.50, -0.25, 180),
+            )
+        )
+        orchestrator = SessionOrchestrator(calibration_path=str(CALIBRATION_PATH))
+        orchestrator.phoropter_auto_dispatch = False
+        orchestrator.derived_variables = dv
+        orchestrator.current_row = RefractionFSMEngine(self.calibration)._row_for_state(
+            step=30,
+            visit_id="final-compare-chart",
+            state="S",
+            dv=dv,
+            re_sph=-2.00,
+            re_cyl=-0.50,
+            re_axis=50,
+            le_sph=-1.50,
+            le_cyl=-0.25,
+            le_axis=180,
+            add_r=0.5,
+            add_l=0.5,
+            chart_param="20_20_20",
+            phase_step_count=1,
+            same_streak=0,
+            prev_axis_response="",
+            duo_iter=0,
+            duo_flip=0,
+            axis_step=5.0,
+            final_compare_enabled=True,
+            final_compare_round=1,
+        )
+
+        selection = orchestrator._chart_selection_for_state("S")
+        self.assertEqual(selection["chart_items"], ["chart_15", "20_3"])
+
+    def test_final_compare_metadata_includes_acceptance_flag(self):
+        end_time = build_session_metadata(
+            session_id="final-compare-meta",
+            phoropter_id="stub",
+            session_start_time=datetime(2026, 3, 27, 12, 0, 0),
+            session_end_time=datetime(2026, 3, 27, 12, 10, 0),
+            completion_status="completed",
+            rows=[
+                {
+                    "re_sph": -1.00,
+                    "re_cyl": -0.50,
+                    "re_axis": 45,
+                    "add_r": 0.75,
+                    "le_sph": -1.25,
+                    "le_cyl": -0.75,
+                    "le_axis": 80,
+                    "add_l": 0.75,
+                    "distance_va_re_chart": "20_20_20",
+                    "distance_va_re_line": "20/20",
+                    "distance_va_le_chart": "20_20_20",
+                    "distance_va_le_line": "20/20",
+                    "final_compare_enabled": True,
+                    "final_compare_choice_round_1": "ONE",
+                    "final_compare_choice_round_2": "ONE",
+                    "patient_accepted_achieved_over_current_rx": "Yes",
+                    "final_compare_achieved_re_sph": -1.00,
+                    "final_compare_achieved_re_cyl": -0.50,
+                    "final_compare_achieved_re_axis": 45,
+                    "final_compare_achieved_add_r": 0.75,
+                    "final_compare_achieved_le_sph": -1.25,
+                    "final_compare_achieved_le_cyl": -0.75,
+                    "final_compare_achieved_le_axis": 80,
+                    "final_compare_achieved_add_l": 0.75,
+                    "final_compare_current_re_sph": -2.00,
+                    "final_compare_current_re_cyl": -0.50,
+                    "final_compare_current_re_axis": 50,
+                    "final_compare_current_add_r": 0.50,
+                    "final_compare_current_le_sph": -1.50,
+                    "final_compare_current_le_cyl": -0.25,
+                    "final_compare_current_le_axis": 180,
+                    "final_compare_current_add_l": 0.50,
+                }
+            ],
+            lensometry={
+                "right": {"sph": -2.00, "cyl": -0.50, "axis": 50},
+                "left": {"sph": -1.50, "cyl": -0.25, "axis": 180},
+            },
+        )
+
+        comparison = end_time["final_rx_comparison"]
+        self.assertTrue(comparison["ran"])
+        self.assertEqual(comparison["current_source"], "PGP")
+        self.assertEqual(comparison["round_1_choice"], "ONE")
+        self.assertEqual(comparison["accepted_achieved_over_current_rx"], "Yes")
+        self.assertEqual(comparison["selected_prescribed_rx_source"], "Achieved")
+        self.assertEqual(end_time["final_prescription"]["right"]["sph"], -1.00)
+        self.assertEqual(end_time["pgp_rx"]["right"]["sph"], -2.00)
+        self.assertEqual(end_time["current_rx"]["right"]["sph"], -2.00)
+
+    def test_final_compare_metadata_selects_current_rx_when_achieved_not_accepted(self):
+        metadata = build_session_metadata(
+            session_id="final-compare-meta-current",
+            phoropter_id="stub",
+            session_start_time=datetime(2026, 3, 27, 12, 0, 0),
+            session_end_time=datetime(2026, 3, 27, 12, 10, 0),
+            completion_status="completed",
+            rows=[
+                {
+                    "re_sph": -2.00,
+                    "re_cyl": -0.50,
+                    "re_axis": 50,
+                    "add_r": 0.50,
+                    "le_sph": -1.50,
+                    "le_cyl": -0.25,
+                    "le_axis": 180,
+                    "add_l": 0.50,
+                    "distance_va_re_chart": "20_20_20",
+                    "distance_va_re_line": "20/20",
+                    "distance_va_le_chart": "20_20_20",
+                    "distance_va_le_line": "20/20",
+                    "final_compare_enabled": True,
+                    "final_compare_choice_round_1": "TWO",
+                    "final_compare_choice_round_2": "TWO",
+                    "patient_accepted_achieved_over_current_rx": "No",
+                    "final_compare_achieved_re_sph": -1.00,
+                    "final_compare_achieved_re_cyl": -0.50,
+                    "final_compare_achieved_re_axis": 45,
+                    "final_compare_achieved_add_r": 0.75,
+                    "final_compare_achieved_le_sph": -1.25,
+                    "final_compare_achieved_le_cyl": -0.75,
+                    "final_compare_achieved_le_axis": 80,
+                    "final_compare_achieved_add_l": 0.75,
+                    "final_compare_current_re_sph": -2.00,
+                    "final_compare_current_re_cyl": -0.50,
+                    "final_compare_current_re_axis": 50,
+                    "final_compare_current_add_r": 0.50,
+                    "final_compare_current_le_sph": -1.50,
+                    "final_compare_current_le_cyl": -0.25,
+                    "final_compare_current_le_axis": 180,
+                    "final_compare_current_add_l": 0.50,
+                }
+            ],
+            lensometry={
+                "right": {"sph": -2.00, "cyl": -0.50, "axis": 50},
+                "left": {"sph": -1.50, "cyl": -0.25, "axis": 180},
+            },
+        )
+
+        self.assertEqual(metadata["final_rx_comparison"]["current_source"], "PGP")
+        self.assertEqual(metadata["final_rx_comparison"]["selected_prescribed_rx_source"], "PGP")
+        self.assertEqual(metadata["final_prescription"]["right"]["sph"], -2.00)
+        self.assertEqual(metadata["achieved_prescription"]["right"]["sph"], -1.00)
 
     def test_transition_preface_is_added_after_coarse_completion(self):
         orchestrator = SessionOrchestrator(calibration_path=str(CALIBRATION_PATH))

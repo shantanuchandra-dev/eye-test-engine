@@ -10,6 +10,7 @@
 - **Distance VA Confirmation** (RE then LE) — After duochrome convergence, starts from `20_20_20`, steps to larger charts if needed, and records the last confirmed line read for each eye
 - **Binocular Balance** — Equalize both eyes with OU comparison
 - **Near Vision Workflow** — Monocular ADD (RE/LE) then binocular near refinement
+- **Final Rx Comparison** — When lensometry is available, shows achieved Rx as option 1 and PGP (previous glasses power) as option 2, gives the patient timed observe-only views of the `20_20_20` last line twice, and records whether the patient accepted the achieved Rx over the PGP
 - **Escalation** — Safety exit to optometrist review on anomaly detection
 
 ### Accommodation-Driven Fogging (v3.1)
@@ -125,6 +126,7 @@
 - Session info: ID, phoropter, operator, customer, start/end times, duration
 - AR and lensometry input values
 - Final prescription (RE/LE with ADD) plus final confirmed distance VA for each eye
+- Final achieved-vs-current acceptance result with both comparison-round choices
 - Phase completion and skip lists
 - Quality metrics: manual adjustments, QnA count, phase jumps, unable-to-read count, duration per phase
 - Full patient input (32 fields from intake form)
@@ -133,7 +135,7 @@
 
 ### Combined Logs
 - `combined_log.csv` — All sessions appended (step-level)
-- `combined_metadata.csv` — All sessions flattened, including patient input, derived variables, and final distance VA fields
+- `combined_metadata.csv` — All sessions flattened, including patient input, derived variables, final distance VA fields, and final achieved-vs-current acceptance fields
 
 ---
 
@@ -160,7 +162,7 @@
 - Medical history flags (diabetes, keratoconus, amblyopia, prior surgery)
 - AR and lensometry values (with stepper inputs)
 - Screen time, driving hours, comfort priority, near priority
-- Satisfaction with current Rx
+- Satisfaction with PGP
 - Axis-lane validation presets for live testing
 - iPad responsive (2-column grid, touch-friendly targets)
 

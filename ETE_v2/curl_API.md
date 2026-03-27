@@ -466,6 +466,9 @@ curl -X POST https://rajasthan-royals.preprod.lenskart.com/phoropter/{Phoropter-
 curl -X POST https://rajasthan-royals.preprod.lenskart.com/phoropter/{Phoropter-ID}/run-tests -H "Content-Type: application/json" -d '{ "test_cases": [{ "chart": { "tab": "Chart1", "chart_items": ["chart_15", "20_2"] } }] }'
 curl -X POST https://rajasthan-royals.preprod.lenskart.com/phoropter/{Phoropter-ID}/run-tests -H "Content-Type: application/json" -d '{ "test_cases": [{ "chart": { "tab": "Chart1", "chart_items": ["chart_15", "20_3"] } }] }'
 
+# Final Rx comparison uses the 20/20 last line explicitly
+curl -X POST https://rajasthan-royals.preprod.lenskart.com/phoropter/{Phoropter-ID}/run-tests -H "Content-Type: application/json" -d '{ "test_cases": [{ "chart": { "tab": "Chart1", "chart_items": ["chart_15", "20_3"] } }] }'
+
 # chart_16 (25, 20, 15)
 curl -X POST https://rajasthan-royals.preprod.lenskart.com/phoropter/{Phoropter-ID}/run-tests -H "Content-Type: application/json" -d '{ "test_cases": [{ "chart": { "tab": "Chart1", "chart_items": ["chart_16", "25"] } }] }'
 curl -X POST https://rajasthan-royals.preprod.lenskart.com/phoropter/{Phoropter-ID}/run-tests -H "Content-Type: application/json" -d '{ "test_cases": [{ "chart": { "tab": "Chart1", "chart_items": ["chart_16", "20"] } }] }'

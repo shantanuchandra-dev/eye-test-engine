@@ -402,7 +402,7 @@ function getDisplayedDistanceChartSizes(state, chartParam) {
   const parts = normalized.split('_').filter(Boolean);
   if (!parts.length) return null;
   const labels = parts.map(part => `20/${part}`);
-  if (['B', 'C', 'D', 'L'].includes(state)) {
+  if (['B', 'C', 'D', 'L', 'S', 'T'].includes(state)) {
     return [labels[labels.length - 1]];
   }
   return labels;
@@ -424,6 +424,9 @@ const STIMULUS_DESCRIPTIONS = {
   'P': 'Near text chart',
   'Q': 'Near text chart',
   'R': 'Near text with both eyes',
+  'S': 'Final prescription comparison option 1 achieved Rx',
+  'T': 'Final prescription comparison option 2 PGP',
+  'U': 'Final prescription comparison',
 };
 
 const STIMULUS_DESCRIPTIONS_HI = {
@@ -441,6 +444,9 @@ const STIMULUS_DESCRIPTIONS_HI = {
   'P': 'पास का टेक्स्ट चार्ट',
   'Q': 'पास का टेक्स्ट चार्ट',
   'R': 'दोनों आँखों से पास का टेक्स्ट',
+  'S': 'अंतिम प्रिस्क्रिप्शन तुलना विकल्प 1 प्राप्त Rx',
+  'T': 'अंतिम प्रिस्क्रिप्शन तुलना विकल्प 2 PGP',
+  'U': 'अंतिम प्रिस्क्रिप्शन तुलना',
 };
 
 function localizeStimulusDescription(state, description, lang) {
@@ -472,6 +478,7 @@ let voiceAttemptCount = 0; // Per-question attempt counter
 const VOICE_REPROMPT_LIMIT = 2; // After this many failed attempts, show keyboard fallback msg
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let failedVoiceAttempts = []; // Structured log of failed voice attempts
+let _observeAdvanceTimer = null;
 
 // ── Faster-whisper backend state ──
 let whisperAvailable = false; // Set true if backend has faster-whisper loaded
@@ -529,6 +536,9 @@ const ALL_PHASES = [
   { state: 'P', name: 'Near Add RE', eye: 'RE' },
   { state: 'Q', name: 'Near Add LE', eye: 'LE' },
   { state: 'R', name: 'Near Binocular', eye: 'BIN' },
+  { state: 'S', name: 'Final Compare Option 1 Achieved Rx', eye: 'BIN' },
+  { state: 'T', name: 'Final Compare Option 2 PGP', eye: 'BIN' },
+  { state: 'U', name: 'Final Compare Decision', eye: 'BIN' },
 ];
 
 // ── Option styling map ──
@@ -784,6 +794,11 @@ async function handleSessionUpdate(data) {
     return;
   }
 
+  if (_observeAdvanceTimer) {
+    clearTimeout(_observeAdvanceTimer);
+    _observeAdvanceTimer = null;
+  }
+
   currentState = data;
   syncExamClockFromSessionData(data);
 
@@ -935,7 +950,29 @@ async function showQuestion(data) {
   //    For all other states: TTS → beep → listen immediately
   const canListen = voiceEnabled && (voiceMode === 'whisper' || SpeechRecognition);
   const isAutoFlip = data.auto_flip;
+  const isObserveOnly = Number(data.auto_advance_seconds || 0) > 0;
   const spokenPrompt = buildSpokenQuestionText(data, localizedQuestion, prefacePrompt);
+  const startObserveAdvance = () => {
+    const delayMs = Math.max(0, Number(data.auto_advance_seconds || 0)) * 1000;
+    updateVoiceStatus(sessionLanguage === 'hi' ? 'ध्यान से देखिए...' : 'Observe carefully...');
+    _observeAdvanceTimer = setTimeout(() => {
+      _observeAdvanceTimer = null;
+      submitResponse(
+        data.auto_advance_response || 'AUTO_ADVANCE',
+        null,
+        { skipConversationLog: true, inputMethodOverride: 'System_Auto' },
+      );
+    }, delayMs);
+  };
+
+  if (isObserveOnly) {
+    if (ttsEnabled && !isAutoFlip) {
+      speakQuestion(spokenPrompt, null, startObserveAdvance, getQuestionTTSProfile(data));
+    } else {
+      startObserveAdvance();
+    }
+    return;
+  }
 
   if (ttsEnabled && !isAutoFlip) {
     speakQuestion(spokenPrompt, null, async () => {
@@ -1751,6 +1788,9 @@ function showTerminal(data) {
 
   if (data.state === 'END') {
     const rx = data.prescription || {};
+    const achievedRx = data.achieved_prescription || {};
+    const currentRx = data.pgp_rx || data.current_rx || {};
+    const finalCompare = data.final_compare || {};
     const va = data.distance_va || {};
     const r = rx.right || {};
     const l = rx.left || {};
@@ -1758,21 +1798,52 @@ function showTerminal(data) {
     const lVa = (va.left || {}).line || '—';
     const fmt = (v) => v != null ? (v >= 0 ? '+' : '') + parseFloat(v).toFixed(2) : '—';
     const fmtRx = (eye) => `${fmt(eye.sph)} / ${fmt(eye.cyl)} x ${fmtAxisDisplay(eye.axis ?? 180)}${eye.add ? ` ADD ${fmt(eye.add)}` : ''}`;
+    const acceptedAchieved = finalCompare.accepted_achieved_over_current_rx === 'Yes';
+    const compareRan = !!finalCompare.enabled;
+    const compareMessage = compareRan
+      ? acceptedAchieved
+        ? 'Patient accepted the achieved Rx over the PGP.'
+        : 'Patient accepted the PGP over the achieved Rx.'
+      : 'Here is your final prescription:';
+    const secondaryBlock = compareRan
+      ? acceptedAchieved
+        ? `<div style="margin-top:12px;font-size:0.84rem;color:var(--ink-secondary)">PGP kept for comparison</div>` +
+          `<div style="display:flex;gap:24px;justify-content:center;margin-top:8px;">` +
+            `<div style="text-align:center"><div style="font-size:0.72rem;color:var(--re-color);font-weight:700;margin-bottom:4px;">PGP RE</div><div style="font:500 0.98rem var(--font-mono)">${fmtRx((currentRx || {}).right || {})}</div></div>` +
+            `<div style="text-align:center"><div style="font-size:0.72rem;color:var(--le-color);font-weight:700;margin-bottom:4px;">PGP LE</div><div style="font:500 0.98rem var(--font-mono)">${fmtRx((currentRx || {}).left || {})}</div></div>` +
+          `</div>`
+        : `<div style="margin-top:12px;font-size:0.84rem;color:var(--ink-secondary)">Achieved Rx during the eye test</div>` +
+          `<div style="display:flex;gap:24px;justify-content:center;margin-top:8px;">` +
+            `<div style="text-align:center"><div style="font-size:0.72rem;color:var(--re-color);font-weight:700;margin-bottom:4px;">ACHIEVED RE</div><div style="font:500 0.98rem var(--font-mono)">${fmtRx((achievedRx || {}).right || {})}</div></div>` +
+            `<div style="text-align:center"><div style="font-size:0.72rem;color:var(--le-color);font-weight:700;margin-bottom:4px;">ACHIEVED LE</div><div style="font:500 0.98rem var(--font-mono)">${fmtRx((achievedRx || {}).left || {})}</div></div>` +
+          `</div>`
+      : '';
 
     document.getElementById('terminalIcon').textContent = '✅';
     document.getElementById('terminalTitle').textContent = 'Congratulations! Your eye test is complete.';
     document.getElementById('terminalSubtitle').innerHTML =
-      `<div style="margin-bottom:12px">Here is your final prescription:</div>` +
+      `<div style="margin-bottom:12px">${compareMessage}</div>` +
       `<div style="display:flex;gap:24px;justify-content:center;margin-bottom:16px;">` +
         `<div style="text-align:center"><div style="font-size:0.75rem;color:var(--re-color);font-weight:700;margin-bottom:4px;">RIGHT EYE (RE)</div><div style="font:600 1.1rem var(--font-mono)">${fmtRx(r)}</div><div style="margin-top:6px;font-size:0.84rem;color:var(--ink-secondary)">Distance VA: ${rVa}</div></div>` +
         `<div style="text-align:center"><div style="font-size:0.75rem;color:var(--le-color);font-weight:700;margin-bottom:4px;">LEFT EYE (LE)</div><div style="font:600 1.1rem var(--font-mono)">${fmtRx(l)}</div><div style="margin-top:6px;font-size:0.84rem;color:var(--ink-secondary)">Distance VA: ${lVa}</div></div>` +
       `</div>` +
+      secondaryBlock +
+      `<div style="height:12px"></div>` +
       `<div style="font-size:0.85rem;color:var(--ink-secondary)">Please review and sign off below.</div>`;
 
     // Speak congratulations (no power details)
-    speakQuestion(sessionLanguage === 'hi'
-      ? 'बधाई हो! आपका आई टेस्ट पूरा हो गया है। धन्यवाद।'
-      : 'Congratulations. Your eye test is complete. Thank you.', null, null, 'terminal');
+    const terminalSpeech = compareRan
+      ? acceptedAchieved
+        ? (sessionLanguage === 'hi'
+            ? 'बधाई हो। आपका आई टेस्ट पूरा हो गया है। आपने पी जी पी की तुलना में प्राप्त आर एक्स को पसंद किया। धन्यवाद।'
+            : 'Congratulations. Your eye test is complete. You preferred the achieved prescription over the PGP. Thank you.')
+        : (sessionLanguage === 'hi'
+            ? 'बधाई हो। आपका आई टेस्ट पूरा हो गया है। आपने पी जी पी को पसंद किया। धन्यवाद।'
+            : 'Congratulations. Your eye test is complete. You preferred the PGP. Thank you.')
+      : (sessionLanguage === 'hi'
+          ? 'बधाई हो! आपका आई टेस्ट पूरा हो गया है। धन्यवाद।'
+          : 'Congratulations. Your eye test is complete. Thank you.');
+    speakQuestion(terminalSpeech, null, null, 'terminal');
   } else {
     document.getElementById('terminalIcon').textContent = '⚠️';
     document.getElementById('terminalTitle').textContent = 'Escalation Required';
@@ -1857,7 +1928,7 @@ function prescriptionsEqual(a, b) {
 }
 
 // ── Submit response ──
-async function submitResponse(responseValue, voiceMeta) {
+async function submitResponse(responseValue, voiceMeta, overrides = {}) {
   if (!sessionId) return;
   const prevStateId = currentState ? currentState.state : '';
   const prevPrescription = currentState ? currentState.prescription : null;
@@ -1874,7 +1945,7 @@ async function submitResponse(responseValue, voiceMeta) {
   }
 
   // Log the response to conversation (skip if voice already logged it via addVoiceToConversation)
-  if (!voiceMeta) {
+  if (!voiceMeta && !overrides.skipConversationLog) {
     addToConversation('patient', responseValue, responseValue,
       currentState ? `${currentState.state}:${currentState.step}` : '');
   }
@@ -1886,7 +1957,7 @@ async function submitResponse(responseValue, voiceMeta) {
       body: JSON.stringify({
         response: responseValue,
         voice_meta: voiceMeta || null,
-        input_method: voiceMeta ? (voiceMeta.input_mode === 'voice_browser_speech_recognition' ? 'Voice_Browser' : 'Voice_Whisper') : _lastInputMethod,
+        input_method: overrides.inputMethodOverride || (voiceMeta ? (voiceMeta.input_mode === 'voice_browser_speech_recognition' ? 'Voice_Browser' : 'Voice_Whisper') : _lastInputMethod),
         language: sessionLanguage,
       }),
     });
@@ -2136,6 +2207,10 @@ window.addEventListener('pagehide', () => {
 
 async function cleanup() {
   if (heartbeatInterval) clearInterval(heartbeatInterval);
+  if (_observeAdvanceTimer) {
+    clearTimeout(_observeAdvanceTimer);
+    _observeAdvanceTimer = null;
+  }
   resetExamTimer();
   await releaseDevice();
   sessionStorage.removeItem('session_id');
