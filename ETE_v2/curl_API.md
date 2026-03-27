@@ -281,6 +281,24 @@ curl -X POST https://rajasthan-royals.preprod.lenskart.com/phoropter/{Phoropter-
   -d '{ "test_cases": [{ "jcc": "BINO" }] }'
 ```
 
+### Memory & Compare Buttons
+| Action | Description |
+| :--- | :--- |
+| **Memory (Set)** | Click the 'M' button to store/recall values |
+| **Compare** | Click the comparison toggle button |
+
+```bash
+# Click Memory (M) button
+curl -X POST https://rajasthan-royals.preprod.lenskart.com/phoropter/{Phoropter-ID}/run-tests \
+  -H "Content-Type: application/json" \
+  -d '{ "test_cases": [{ "memory": "M" }] }'
+
+# Click Compare button
+curl -X POST https://rajasthan-royals.preprod.lenskart.com/phoropter/{Phoropter-ID}/run-tests \
+  -H "Content-Type: application/json" \
+  -d '{ "test_cases": [{ "memory": "Compare" }] }'
+```
+
 ---
 
 ## 3. PD Control
@@ -310,11 +328,6 @@ curl -X POST https://rajasthan-royals.preprod.lenskart.com/phoropter/{Phoropter-
 
 ## 4. Chart Controls
 Individual commands for specific chart items on **Chart1** and **Chart2**.
-
-Workflow notes:
-- The current coarse sphere workflow enters on `snellen_chart_70_60_50` (`chart_12`).
-- During coarse sphere (`B`/`D`), the engine dispatches only the chart's last-line sub-item (for example `["chart_12", "50"]`) instead of the full multi-line Snellen block.
-- The current post-duochrome distance VA confirmation workflow enters on `snellen_chart_20_20_20` (`chart_15`) and can step to larger charts if the last line is not readable.
 
 ### Chart 1: Visual Acuity & Tests
 | Action | Item ID | Description |
