@@ -8,9 +8,199 @@
 const API = window.BACKEND_URL || '';
 const LOGS_PASSWORD = 'Shantanu';
 
-// ── TTS (Browser SpeechSynthesis) ──
+/** Same string for on-screen copy and ElevenLabs hash (must match fsm_tts_phrases APP_UI). */
+const LANG_SELECT_SPOKEN_TEXT =
+  'Please select your preferred language / कृपया अपनी भाषा चुनें';
+
+// ── TTS: pre-rendered ElevenLabs (GET /api/tts/<sha256>.mp3) + browser SpeechSynthesis fallback ──
 let ttsEnabled = true;
 let ttsSelectedVoiceName = null; // null = auto; string = pinned voice name
+let _ttsHtmlAudio = null;
+
+const TTS_RETRY_PREFIXES_EN = ['Let me repeat. ', 'I could not hear you. ', "I didn't catch that. "];
+const TTS_RETRY_PREFIXES_HI = ['फिर से सुनिए। ', 'सुनाई नहीं दिया। ', 'समझ नहीं आया। '];
+
+function stopHtmlTtsAudio() {
+  if (_ttsHtmlAudio) {
+    try {
+      _ttsHtmlAudio.pause();
+    } catch (e) { /* ignore */ }
+    _ttsHtmlAudio = null;
+  }
+}
+
+/** True while browser or ElevenLabs HTMLAudio TTS is active (do not start mic / shortcuts). */
+function isTtsActive() {
+  return (
+    ('speechSynthesis' in window && speechSynthesis.speaking)
+    || !!_ttsHtmlAudio
+  );
+}
+
+/** Invalidates in-flight speakQuestion callbacks when the exam hits a terminal state. */
+let _ttsAbortGeneration = 0;
+const _ttsGestureAbortCallbacks = [];
+
+function registerTtsGestureAbort(cleanup) {
+  _ttsGestureAbortCallbacks.push(cleanup);
+}
+
+/** Stop all exam TTS, pending gesture retries, and JCC auto-flip timers (call when test ends or session resets). */
+function stopExamTtsAndTimers() {
+  _ttsAbortGeneration += 1;
+  const pending = _ttsGestureAbortCallbacks.splice(0);
+  for (const cb of pending) {
+    try { cb(); } catch (e) { /* ignore */ }
+  }
+  stopHtmlTtsAudio();
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+  if (_autoFlipTimer) {
+    clearTimeout(_autoFlipTimer);
+    _autoFlipTimer = null;
+  }
+  _flipState = null;
+  updateFlipIndicator(null);
+}
+
+async function sha256Hex(str) {
+  if (!crypto || !crypto.subtle) return null;
+  const buf = new TextEncoder().encode(str);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', buf);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function splitRetryPrefix(text) {
+  const all = [...TTS_RETRY_PREFIXES_EN, ...TTS_RETRY_PREFIXES_HI];
+  for (const p of all) {
+    if (text.startsWith(p)) return [p, text.slice(p.length)];
+  }
+  return null;
+}
+
+function playBlobAudio(blob, onEnd) {
+  return new Promise((resolve, reject) => {
+    stopHtmlTtsAudio();
+    speechSynthesis.cancel();
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    _ttsHtmlAudio = audio;
+    let urlRevoked = false;
+    const revoke = () => {
+      if (urlRevoked) return;
+      urlRevoked = true;
+      URL.revokeObjectURL(url);
+    };
+    audio.onended = () => {
+      revoke();
+      if (_ttsHtmlAudio === audio) _ttsHtmlAudio = null;
+      if (onEnd) onEnd();
+      resolve();
+    };
+    audio.onerror = (e) => {
+      revoke();
+      if (_ttsHtmlAudio === audio) _ttsHtmlAudio = null;
+      reject(e);
+    };
+
+    const tryPlay = () => {
+      audio.play().catch((err) => {
+        // Without a prior user gesture, HTMLAudio often rejects with NotAllowedError while
+        // speechSynthesis still works — which caused browser TTS first, then ElevenLabs on a later step.
+        if (err && err.name === 'NotAllowedError') {
+          let gestureCleaned = false;
+          let gestureTo = null;
+          function cleanupWait() {
+            if (gestureCleaned) return;
+            gestureCleaned = true;
+            if (gestureTo) clearTimeout(gestureTo);
+            document.removeEventListener('pointerdown', resume, true);
+            document.removeEventListener('keydown', resume, true);
+          }
+          function resume() {
+            cleanupWait();
+            audio.play().catch(reject);
+          }
+          registerTtsGestureAbort(cleanupWait);
+          document.addEventListener('pointerdown', resume, { once: true, capture: true });
+          document.addEventListener('keydown', resume, { once: true, capture: true });
+          // If the user never interacts, fall back to browser TTS after a delay (tryPlayCached → speakQuestionBrowserFallback).
+          gestureTo = setTimeout(() => {
+            cleanupWait();
+            revoke();
+            if (_ttsHtmlAudio === audio) _ttsHtmlAudio = null;
+            reject(err);
+          }, 8000);
+          return;
+        }
+        reject(err);
+      });
+    };
+    tryPlay();
+  });
+}
+
+async function tryPlayCachedElevenLabsTTS(text, onEnd) {
+  // API may be '' for same-origin relative URLs (/api/tts/...) — do not treat as disabled.
+  const hash = await sha256Hex(text);
+  if (!hash) return false;
+  const url = `${API}/api/tts/${hash}.mp3`;
+  let r;
+  try {
+    r = await fetch(url);
+  } catch (e) {
+    return false;
+  }
+  if (!r.ok) return false;
+  const blob = await r.blob();
+  try {
+    await playBlobAudio(blob, onEnd);
+    console.log('[TTS] ElevenLabs cache (exact)');
+    return true;
+  } catch (e) {
+    console.warn('[TTS] Cached clip failed:', e);
+    return false;
+  }
+}
+
+async function tryPlayCachedCompoundTTS(text, onEnd) {
+  const sp = splitRetryPrefix(text);
+  if (!sp) return false;
+  const [prefix, body] = sp;
+  if (!body.trim()) return false;
+  const hp = await sha256Hex(prefix);
+  const hb = await sha256Hex(body);
+  if (!hp || !hb) return false;
+  const u1 = `${API}/api/tts/${hp}.mp3`;
+  const u2 = `${API}/api/tts/${hb}.mp3`;
+  let r1;
+  let r2;
+  try {
+    r1 = await fetch(u1);
+    r2 = await fetch(u2);
+  } catch {
+    return false;
+  }
+  if (!r1.ok || !r2.ok) return false;
+  const b1 = await r1.blob();
+  const b2 = await r2.blob();
+  try {
+    await playBlobAudio(b1, null);
+    await playBlobAudio(b2, onEnd);
+    console.log('[TTS] ElevenLabs cache (retry prefix + question)');
+    return true;
+  } catch (e) {
+    console.warn('[TTS] Compound cache failed:', e);
+    return false;
+  }
+}
+
+async function tryPlayCachedTTS(text, onEnd) {
+  if (await tryPlayCachedElevenLabsTTS(text, onEnd)) return true;
+  if (await tryPlayCachedCompoundTTS(text, onEnd)) return true;
+  return false;
+}
 
 // Fixed voice list: only these voices are shown in the dropdown
 const ALLOWED_VOICES = [
@@ -113,13 +303,13 @@ function showComingSoonToast() {
   setTimeout(() => toast.remove(), 2200);
 }
 
-function speakQuestion(text, langOverride, onEnd) {
-  if (!ttsEnabled || !('speechSynthesis' in window)) {
-    console.log('[TTS] Disabled or unavailable');
+function speakQuestionBrowserFallback(text, langOverride, onEnd) {
+  if (!('speechSynthesis' in window)) {
     if (onEnd) onEnd();
     return;
   }
 
+  stopHtmlTtsAudio();
   // Chrome fix: cancel + resume to clear any stuck state
   speechSynthesis.cancel();
   speechSynthesis.resume();
@@ -132,7 +322,7 @@ function speakQuestion(text, langOverride, onEnd) {
 
     const lang = langOverride || sessionLanguage || 'en';
     const voices = speechSynthesis.getVoices();
-    console.log(`[TTS] Speaking (${lang}): "${text.substring(0, 50)}..." [${voices.length} voices available]`);
+    console.log(`[TTS] Browser fallback (${lang}): "${text.substring(0, 50)}..." [${voices.length} voices]`);
 
     if (lang === 'hi') {
       utterance.lang = 'hi-IN';
@@ -140,7 +330,6 @@ function speakQuestion(text, langOverride, onEnd) {
         || voices.find(v => v.lang.startsWith('hi'));
       if (hiVoice) { utterance.voice = hiVoice; console.log(`[TTS] Hindi voice: ${hiVoice.name}`); }
     } else {
-      // Use pinned voice from dropdown; set utterance.lang to match voice locale
       const pinned = ttsSelectedVoiceName
         ? voices.find(v => v.name === ttsSelectedVoiceName)
         : null;
@@ -149,7 +338,6 @@ function speakQuestion(text, langOverride, onEnd) {
         utterance.lang = pinned.lang;
         console.log(`[TTS] Using pinned voice: ${pinned.name} (${pinned.lang})`);
       } else {
-        // Fallback: first available en-US voice, else any English
         const fallback = voices.find(v => v.lang === 'en-US')
           || voices.find(v => v.lang.startsWith('en'));
         if (fallback) { utterance.voice = fallback; utterance.lang = fallback.lang; }
@@ -157,7 +345,6 @@ function speakQuestion(text, langOverride, onEnd) {
       }
     }
 
-    // Guard against double-fire (cancel() on a previous utterance can fire onend)
     let callbackFired = false;
     const fireOnEnd = () => {
       if (callbackFired) return;
@@ -167,21 +354,17 @@ function speakQuestion(text, langOverride, onEnd) {
       if (onEnd) onEnd();
     };
 
-    utterance.onstart = () => { console.log('[TTS] Started speaking'); clearTimeout(startupGuard); };
-    utterance.onend = () => { console.log('[TTS] Finished speaking'); fireOnEnd(); };
-    utterance.onerror = (e) => { console.error('[TTS] Error:', e.error); fireOnEnd(); };
+    utterance.onstart = () => { console.log('[TTS] Browser started'); clearTimeout(startupGuard); };
+    utterance.onend = () => { console.log('[TTS] Browser finished'); fireOnEnd(); };
+    utterance.onerror = (e) => { console.error('[TTS] Browser error:', e.error); fireOnEnd(); };
 
     speechSynthesis.speak(utterance);
 
-    // Chrome workaround: Chrome sometimes pauses speech after 15s.
-    // Use resume() only (no pause first) to avoid the audible stutter on Indian voices.
     const keepAlive = setInterval(() => {
       if (!speechSynthesis.speaking) { clearInterval(keepAlive); return; }
       speechSynthesis.resume();
     }, 10000);
 
-    // Safety fallback: if the browser silently blocks TTS (autoplay policy),
-    // neither onend nor onerror fires. Fire the callback after 800ms if speech never started.
     const startupGuard = setTimeout(() => {
       if (!speechSynthesis.speaking) {
         console.warn('[TTS] Speech did not start within 800ms — firing callback as fallback.');
@@ -190,13 +373,10 @@ function speakQuestion(text, langOverride, onEnd) {
     }, 800);
   };
 
-  // Voices may not be loaded yet — wait with timeout
   const voices = speechSynthesis.getVoices();
   if (voices.length > 0) {
-    // Small delay after cancel() — Chrome needs this
     setTimeout(doSpeak, 50);
   } else {
-    console.log('[TTS] Waiting for voices to load...');
     let attempts = 0;
     const waitForVoices = () => {
       attempts++;
@@ -211,6 +391,29 @@ function speakQuestion(text, langOverride, onEnd) {
     };
     setTimeout(waitForVoices, 50);
   }
+}
+
+function speakQuestion(text, langOverride, onEnd) {
+  if (!ttsEnabled) {
+    if (onEnd) onEnd();
+    return;
+  }
+
+  const gen = _ttsAbortGeneration;
+  const wrappedOnEnd = onEnd
+    ? () => {
+        if (gen !== _ttsAbortGeneration) return;
+        onEnd();
+      }
+    : undefined;
+
+  (async () => {
+    if (gen !== _ttsAbortGeneration) return;
+    const played = await tryPlayCachedTTS(text, wrappedOnEnd);
+    if (played) return;
+    if (gen !== _ttsAbortGeneration) return;
+    speakQuestionBrowserFallback(text, langOverride, wrappedOnEnd);
+  })();
 }
 
 // Preload voices and populate dropdown (needed on some browsers)
@@ -442,7 +645,7 @@ function showLanguageSelection(pendingData) {
   document.getElementById('questionStep').textContent = 'LANGUAGE SELECTION';
   document.getElementById('questionState').textContent = 'Setup';
   document.getElementById('questionState').className = 'question-state bin';
-  document.getElementById('questionText').textContent = 'Please select your preferred language / कृपया अपनी भाषा चुनें';
+  document.getElementById('questionText').textContent = LANG_SELECT_SPOKEN_TEXT;
 
   const stimEl = document.getElementById('stimulusDescription');
   if (stimEl) stimEl.textContent = '';
@@ -468,7 +671,7 @@ function showLanguageSelection(pendingData) {
   grid.appendChild(hiBtn);
 
   // Speak first, then beep + listen only after TTS finishes (prevents mic from picking up TTS)
-  speakQuestion('Please select your preferred language. English or Hindi?', 'en', () => {
+  speakQuestion(LANG_SELECT_SPOKEN_TEXT, null, () => {
     if (voiceEnabled && SpeechRecognition) {
       updateVoiceStatus('Say "English" or "Hindi"');
       playBeep().then(() => setTimeout(() => startVoiceCapture('LANG_SELECT', ['ENGLISH', 'HINDI'], 0), 200));
@@ -778,9 +981,9 @@ function startVoiceCapture(state, options, step) {
   if (!voiceEnabled) return;
   if (voiceSubmitting) return;
   // Don't start listening while TTS is speaking
-  if (speechSynthesis.speaking) {
+  if (isTtsActive()) {
     const waitForTTS = () => {
-      if (speechSynthesis.speaking) { setTimeout(waitForTTS, 100); return; }
+      if (isTtsActive()) { setTimeout(waitForTTS, 100); return; }
       startVoiceCapture(state, options, step);
     };
     setTimeout(waitForTTS, 100);
@@ -1488,6 +1691,8 @@ function updateVoiceStatus(status) {
 
 // ── Terminal display ──
 function showTerminal(data) {
+  // Cancel in-flight question TTS / JCC flip audio so nothing keeps talking after the test ends.
+  stopExamTtsAndTimers();
   stopExamTimer();
   updateExamTimerDisplay();
 
@@ -1660,7 +1865,7 @@ async function submitResponse(responseValue, voiceMeta) {
 
 // ── Keyboard shortcuts ──
 function handleKeyboard(e) {
-  if (!_inputEnabled || speechSynthesis.speaking) return;
+  if (!_inputEnabled || isTtsActive()) return;
   // Number keys 1-9 for options
   if (e.key >= '1' && e.key <= '9') {
     const idx = parseInt(e.key) - 1;
@@ -1726,7 +1931,7 @@ function startGamepadPoll() {
 }
 
 function handleGamepadOption(optionIdx) {
-  if (!_inputEnabled || _flipState === 'flip1' || speechSynthesis.speaking) return;
+  if (!_inputEnabled || _flipState === 'flip1' || isTtsActive()) return;
   const allBtns = document.querySelectorAll('#optionsGrid .option-btn');
   const nonRepeatBtns = [];
   for (const btn of allBtns) {
@@ -1743,7 +1948,7 @@ function handleGamepadOption(optionIdx) {
 }
 
 function handleGamepadRepeat() {
-  if (!_inputEnabled || _flipState === 'flip1' || speechSynthesis.speaking) return;
+  if (!_inputEnabled || _flipState === 'flip1' || isTtsActive()) return;
   const allBtns = document.querySelectorAll('#optionsGrid .option-btn');
   for (const btn of allBtns) {
     const text = btn.textContent.trim().toUpperCase();
@@ -1869,6 +2074,7 @@ window.addEventListener('pagehide', () => {
 });
 
 async function cleanup() {
+  stopExamTtsAndTimers();
   if (heartbeatInterval) clearInterval(heartbeatInterval);
   resetExamTimer();
   await releaseDevice();
@@ -2126,7 +2332,10 @@ function restoreCachedConversation() {
 function toggleTTS() {
   ttsEnabled = !ttsEnabled;
   document.getElementById('ttsBtn').textContent = `TTS: ${ttsEnabled ? 'ON' : 'OFF'}`;
-  if (!ttsEnabled) speechSynthesis.cancel();
+  if (!ttsEnabled) {
+    speechSynthesis.cancel();
+    stopHtmlTtsAudio();
+  }
 }
 
 // ── Phoropter auto-dispatch toggle ──
@@ -2405,10 +2614,12 @@ function handleAutoFlip(data) {
 
   // Wait for Flip 1 TTS to finish via onEnd callback, THEN wait the observation period
   speakQuestion(flip1Text, null, () => {
+    if (!currentState || currentState.is_terminal) return;
     _autoFlipTimer = setTimeout(doFlip2, waitSeconds * 1000);
   });
 
   async function doFlip2() {
+    if (!currentState || currentState.is_terminal) return;
     // Send handle command to flip to position 2
     if (sessionId) {
       try {

@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, abort, jsonify, request, send_from_directory
 from flask_cors import CORS
 
 from fsm.config.calibration_loader import CalibrationLoader
@@ -135,6 +135,24 @@ def serve_dashboard():
 @app.route("/cal")
 def serve_calibration():
     return send_from_directory("frontend", "calibration.html")
+
+
+# Pre-rendered ElevenLabs TTS clips (SHA-256 hex of UTF-8 phrase text). See elevenlabs_tts_cache.py generate.
+TTS_CACHE_DIR = Path(__file__).resolve().parent / "tts_cache"
+
+
+@app.route("/api/tts/<phrase_id>.mp3")
+def serve_tts_audio(phrase_id: str):
+    if (
+        len(phrase_id) != 64
+        or any(c not in "0123456789abcdefABCDEF" for c in phrase_id)
+    ):
+        abort(400)
+    safe = phrase_id.lower()
+    path = TTS_CACHE_DIR / f"{safe}.mp3"
+    if not path.is_file():
+        abort(404)
+    return send_from_directory(TTS_CACHE_DIR, f"{safe}.mp3", mimetype="audio/mpeg")
 
 
 @app.route("/<path:path>")
