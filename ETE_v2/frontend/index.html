@@ -161,8 +161,12 @@ body {
 }
 
 .options-grid {
-  display: flex; flex-wrap: wrap;
-  gap: 10px; justify-content: center;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+  gap: 10px;
+  justify-content: center;
+  max-width: 420px;
+  margin: 0 auto;
 }
 .option-btn {
   min-width: 130px;

@@ -719,8 +719,8 @@ class AxisLanePolicyTests(unittest.TestCase):
     def test_both_alone_maps_to_same_in_comparison_phases(self):
         for state, options in [
             ("E", ["ONE", "TWO", "SAME", "REPEAT"]),
-            ("G", ["RED", "GREEN", "SAME", "REPEAT"]),
-            ("K", ["TOP", "BOTTOM", "SAME", "REPEAT"]),
+            ("G", ["GREEN", "RED", "SAME", "REPEAT"]),
+            ("K", ["BOTTOM", "TOP", "SAME", "REPEAT"]),
         ]:
             with self.subTest(state=state):
                 result = match_response(
@@ -762,7 +762,7 @@ class AxisLanePolicyTests(unittest.TestCase):
             duo_flip=0,
             axis_step=5.0,
         )
-        self.assertEqual(row.question, "Red side, green side, or both same?")
+        self.assertEqual(row.question, "Green side, red side, or both same?")
 
     def test_post_duochrome_distance_va_confirmation_records_last_read_line(self):
         dv = self._derive(
@@ -1247,16 +1247,16 @@ class HindiLocalizationTests(unittest.TestCase):
             state="G",
             language="hi",
             retry=False,
-            fallback_question="Red side, green side, or both same?",
+            fallback_question="Green side, red side, or both same?",
         )
         bino_prompt = localized_voice_prompt(
             state="K",
             language="hi",
             retry=False,
-            fallback_question="Top line, bottom line, or both same?",
+            fallback_question="Bottom line, top line, or both same?",
         )
-        self.assertEqual(duo_prompt, "लाल साइड, हरा साइड, या दोनों समान?")
-        self.assertEqual(bino_prompt, "ऊपर की लाइन, नीचे की लाइन, या दोनों समान?")
+        self.assertEqual(duo_prompt, "हरा साइड, लाल साइड, या दोनों समान?")
+        self.assertEqual(bino_prompt, "नीचे की लाइन, ऊपर की लाइन, या दोनों समान?")
 
     def test_hindi_option_labels_are_contextual(self):
         self.assertEqual(
@@ -1291,7 +1291,7 @@ class HindiLocalizationTests(unittest.TestCase):
                 "SAME",
                 "hi",
                 state="G",
-                question="Red side, green side, or both same?",
+                question="Green side, red side, or both same?",
             ),
             "दोनों समान",
         )

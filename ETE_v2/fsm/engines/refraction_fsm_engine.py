@@ -56,8 +56,8 @@ COMPACT_PROMPT_CONFIG = {
     },
     "G": {
         "response_type": "duochrome_4way",
-        "question": "Please compare the red and green sides. Letters on which side look sharper and darker? Say red side, green side, both same, or repeat.",
-        "options": ("RED", "GREEN", "SAME", "REPEAT"),
+        "question": "Please compare the green and red sides. Letters on which side look sharper and darker? Say green side, red side, both same, or repeat.",
+        "options": ("GREEN", "RED", "SAME", "REPEAT"),
     },
     "H": {
         "response_type": "comparison_4way",
@@ -71,13 +71,13 @@ COMPACT_PROMPT_CONFIG = {
     },
     "J": {
         "response_type": "duochrome_4way",
-        "question": "Please compare the red and green sides. Letters on which side look sharper and darker? Say red side, green side, both same, or repeat.",
-        "options": ("RED", "GREEN", "SAME", "REPEAT"),
+        "question": "Please compare the green and red sides. Letters on which side look sharper and darker? Say green side, red side, both same, or repeat.",
+        "options": ("GREEN", "RED", "SAME", "REPEAT"),
     },
     "K": {
         "response_type": "distance_bino_4way",
-        "question": "Please compare the letters on the top and the bottom line. Which line looks sharper? Say top line, bottom line, both same, or repeat.",
-        "options": ("TOP", "BOTTOM", "SAME", "REPEAT"),
+        "question": "Please compare the letters on the bottom and the top line. Which line looks sharper? Say bottom line, top line, both same, or repeat.",
+        "options": ("BOTTOM", "TOP", "SAME", "REPEAT"),
     },
     "P": {
         "response_type": "clarity_3way",
@@ -348,19 +348,19 @@ class RefractionFSMEngine:
 
         if state in ("G", "J"):
             question = (
-                "Please compare the red and green sides. Letters on which side look sharper and darker? Say red side, green side, both same, or repeat."
+                "Please compare the green and red sides. Letters on which side look sharper and darker? Say green side, red side, both same, or repeat."
                 if early
-                else "Red side, green side, or both same?"
+                else "Green side, red side, or both same?"
             )
-            return question, ("RED", "GREEN", "SAME", "REPEAT")
+            return question, ("GREEN", "RED", "SAME", "REPEAT")
 
         if state == "K":
             question = (
-                "Please compare the letters on the top and the bottom line. Which line looks sharper? Say top line, bottom line, both same, or repeat."
+                "Please compare the letters on the bottom and the top line. Which line looks sharper? Say bottom line, top line, both same, or repeat."
                 if early
-                else "Top line, bottom line, or both same?"
+                else "Bottom line, top line, or both same?"
             )
-            return question, ("TOP", "BOTTOM", "SAME", "REPEAT")
+            return question, ("BOTTOM", "TOP", "SAME", "REPEAT")
 
         if state in ("P", "Q", "R"):
             question = (

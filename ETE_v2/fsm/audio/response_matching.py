@@ -941,10 +941,10 @@ HINDI_QUESTION_TRANSLATIONS = {
     "First, second, or both same?": "पहला, दूसरा, या दोनों समान?",
     "First option, second option, both same, or repeat?": "पहला विकल्प, दूसरा विकल्प, दोनों समान, या फिर से?",
     "First option, second option, or both same?": "पहला विकल्प, दूसरा विकल्प, या दोनों समान?",
-    "Please compare the red and green sides. Letters on which side look sharper and darker? Say red side, green side, both same, or repeat.": "कृपया लाल और हरे साइड की तुलना कीजिए। अक्षर किस साइड पर ज़्यादा शार्प और गहरे दिख रहे हैं? लाल साइड, हरा साइड, दोनों समान, या फिर से कहिए।",
-    "Red side, green side, or both same?": "लाल साइड, हरा साइड, या दोनों समान?",
-    "Please compare the letters on the top and the bottom line. Which line looks sharper? Say top line, bottom line, both same, or repeat.": "कृपया ऊपर और नीचे की लाइन के अक्षरों की तुलना कीजिए। कौन सी लाइन ज़्यादा शार्प दिख रही है? ऊपर की लाइन, नीचे की लाइन, दोनों समान, या फिर से कहिए।",
-    "Top line, bottom line, or both same?": "ऊपर की लाइन, नीचे की लाइन, या दोनों समान?",
+    "Please compare the green and red sides. Letters on which side look sharper and darker? Say green side, red side, both same, or repeat.": "कृपया हरे और लाल साइड की तुलना कीजिए। अक्षर किस साइड पर ज़्यादा शार्प और गहरे दिख रहे हैं? हरा साइड, लाल साइड, दोनों समान, या फिर से कहिए।",
+    "Green side, red side, or both same?": "हरा साइड, लाल साइड, या दोनों समान?",
+    "Please compare the letters on the bottom and the top line. Which line looks sharper? Say bottom line, top line, both same, or repeat.": "कृपया नीचे और ऊपर की लाइन के अक्षरों की तुलना कीजिए। कौन सी लाइन ज़्यादा शार्प दिख रही है? नीचे की लाइन, ऊपर की लाइन, दोनों समान, या फिर से कहिए।",
+    "Bottom line, top line, or both same?": "नीचे की लाइन, ऊपर की लाइन, या दोनों समान?",
     "Please look at the near text. Are the letters clear, blurry, or do you want me to repeat?": "कृपया पास के टेक्स्ट को देखिए। क्या अक्षर साफ हैं, धुंधले हैं, या क्या आप चाहते हैं कि मैं फिर से कहूँ?",
     "Clear or blurry?": "साफ या धुंधला?",
     "Please read the line.": "कृपया लाइन पढ़िए।",
@@ -961,8 +961,8 @@ LOCALIZED_REPROMPT_TEXTS = {
     "hi": {
         "clarity_3way": "कृपया केवल यह कहें: साफ, धुंधला, या फिर से।",
         "comparison_4way": "कृपया केवल यह कहें: पहला विकल्प, दूसरा विकल्प, दोनों समान, या फिर से।",
-        "duochrome_4way": "कृपया केवल यह कहें: लाल साइड, हरा साइड, दोनों समान, या फिर से।",
-        "distance_bino_4way": "कृपया केवल यह कहें: ऊपर की लाइन, नीचे की लाइन, दोनों समान, या फिर से।",
+        "duochrome_4way": "कृपया केवल यह कहें: हरा साइड, लाल साइड, दोनों समान, या फिर से।",
+        "distance_bino_4way": "कृपया केवल यह कहें: नीचे की लाइन, ऊपर की लाइन, दोनों समान, या फिर से।",
     },
 }
 
@@ -1004,9 +1004,9 @@ def _localized_hindi_question(*, state: str, fallback_question: str, retry: bool
     if state == "U" and "first option" in prompt_lc and "second option" in prompt_lc:
         return "कौन बेहतर था, पहला विकल्प, दूसरा विकल्प, या फिर से?"
     if state in {"G", "J"} and "both same" in prompt_lc:
-        return "लाल साइड, हरा साइड, या दोनों समान?"
+        return "हरा साइड, लाल साइड, या दोनों समान?"
     if state == "K" and "both same" in prompt_lc:
-        return "ऊपर की लाइन, नीचे की लाइन, या दोनों समान?"
+        return "नीचे की लाइन, ऊपर की लाइन, या दोनों समान?"
     if state in {"P", "Q", "R"} and ("clear or blurry" in prompt_lc or "letters clear" in prompt_lc):
         return "साफ या धुंधला?"
     return ""
@@ -1130,7 +1130,7 @@ COMPACT_INTERACTIVE_STATE_MAP = {
     "G": {
         "family": "duochrome_4way",
         "response_type": "duochrome_4way",
-        "allowed_labels": ["RED", "GREEN", "SAME", "REPEAT"],
+        "allowed_labels": ["GREEN", "RED", "SAME", "REPEAT"],
         "label_to_response": {
             "RED": "RED_CLEARER",
             "GREEN": "GREEN_CLEARER",
@@ -1173,7 +1173,7 @@ COMPACT_INTERACTIVE_STATE_MAP = {
     "J": {
         "family": "duochrome_4way",
         "response_type": "duochrome_4way",
-        "allowed_labels": ["RED", "GREEN", "SAME", "REPEAT"],
+        "allowed_labels": ["GREEN", "RED", "SAME", "REPEAT"],
         "label_to_response": {
             "RED": "RED_CLEARER",
             "GREEN": "GREEN_CLEARER",
@@ -1194,7 +1194,7 @@ COMPACT_INTERACTIVE_STATE_MAP = {
     "K": {
         "family": "distance_bino_4way",
         "response_type": "distance_bino_4way",
-        "allowed_labels": ["TOP", "BOTTOM", "SAME", "REPEAT"],
+        "allowed_labels": ["BOTTOM", "TOP", "SAME", "REPEAT"],
         "label_to_response": {
             "TOP": "TOP_CLEARER",
             "BOTTOM": "BOTTOM_CLEARER",
@@ -1660,8 +1660,8 @@ def _reprompt_text(response_type: str) -> str:
     compact_map = {
         "clarity_3way": "Please say only: clear, blurry, or repeat.",
         "comparison_4way": "Please say only: first option, second option, both same, or repeat.",
-        "duochrome_4way": "Please say only: red side, green side, both same, or repeat.",
-        "distance_bino_4way": "Please say only: top line, bottom line, both same, or repeat.",
+        "duochrome_4way": "Please say only: green side, red side, both same, or repeat.",
+        "distance_bino_4way": "Please say only: bottom line, top line, both same, or repeat.",
     }
     if response_type in compact_map:
         return compact_map[response_type]

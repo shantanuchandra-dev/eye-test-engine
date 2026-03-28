@@ -161,15 +161,15 @@ function buildSpokenQuestionText(data, localizedQuestion, prefacePrompt = '') {
       spoken = 'Better now? Say yes or no.';
     } else if (/^first, second, or both same\?$/i.test(spoken) || /^first option, second option, or both same\?$/i.test(spoken) || /^first option, second option, both same, or repeat\?$/i.test(spoken)) {
       spoken = 'Which looks clearer: first option, second option, both same, or repeat?';
-    } else if (/^red side, green side, or both same\?$/i.test(spoken)) {
-      spoken = 'Which side looks clearer: red side, green side, or both same?';
-    } else if (/^top line or bottom line\?$/i.test(spoken)) {
-      spoken = 'Which line looks clearer: top line, bottom line, or both same?';
+    } else if (/^green side, red side, or both same\?$/i.test(spoken)) {
+      spoken = 'Which side looks clearer: green side, red side, or both same?';
+    } else if (/^bottom line, top line, or both same\?$/i.test(spoken)) {
+      spoken = 'Which line looks clearer: bottom line, top line, or both same?';
     } else if (/^clear or blurry\?$/i.test(spoken)) {
       spoken = 'Do the letters look clear, or blurry?';
     } else if (/^please compare the two choices\./i.test(spoken)) {
       spoken = spoken.replace('Which one is clearer or sharper?', 'Which one looks clearer or sharper?');
-    } else if (/^please compare the red and green sides\./i.test(spoken)) {
+    } else if (/^please compare the green and red sides\./i.test(spoken)) {
       spoken = spoken.replace('Letters on which side look sharper and darker?', 'Which side looks sharper and darker?');
     }
   }
@@ -555,6 +555,99 @@ const OPTION_STYLES = {
   'TARGET_OK': 'clear', 'NOT_CLEAR': 'blurry',
 };
 
+const SEMANTIC_SLOT_LAYOUT = Object.freeze({
+  1: { column: '1', row: '1' },
+  2: { column: '2', row: '1' },
+  3: { column: '1', row: '2' },
+  4: { column: '2', row: '2' },
+});
+
+const STATE_OPTION_SLOT_PREFERENCE = Object.freeze({
+  B: ['CLEAR', 'BLURRY', null, 'REPEAT'],
+  C: ['CLEAR', 'BLURRY', null, 'REPEAT'],
+  D: ['CLEAR', 'BLURRY', null, 'REPEAT'],
+  E: ['ONE', 'TWO', 'SAME', 'REPEAT'],
+  F: ['ONE', 'TWO', 'SAME', 'REPEAT'],
+  G: ['GREEN', 'RED', 'SAME', 'REPEAT'],
+  H: ['ONE', 'TWO', 'SAME', 'REPEAT'],
+  I: ['ONE', 'TWO', 'SAME', 'REPEAT'],
+  J: ['GREEN', 'RED', 'SAME', 'REPEAT'],
+  K: ['BOTTOM', 'TOP', 'SAME', 'REPEAT'],
+  L: ['CLEAR', 'BLURRY', null, 'REPEAT'],
+  P: ['CLEAR', 'BLURRY', null, 'REPEAT'],
+  Q: ['CLEAR', 'BLURRY', null, 'REPEAT'],
+  R: ['CLEAR', 'BLURRY', null, 'REPEAT'],
+  U: ['ONE', 'TWO', null, 'REPEAT'],
+});
+
+// Change these four values later if you want a different physical controller
+// button to act as semantic button 1/2/3/4.
+// Current Chrome/Xbox indices are A=0, B=1, X=2, Y=3.
+const GAMEPAD_SLOT_BINDINGS = Object.freeze({
+  1: 1,
+  2: 0,
+  3: 2,
+  4: 3,
+});
+
+function positionButtonInSemanticGrid(btn, slot) {
+  const layout = SEMANTIC_SLOT_LAYOUT[slot];
+  if (!layout) return;
+  btn.dataset.slot = String(slot);
+  btn.style.gridColumn = layout.column;
+  btn.style.gridRow = layout.row;
+}
+
+function buildSemanticOptionSlots(state, options = []) {
+  const preferred = STATE_OPTION_SLOT_PREFERENCE[state] || [];
+  const slots = [null, null, null, null];
+  const available = new Set(options || []);
+  const used = new Set();
+
+  preferred.forEach((option, index) => {
+    if (option && available.has(option)) {
+      slots[index] = option;
+      used.add(option);
+    }
+  });
+
+  for (const option of options || []) {
+    if (used.has(option)) continue;
+    const emptyIndex = slots.findIndex(slot => slot === null);
+    if (emptyIndex === -1) break;
+    slots[emptyIndex] = option;
+    used.add(option);
+  }
+
+  return slots;
+}
+
+function renderSemanticOptionButtons({ state, options, localizedLabels, onSelect }) {
+  const grid = document.getElementById('optionsGrid');
+  grid.innerHTML = '';
+
+  const localizedByInternal = new Map();
+  (localizedLabels || []).forEach(label => localizedByInternal.set(label.internal, label));
+
+  buildSemanticOptionSlots(state, options).forEach((internalOption, slotIndex) => {
+    if (!internalOption) return;
+
+    const slot = slotIndex + 1;
+    const localized = localizedByInternal.get(internalOption);
+    const displayText = localized?.localized || localized?.display || internalOption;
+    const internalHint = localized && localized.internal !== displayText ? localized.internal : '';
+
+    const btn = document.createElement('button');
+    btn.className = 'option-btn';
+    const style = OPTION_STYLES[internalOption] || '';
+    if (style) btn.classList.add(style);
+    btn.innerHTML = `${displayText}${internalHint ? '<span class="opt-internal">[' + internalHint + ']</span>' : ''}<span class="key-hint">${slot}</span>`;
+    positionButtonInSemanticGrid(btn, slot);
+    btn.onclick = () => onSelect(internalOption);
+    grid.appendChild(btn);
+  });
+}
+
 // ── State ──
 let sessionId = null;
 let currentState = null;
@@ -574,7 +667,7 @@ let _inputEnabled = false; // Global gate: voice, gamepad, keyboard only after b
 let gamepadEnabled = true;
 let gamepadConnected = false;
 let gamepadIndex = null;
-let _gamepadPrevButtons = [false, false, false, false];
+let _gamepadPrevButtons = [false, false, false, false, false];
 let _gamepadPollId = null;
 
 // ── Initialization ──
@@ -675,6 +768,7 @@ function showLanguageSelection(pendingData) {
   const enBtn = document.createElement('button');
   enBtn.className = 'option-btn clear';
   enBtn.innerHTML = 'English<span class="key-hint">1</span>';
+  positionButtonInSemanticGrid(enBtn, 1);
   enBtn.onclick = () => selectLanguage('en', _langSelectPendingData);
   grid.appendChild(enBtn);
 
@@ -684,6 +778,7 @@ function showLanguageSelection(pendingData) {
   hiBtn.style.background = '#fff7ed';
   hiBtn.style.color = '#9a3412';
   hiBtn.innerHTML = 'हिन्दी (Hindi)<span class="key-hint">2</span>';
+  positionButtonInSemanticGrid(hiBtn, 2);
   hiBtn.onclick = () => selectLanguage('hi', _langSelectPendingData);
   grid.appendChild(hiBtn);
 
@@ -918,32 +1013,12 @@ async function showQuestion(data) {
   document.getElementById('questionText').textContent = localizedQuestion;
 
   // 3. Render option buttons (localized if available)
-  const grid = document.getElementById('optionsGrid');
-  grid.innerHTML = '';
-  if (localizedLabels) {
-    localizedLabels.forEach((label, i) => {
-      const btn = document.createElement('button');
-      btn.className = 'option-btn';
-      const styleKey = (data.options || []).find(o => o === label.internal) || label.internal;
-      const style = OPTION_STYLES[styleKey] || '';
-      if (style) btn.classList.add(style);
-      const displayText = label.localized || label.display || label.internal;
-      const internalHint = label.internal !== displayText ? label.internal : '';
-      btn.innerHTML = `${displayText}${internalHint ? '<span class="opt-internal">[' + internalHint + ']</span>' : ''}<span class="key-hint">${i + 1}</span>`;
-      btn.onclick = () => submitResponse(label.internal);
-      grid.appendChild(btn);
-    });
-  } else {
-    (data.options || []).forEach((opt, i) => {
-      const btn = document.createElement('button');
-      btn.className = 'option-btn';
-      const style = OPTION_STYLES[opt] || '';
-      if (style) btn.classList.add(style);
-      btn.innerHTML = `${opt}<span class="key-hint">${i + 1}</span>`;
-      btn.onclick = () => submitResponse(opt);
-      grid.appendChild(btn);
-    });
-  }
+  renderSemanticOptionButtons({
+    state: data.state,
+    options: data.options || [],
+    localizedLabels,
+    onSelect: submitResponse,
+  });
 
   // 4. Speak the LOCALIZED question, then beep, then listen
   //    For JCC states with auto_flip: ALL TTS is handled by handleAutoFlip (Flip 1 → Flip 2)
@@ -1998,30 +2073,26 @@ async function submitResponse(responseValue, voiceMeta, overrides = {}) {
 // ── Keyboard shortcuts ──
 function handleKeyboard(e) {
   if (!_inputEnabled || speechSynthesis.speaking) return;
-  // Number keys 1-9 for options
-  if (e.key >= '1' && e.key <= '9') {
-    const idx = parseInt(e.key) - 1;
-    const btns = document.querySelectorAll('#optionsGrid .option-btn');
-    if (btns[idx]) {
+  if (e.key >= '1' && e.key <= '4') {
+    const slot = parseInt(e.key, 10);
+    const btn = document.querySelector(`#optionsGrid .option-btn[data-slot="${slot}"]`);
+    if (btn) {
       e.preventDefault();
       _lastInputMethod = 'Keyboard';
-      btns[idx].click();
+      btn.click();
     }
   }
 }
 
 // ── Gamepad input (Xbox controller via Chrome Gamepad API) ──
-// B=option1, A=option2, X=option3, Y=REPEAT (always)
-// Standard indices: A=0, B=1, X=2, Y=3
-
-const GAMEPAD_FACE_BUTTONS = [1, 0, 2]; // B, A, X → option indices 0, 1, 2
-const GAMEPAD_REPEAT_BUTTON = 3; // Y → always REPEAT
+// Standard indices: A=0, B=1, X=2, Y=3.
+// Physical buttons are translated into semantic buttons 1-4 through GAMEPAD_SLOT_BINDINGS.
 
 window.addEventListener('gamepadconnected', (e) => {
   console.log(`[Gamepad] Connected: ${e.gamepad.id}`);
   gamepadIndex = e.gamepad.index;
   gamepadConnected = true;
-  _gamepadPrevButtons = [false, false, false, false];
+  _gamepadPrevButtons = [false, false, false, false, false];
   updateGamepadStatus();
   if (gamepadEnabled && !_gamepadPollId) startGamepadPoll();
 });
@@ -2042,56 +2113,27 @@ function startGamepadPoll() {
     }
     const gp = navigator.getGamepads()[gamepadIndex];
     if (gp) {
-      // Check face buttons B, A, X (options 0, 1, 2)
-      GAMEPAD_FACE_BUTTONS.forEach((btnIdx, optionIdx) => {
+      Object.entries(GAMEPAD_SLOT_BINDINGS).forEach(([slotKey, btnIdx]) => {
+        const slot = Number(slotKey);
         const pressed = gp.buttons[btnIdx]?.pressed || false;
-        if (pressed && !_gamepadPrevButtons[optionIdx]) {
-          handleGamepadOption(optionIdx);
+        if (pressed && !_gamepadPrevButtons[slot]) {
+          handleGamepadOptionSlot(slot);
         }
-        _gamepadPrevButtons[optionIdx] = pressed;
+        _gamepadPrevButtons[slot] = pressed;
       });
-      // Check Y button (always REPEAT)
-      const yPressed = gp.buttons[GAMEPAD_REPEAT_BUTTON]?.pressed || false;
-      if (yPressed && !_gamepadPrevButtons[3]) {
-        handleGamepadRepeat();
-      }
-      _gamepadPrevButtons[3] = yPressed;
     }
     _gamepadPollId = requestAnimationFrame(poll);
   }
   _gamepadPollId = requestAnimationFrame(poll);
 }
 
-function handleGamepadOption(optionIdx) {
+function handleGamepadOptionSlot(slot) {
   if (!_inputEnabled || _flipState === 'flip1' || speechSynthesis.speaking) return;
-  const allBtns = document.querySelectorAll('#optionsGrid .option-btn');
-  const nonRepeatBtns = [];
-  for (const btn of allBtns) {
-    const text = btn.textContent.trim().toUpperCase();
-    if (!text.startsWith('REPEAT') && !text.startsWith('फिर से')) {
-      nonRepeatBtns.push(btn);
-    }
-  }
-  if (optionIdx < nonRepeatBtns.length && !nonRepeatBtns[optionIdx].disabled) {
-    console.log(`[Gamepad] Button ${optionIdx} → "${nonRepeatBtns[optionIdx].textContent.trim()}"`);
+  const btn = document.querySelector(`#optionsGrid .option-btn[data-slot="${slot}"]`);
+  if (btn && !btn.disabled) {
+    console.log(`[Gamepad] Semantic button ${slot} → "${btn.textContent.trim()}"`);
     _lastInputMethod = 'Gamepad';
-    nonRepeatBtns[optionIdx].click();
-  }
-}
-
-function handleGamepadRepeat() {
-  if (!_inputEnabled || _flipState === 'flip1' || speechSynthesis.speaking) return;
-  const allBtns = document.querySelectorAll('#optionsGrid .option-btn');
-  for (const btn of allBtns) {
-    const text = btn.textContent.trim().toUpperCase();
-    if (text.startsWith('REPEAT') || text.startsWith('फिर से')) {
-      if (!btn.disabled) {
-        console.log('[Gamepad] Y → REPEAT');
-        _lastInputMethod = 'Gamepad';
-        btn.click();
-      }
-      return;
-    }
+    btn.click();
   }
 }
 
