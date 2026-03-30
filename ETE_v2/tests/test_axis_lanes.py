@@ -13,6 +13,8 @@ if str(ROOT) not in sys.path:
 
 from fsm.config.calibration_loader import CalibrationLoader
 from fsm.audio.response_matching import (
+    ENGLISH_VARIANT_LIBRARY,
+    HINDI_VARIANT_LIBRARY,
     localized_option_label,
     localized_voice_prompt,
     match_response,
@@ -336,7 +338,7 @@ class AxisLanePolicyTests(unittest.TestCase):
         engine = RefractionFSMEngine(self.calibration)
         current = engine.initialize_row("coarse-start", dv)
         self.assertEqual(current.chart_param, "70_60_50")
-        self.assertEqual(current.question, "Can you read all the letters in this line, or are they blurry?")
+        self.assertEqual(current.question, "Please read the line. If the letters are not clear, say blurry, or repeat.")
 
     def test_partial_letter_reading_maps_to_blurry_with_accuracy_confidence(self):
         result = match_response(
@@ -344,6 +346,7 @@ class AxisLanePolicyTests(unittest.TestCase):
             state="B",
             available_options=["CLEAR", "BLURRY", "REPEAT"],
             stimulus_letters="E G N D H",
+            question="Please read the line. If the letters are not clear, say blurry, or repeat.",
         )
         self.assertTrue(result.accepted)
         self.assertEqual(result.response_value, "BLURRY")
@@ -356,11 +359,293 @@ class AxisLanePolicyTests(unittest.TestCase):
             state="B",
             available_options=["CLEAR", "BLURRY", "REPEAT"],
             stimulus_letters="E G N D H",
+            question="Please read the line. If the letters are not clear, say blurry, or repeat.",
         )
         self.assertTrue(result.accepted)
         self.assertEqual(result.response_value, "REPEAT")
         self.assertEqual(result.method, "letter_reading_partial_repeat")
         self.assertAlmostEqual(result.confidence, 0.2)
+
+    def test_english_clear_response_maps_to_clear_in_line_reading_phase(self):
+        result = match_response(
+            transcript="clear",
+            state="B",
+            available_options=["CLEAR", "BLURRY", "REPEAT"],
+            stimulus_letters="E G N D H",
+            question="Please read the line. If the letters are not clear, say blurry, or repeat.",
+            language="en",
+        )
+        self.assertTrue(result.accepted)
+        self.assertEqual(result.response_value, "CLEAR")
+        self.assertEqual(result.method, "clarity_intent")
+
+    def test_hindi_localized_question_uses_clarity_only_not_letter_reading(self):
+        question = 'क्या अक्षर साफ हैं, धुंधले हैं, या फिर से?'
+
+        line_result = match_response(
+            transcript="ए पी ई ओ एफ",
+            state="B",
+            available_options=["CLEAR", "BLURRY", "REPEAT"],
+            stimulus_letters="A P E O F",
+            question=question,
+            language="hi",
+        )
+        self.assertFalse(line_result.accepted)
+
+        blurry_result = match_response(
+            transcript="धुंधला है",
+            state="B",
+            available_options=["CLEAR", "BLURRY", "REPEAT"],
+            stimulus_letters="A P E O F",
+            question=question,
+            language="hi",
+        )
+        self.assertTrue(blurry_result.accepted)
+        self.assertEqual(blurry_result.response_value, "BLURRY")
+
+        repeat_result = match_response(
+            transcript="फिर से",
+            state="B",
+            available_options=["CLEAR", "BLURRY", "REPEAT"],
+            stimulus_letters="A P E O F",
+            question=question,
+            language="hi",
+        )
+        self.assertTrue(repeat_result.accepted)
+        self.assertEqual(repeat_result.response_value, "REPEAT")
+
+    def test_hindi_mixed_clear_and_blurry_transcript_biases_to_blurry(self):
+        result = match_response(
+            transcript="धुँधला सा धन लाएँ धुँधला है साफ़ है",
+            state="B",
+            available_options=["CLEAR", "BLURRY", "REPEAT"],
+            stimulus_letters="A P E O F",
+            question='क्या अक्षर साफ हैं, धुंधले हैं, या फिर से?',
+            language="hi",
+        )
+        self.assertTrue(result.accepted)
+        self.assertEqual(result.response_value, "BLURRY")
+        self.assertEqual(result.method, "line_phase_clarity_override")
+
+    def test_noisy_hindi_blurry_variant_maps_correctly(self):
+        result = match_response(
+            transcript="Thula Hai",
+            state="B",
+            available_options=["CLEAR", "BLURRY", "REPEAT"],
+            stimulus_letters="H N F Z C",
+            question="Read the line, say blurry, or repeat.",
+            language="hi",
+        )
+        self.assertTrue(result.accepted)
+        self.assertEqual(result.response_value, "BLURRY")
+
+    def test_hinglish_repeat_variant_maps_correctly(self):
+        result = match_response(
+            transcript="Firse",
+            state="G",
+            available_options=["GREEN", "RED", "SAME", "REPEAT"],
+            question="Green side, red side, both same, or repeat?",
+            language="hi",
+        )
+        self.assertTrue(result.accepted)
+        self.assertEqual(result.response_value, "REPEAT")
+
+    def test_hindi_transliterated_blurry_phrase_maps_correctly(self):
+        result = match_response(
+            transcript="dhundla hai",
+            state="B",
+            available_options=["CLEAR", "BLURRY", "REPEAT"],
+            question="क्या अक्षर साफ हैं, धुंधले हैं, या फिर से?",
+            language="hi",
+        )
+        self.assertTrue(result.accepted)
+        self.assertEqual(result.response_value, "BLURRY")
+
+    def test_hindi_variant_library_has_broad_coverage_per_response(self):
+        for label in ["CLEAR", "BLURRY", "REPEAT", "ONE", "TWO", "SAME", "RED", "GREEN", "TOP", "BOTTOM"]:
+            self.assertGreaterEqual(
+                len(HINDI_VARIANT_LIBRARY[label]),
+                50,
+                f"{label} should have at least 50 Hindi transliterated variants",
+            )
+
+    def test_english_variant_library_has_broad_coverage_per_response(self):
+        for label in ["CLEAR", "BLURRY", "REPEAT", "ONE", "TWO", "SAME", "RED", "GREEN", "TOP", "BOTTOM"]:
+            self.assertGreaterEqual(
+                len(ENGLISH_VARIANT_LIBRARY[label]),
+                15,
+                f"{label} should have broad English variants",
+            )
+
+    def test_hindi_logged_english_script_variants_map_correctly(self):
+        blurry = match_response(
+            transcript="Jule Hain",
+            state="B",
+            available_options=["CLEAR", "BLURRY", "REPEAT"],
+            question="Read the line, say blurry, or repeat.",
+            language="hi",
+        )
+        clear = match_response(
+            transcript="Saath Hai",
+            state="B",
+            available_options=["CLEAR", "BLURRY", "REPEAT"],
+            question="Read the line, say blurry, or repeat.",
+            language="hi",
+        )
+        self.assertTrue(blurry.accepted)
+        self.assertEqual(blurry.response_value, "BLURRY")
+        self.assertTrue(clear.accepted)
+        self.assertEqual(clear.response_value, "CLEAR")
+
+    def test_hindi_negative_clear_phrase_maps_to_blurry(self):
+        result = match_response(
+            transcript="Saif Nahi Hai",
+            state="B",
+            available_options=["CLEAR", "BLURRY", "REPEAT"],
+            question="Read it now, or say still blurry.",
+            language="hi",
+        )
+        self.assertTrue(result.accepted)
+        self.assertEqual(result.response_value, "BLURRY")
+
+    def test_hindi_better_phrase_maps_to_clear(self):
+        result = match_response(
+            transcript="हां बेहतर है",
+            state="B",
+            available_options=["CLEAR", "BLURRY", "REPEAT"],
+            question="Did it get better now? Say yes or no.",
+            language="hi",
+        )
+        self.assertTrue(result.accepted)
+        self.assertEqual(result.response_value, "CLEAR")
+
+    def test_hindi_clear_loanword_maps_to_clear(self):
+        result = match_response(
+            transcript="क्लियर",
+            state="B",
+            available_options=["CLEAR", "BLURRY", "REPEAT"],
+            question="Read it now, or say still blurry.",
+            language="hi",
+        )
+        self.assertTrue(result.accepted)
+        self.assertEqual(result.response_value, "CLEAR")
+
+    def test_hindi_transliterated_option_phrases_map_correctly(self):
+        first = match_response(
+            transcript="pehla vikalp",
+            state="E",
+            available_options=["ONE", "TWO", "SAME", "REPEAT"],
+            question="पहला विकल्प, दूसरा विकल्प, दोनों समान, या फिर से?",
+            language="hi",
+        )
+        same = match_response(
+            transcript="dono saman",
+            state="E",
+            available_options=["ONE", "TWO", "SAME", "REPEAT"],
+            question="पहला विकल्प, दूसरा विकल्प, दोनों समान, या फिर से?",
+            language="hi",
+        )
+        self.assertTrue(first.accepted)
+        self.assertEqual(first.response_value, "ONE")
+        self.assertTrue(same.accepted)
+        self.assertEqual(same.response_value, "SAME")
+
+        compressed_same = match_response(
+            transcript="donosaman",
+            state="E",
+            available_options=["ONE", "TWO", "SAME", "REPEAT"],
+            question="पहला विकल्प, दूसरा विकल्प, दोनों समान, या फिर से?",
+            language="hi",
+        )
+        split_same = match_response(
+            transcript="do no saman",
+            state="E",
+            available_options=["ONE", "TWO", "SAME", "REPEAT"],
+            question="पहला विकल्प, दूसरा विकल्प, दोनों समान, या फिर से?",
+            language="hi",
+        )
+        devanagari_same = match_response(
+            transcript="दोनोंसमान",
+            state="E",
+            available_options=["ONE", "TWO", "SAME", "REPEAT"],
+            question="पहला विकल्प, दूसरा विकल्प, दोनों समान, या फिर से?",
+            language="hi",
+        )
+        devanagari_same_with_hai = match_response(
+            transcript="दोनोंसमान है",
+            state="E",
+            available_options=["ONE", "TWO", "SAME", "REPEAT"],
+            question="पहला विकल्प, दूसरा विकल्प, दोनों समान, या फिर से?",
+            language="hi",
+        )
+        self.assertTrue(compressed_same.accepted)
+        self.assertEqual(compressed_same.response_value, "SAME")
+        self.assertTrue(split_same.accepted)
+        self.assertEqual(split_same.response_value, "SAME")
+        self.assertTrue(devanagari_same.accepted)
+        self.assertEqual(devanagari_same.response_value, "SAME")
+        self.assertTrue(devanagari_same_with_hai.accepted)
+        self.assertEqual(devanagari_same_with_hai.response_value, "SAME")
+
+    def test_hindi_transliterated_directional_variants_map_correctly(self):
+        red = match_response(
+            transcript="laal side better",
+            state="G",
+            available_options=["GREEN", "RED", "SAME", "REPEAT"],
+            question="हरा साइड, लाल साइड, दोनों समान, या फिर से?",
+            language="hi",
+        )
+        bottom = match_response(
+            transcript="neeche ki line better",
+            state="K",
+            available_options=["BOTTOM", "TOP", "SAME", "REPEAT"],
+            question="नीचे की लाइन, ऊपर की लाइन, दोनों समान, या फिर से?",
+            language="hi",
+        )
+        self.assertTrue(red.accepted)
+        self.assertEqual(red.response_value, "RED")
+        self.assertTrue(bottom.accepted)
+        self.assertEqual(bottom.response_value, "BOTTOM")
+
+    def test_logged_compressed_english_variants_map_correctly(self):
+        green = match_response(
+            transcript="Greenside",
+            state="G",
+            available_options=["GREEN", "RED", "SAME", "REPEAT"],
+            question="Green side, red side, both same, or repeat?",
+            language="en",
+        )
+        same = match_response(
+            transcript="BothSame",
+            state="E",
+            available_options=["ONE", "TWO", "SAME", "REPEAT"],
+            question="First option, second option, both same, or repeat?",
+            language="en",
+        )
+        first = match_response(
+            transcript="FirstOption",
+            state="E",
+            available_options=["ONE", "TWO", "SAME", "REPEAT"],
+            question="First option, second option, both same, or repeat?",
+            language="en",
+        )
+        self.assertTrue(green.accepted)
+        self.assertEqual(green.response_value, "GREEN")
+        self.assertTrue(same.accepted)
+        self.assertEqual(same.response_value, "SAME")
+        self.assertTrue(first.accepted)
+        self.assertEqual(first.response_value, "ONE")
+
+    def test_coarse_compare_question_does_not_use_line_reading_match(self):
+        result = match_response(
+            transcript="ए पी ई",
+            state="B",
+            available_options=["CLEAR", "BLURRY", "REPEAT"],
+            stimulus_letters="A P E O F",
+            question="Did it get better now? Say yes or no.",
+            language="hi",
+        )
+        self.assertFalse(result.accepted)
 
     def test_coarse_compare_clearer_but_still_blurry_maps_to_clear(self):
         result = match_response(
@@ -368,6 +653,7 @@ class AxisLanePolicyTests(unittest.TestCase):
             state="B",
             available_options=["CLEAR", "BLURRY", "REPEAT"],
             stimulus_letters="A P E O F",
+            question="Did it get better now? Say yes or no.",
         )
         self.assertTrue(result.accepted)
         self.assertEqual(result.response_value, "CLEAR")
@@ -379,6 +665,7 @@ class AxisLanePolicyTests(unittest.TestCase):
             state="B",
             available_options=["CLEAR", "BLURRY", "REPEAT"],
             stimulus_letters="A P E O F",
+            question="Did it get better now? Say yes or no.",
         )
         self.assertTrue(result.accepted)
         self.assertEqual(result.response_value, "CLEAR")
@@ -389,6 +676,7 @@ class AxisLanePolicyTests(unittest.TestCase):
             state="B",
             available_options=["CLEAR", "BLURRY", "REPEAT"],
             stimulus_letters="A P E O F",
+            question="Did it get better now? Say yes or no.",
         )
         self.assertTrue(result.accepted)
         self.assertEqual(result.response_value, "BLURRY")
@@ -399,6 +687,7 @@ class AxisLanePolicyTests(unittest.TestCase):
             state="B",
             available_options=["CLEAR", "BLURRY", "REPEAT"],
             stimulus_letters="A P E O F",
+            question="Did it get better now? Say yes or no.",
         )
         self.assertTrue(result.accepted)
         self.assertEqual(result.response_value, "BLURRY")
@@ -488,7 +777,7 @@ class AxisLanePolicyTests(unittest.TestCase):
             duo_flip=0,
             axis_step=5.0,
         )
-        self.assertEqual(row.question, "Please read the line.")
+        self.assertEqual(row.question, "Please read the line. If the letters are not clear, say blurry, or repeat.")
 
     def test_line_prompt_shortens_when_other_eye_has_already_heard_it(self):
         dv = self._derive(
@@ -500,7 +789,7 @@ class AxisLanePolicyTests(unittest.TestCase):
         )
         engine = RefractionFSMEngine(self.calibration)
         re_row = engine.initialize_row("cross-eye-line-prompt", dv)
-        self.assertEqual(re_row.question, "Can you read all the letters in this line, or are they blurry?")
+        self.assertEqual(re_row.question, "Please read the line. If the letters are not clear, say blurry, or repeat.")
 
         le_row = engine._row_for_state(
             step=20,
@@ -524,7 +813,7 @@ class AxisLanePolicyTests(unittest.TestCase):
             duo_flip=0,
             axis_step=5.0,
         )
-        self.assertEqual(le_row.question, "Read the line, or say blurry.")
+        self.assertEqual(le_row.question, "Read the line, say blurry, or repeat.")
 
     def test_new_chart_line_first_exposure_keeps_blurry_instruction(self):
         dv = self._derive(
@@ -541,7 +830,7 @@ class AxisLanePolicyTests(unittest.TestCase):
         next_row = engine._build_next_row(confirmed, dv)
         self.assertIsNotNone(next_row)
         self.assertEqual(next_row.chart_param, "40_30_25")
-        self.assertEqual(next_row.question, "Read the line, or say blurry.")
+        self.assertEqual(next_row.question, "Read the line, say blurry, or repeat.")
 
     def test_coarse_step_back_transition_pushes_power_to_phoropter(self):
         orchestrator = SessionOrchestrator(calibration_path=str(CALIBRATION_PATH))
@@ -679,7 +968,7 @@ class AxisLanePolicyTests(unittest.TestCase):
         repeated = engine.apply_response(recheck_row, "REPEAT", dv)
         repeated_row = engine._build_next_row(repeated, dv)
         self.assertIsNotNone(repeated_row)
-        self.assertEqual(repeated_row.question, "Read it now, or is it still blurry?")
+        self.assertEqual(repeated_row.question, "Read it now, or say still blurry.")
 
     def test_axis_prompt_shortens_after_first_question(self):
         dv = self._derive(
@@ -762,7 +1051,7 @@ class AxisLanePolicyTests(unittest.TestCase):
             duo_flip=0,
             axis_step=5.0,
         )
-        self.assertEqual(row.question, "Green side, red side, or both same?")
+        self.assertEqual(row.question, "Green side, red side, both same, or repeat?")
 
     def test_post_duochrome_distance_va_confirmation_records_last_read_line(self):
         dv = self._derive(
@@ -1126,8 +1415,10 @@ class AxisLanePolicyTests(unittest.TestCase):
             response = orchestrator.process_response("CLEAR")
 
         self.assertEqual(response["state"], "E")
-        self.assertIn("You are doing great Asha.", response["preface_prompt"])
-        self.assertIn("minutes left", response["preface_prompt"])
+        self.assertEqual(
+            response["preface_prompt"],
+            "You are doing great. Please blink a few times. About 9 minutes left.",
+        )
 
     def test_failed_voice_utterance_export_preserves_match_diagnostics(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1202,18 +1493,18 @@ class HindiLocalizationTests(unittest.TestCase):
             state="B",
             language="hi",
             retry=False,
-            fallback_question="Can you read all the letters in this line, or are they blurry?",
+            fallback_question="Please read the line. If the letters are not clear, say blurry, or repeat.",
         )
-        self.assertEqual(prompt, "क्या आप इस लाइन के सभी अक्षर पढ़ पा रहे हैं, या वे धुंधले हैं?")
+        self.assertEqual(prompt, "क्या अक्षर साफ हैं, धुंधले हैं, या फिर से?")
 
     def test_hindi_localizes_short_coarse_read_prompt(self):
         prompt = localized_voice_prompt(
             state="B",
             language="hi",
             retry=False,
-            fallback_question="Read the line, or say blurry.",
+            fallback_question="Read the line, say blurry, or repeat.",
         )
-        self.assertEqual(prompt, "लाइन पढ़िए, या धुंधला कहिए।")
+        self.assertEqual(prompt, "साफ, धुंधला, या फिर से?")
 
     def test_hindi_localizes_coarse_compare_prompt(self):
         prompt = localized_voice_prompt(
@@ -1229,9 +1520,9 @@ class HindiLocalizationTests(unittest.TestCase):
             state="B",
             language="hi",
             retry=False,
-            fallback_question="Can you read the line now, or is it still blurry?",
+            fallback_question="Read it now, or say still blurry.",
         )
-        self.assertEqual(prompt, "क्या अब आप लाइन पढ़ पा रहे हैं, या यह अभी भी धुंधली है?")
+        self.assertEqual(prompt, "साफ, अभी भी धुंधला, या फिर से?")
 
     def test_hindi_localizes_jcc_short_prompt(self):
         prompt = localized_voice_prompt(
@@ -1247,16 +1538,16 @@ class HindiLocalizationTests(unittest.TestCase):
             state="G",
             language="hi",
             retry=False,
-            fallback_question="Green side, red side, or both same?",
+            fallback_question="Green side, red side, both same, or repeat?",
         )
         bino_prompt = localized_voice_prompt(
             state="K",
             language="hi",
             retry=False,
-            fallback_question="Bottom line, top line, or both same?",
+            fallback_question="Bottom line, top line, both same, or repeat?",
         )
-        self.assertEqual(duo_prompt, "हरा साइड, लाल साइड, या दोनों समान?")
-        self.assertEqual(bino_prompt, "नीचे की लाइन, ऊपर की लाइन, या दोनों समान?")
+        self.assertEqual(duo_prompt, "हरा साइड, लाल साइड, दोनों समान, या फिर से?")
+        self.assertEqual(bino_prompt, "नीचे की लाइन, ऊपर की लाइन, दोनों समान, या फिर से?")
 
     def test_hindi_option_labels_are_contextual(self):
         self.assertEqual(
@@ -1291,7 +1582,7 @@ class HindiLocalizationTests(unittest.TestCase):
                 "SAME",
                 "hi",
                 state="G",
-                question="Green side, red side, or both same?",
+                question="Green side, red side, both same, or repeat?",
             ),
             "दोनों समान",
         )
