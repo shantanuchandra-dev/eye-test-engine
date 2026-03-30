@@ -384,7 +384,7 @@ def voice_transcribe_and_match():
     """Full pipeline: transcribe audio with faster-whisper, then match response.
     Matches FSMv3.1_R2's _voice_response() flow exactly.
 
-    Accepts: { audio, state, options, language, stimulus_letters }
+    Accepts: { audio, state, options, language, stt_language, stimulus_letters, question }
     Returns: { transcript, accepted, response_value, confidence, method, stt_seconds, ... }
     """
     data = _request_payload()
@@ -392,7 +392,9 @@ def voice_transcribe_and_match():
     state = data.get("state", "")
     options = data.get("options", [])
     language = data.get("language", "auto")
+    stt_language = data.get("stt_language", language)
     stimulus_letters = data.get("stimulus_letters")
+    question = data.get("question", "")
 
     if not audio_b64:
         return jsonify({"error": "No audio data", "text": "", "accepted": False}), 400
@@ -403,7 +405,7 @@ def voice_transcribe_and_match():
     from voice_endpoint import transcribe_audio
     stt_result = transcribe_audio(
         audio_b64,
-        language_hint=language if language != "auto" else None,
+        language_hint=stt_language if stt_language != "auto" else None,
         audio_format=audio_format,
     )
 
@@ -433,6 +435,8 @@ def voice_transcribe_and_match():
             state=state,
             available_options=options,
             stimulus_letters=stimulus_letters,
+            question=question,
+            language=language,
         )
         inferred_lang = infer_response_language(
             transcript=transcript,
@@ -481,6 +485,8 @@ def voice_match():
     state = data.get("state", "")
     options = data.get("options", [])
     stimulus_letters = data.get("stimulus_letters")  # Chart letters for B/D states
+    language = data.get("language", "auto")
+    question = data.get("question", "")
 
     if not transcript or not options:
         return jsonify({"accepted": False, "reason": "Missing transcript or options"}), 400
@@ -492,6 +498,8 @@ def voice_match():
             state=state,
             available_options=options,
             stimulus_letters=stimulus_letters,
+            question=question,
+            language=language,
         )
         return jsonify({
             "accepted": match.accepted,

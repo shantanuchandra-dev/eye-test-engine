@@ -36,12 +36,12 @@ from fsm.models.fsm_runtime import FSMRuntimeRow
 COMPACT_PROMPT_CONFIG = {
     "B": {
         "response_type": "clarity_3way",
-        "question": "Please read the line.",
+        "question": "Please read the line. If the letters are not clear, say blurry, or repeat.",
         "options": ("CLEAR", "BLURRY", "REPEAT"),
     },
     "D": {
         "response_type": "clarity_3way",
-        "question": "Please read the line.",
+        "question": "Please read the line. If the letters are not clear, say blurry, or repeat.",
         "options": ("CLEAR", "BLURRY", "REPEAT"),
     },
     "E": {
@@ -81,17 +81,17 @@ COMPACT_PROMPT_CONFIG = {
     },
     "P": {
         "response_type": "clarity_3way",
-        "question": "Please look at the near text. Are the letters clear, blurry, or do you want me to repeat?",
+        "question": "Please look at the near text. Is it clear, blurry, or repeat?",
         "options": ("CLEAR", "BLURRY", "REPEAT"),
     },
     "Q": {
         "response_type": "clarity_3way",
-        "question": "Please look at the near text. Are the letters clear, blurry, or do you want me to repeat?",
+        "question": "Please look at the near text. Is it clear, blurry, or repeat?",
         "options": ("CLEAR", "BLURRY", "REPEAT"),
     },
     "R": {
         "response_type": "clarity_3way",
-        "question": "Please look at the near text. Are the letters clear, blurry, or do you want me to repeat?",
+        "question": "Please look at the near text. Is it clear, blurry, or repeat?",
         "options": ("CLEAR", "BLURRY", "REPEAT"),
     },
     "S": {
@@ -111,12 +111,12 @@ COMPACT_PROMPT_CONFIG = {
     },
     "C": {
         "response_type": "clarity_3way",
-        "question": "Please read the line.",
+        "question": "Please read the line. If the letters are not clear, say blurry, or repeat.",
         "options": ("CLEAR", "BLURRY", "REPEAT"),
     },
     "L": {
         "response_type": "clarity_3way",
-        "question": "Please read the line.",
+        "question": "Please read the line. If the letters are not clear, say blurry, or repeat.",
         "options": ("CLEAR", "BLURRY", "REPEAT"),
     },
 }
@@ -317,16 +317,13 @@ class RefractionFSMEngine:
                 question = (
                     "Can you read the line now, or is it still blurry?"
                     if early
-                    else "Read it now, or is it still blurry?"
+                    else "Read it now, or say still blurry."
                 )
                 return question, ("CLEAR", "BLURRY", "REPEAT")
-            first_chart_exposure = self._is_first_chart_exposure_for_row(row)
             question = (
-                "Can you read all the letters in this line, or are they blurry?"
+                "Please read the line. If the letters are not clear, say blurry, or repeat."
                 if early
-                else "Read the line, or say blurry."
-                if first_chart_exposure
-                else "Read the line."
+                else "Read the line, say blurry, or repeat."
             )
             return question, ("CLEAR", "BLURRY", "REPEAT")
 
@@ -350,7 +347,7 @@ class RefractionFSMEngine:
             question = (
                 "Please compare the green and red sides. Letters on which side look sharper and darker? Say green side, red side, both same, or repeat."
                 if early
-                else "Green side, red side, or both same?"
+                else "Green side, red side, both same, or repeat?"
             )
             return question, ("GREEN", "RED", "SAME", "REPEAT")
 
@@ -358,15 +355,15 @@ class RefractionFSMEngine:
             question = (
                 "Please compare the letters on the bottom and the top line. Which line looks sharper? Say bottom line, top line, both same, or repeat."
                 if early
-                else "Bottom line, top line, or both same?"
+                else "Bottom line, top line, both same, or repeat?"
             )
             return question, ("BOTTOM", "TOP", "SAME", "REPEAT")
 
         if state in ("P", "Q", "R"):
             question = (
-                "Please look at the near text. Are the letters clear, blurry, or do you want me to repeat?"
+                "Please look at the near text. Is it clear, blurry, or repeat?"
                 if early
-                else "Clear or blurry?"
+                else "Clear, blurry, or repeat?"
             )
             return question, ("CLEAR", "BLURRY", "REPEAT")
 
@@ -396,9 +393,9 @@ class RefractionFSMEngine:
 
         if state in ("C", "L"):
             question = (
-                "Please read the line."
+                "Please read the line. If the letters are not clear, say blurry, or repeat."
                 if early
-                else "Read the line."
+                else "Read the line, say blurry, or repeat."
             )
             return question, ("CLEAR", "BLURRY", "REPEAT")
 

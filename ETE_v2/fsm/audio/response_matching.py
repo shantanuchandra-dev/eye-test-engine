@@ -17,6 +17,47 @@ _LEARNED_AUDIO_VOCAB_CACHE: dict[str, Any] = {
 }
 
 
+def _normalize_variant_text(value: str) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip().lower())
+
+
+def _merge_variant_groups(*groups: list[str] | set[str] | tuple[str, ...]) -> list[str]:
+    merged: set[str] = set()
+    for group in groups:
+        for item in group:
+            normalized = _normalize_variant_text(item)
+            if normalized:
+                merged.add(normalized)
+    return sorted(merged)
+
+
+def _expand_with_suffixes(roots: list[str], suffixes: list[str]) -> list[str]:
+    variants: set[str] = set()
+    for root in roots:
+        normalized_root = _normalize_variant_text(root)
+        if not normalized_root:
+            continue
+        variants.add(normalized_root)
+        for suffix in suffixes:
+            normalized_suffix = _normalize_variant_text(suffix)
+            if normalized_suffix:
+                variants.add(f"{normalized_root} {normalized_suffix}")
+    return sorted(variants)
+
+
+def _expand_with_templates(roots: list[str], templates: list[str]) -> list[str]:
+    variants: set[str] = set()
+    for root in roots:
+        normalized_root = _normalize_variant_text(root)
+        if not normalized_root:
+            continue
+        for template in templates:
+            normalized_variant = _normalize_variant_text(template.format(root=normalized_root))
+            if normalized_variant:
+                variants.add(normalized_variant)
+    return sorted(variants)
+
+
 FSM_AUDIO_RESPONSE_LIBRARY_V1 = {
     "version": "fsm_audio_response_library_v1",
     "language": "en-IN",
@@ -75,6 +116,33 @@ FSM_AUDIO_RESPONSE_LIBRARY_V1 = {
                 "cleared": "clear",
                 "cant": "can't",
                 "dont": "don't",
+                "safi": "saaf",
+                "safi hai": "saaf hai",
+                "saif": "saaf",
+                "saif hai": "saaf hai",
+                "saif nahi hai": "dhundla hai",
+                "safi nahi hai": "dhundla hai",
+                "saaf nahi hai": "dhundla hai",
+                "saf nahi hai": "dhundla hai",
+                "saath hai": "saaf hai",
+                "saath nahi hai": "dhundla hai",
+                "saad hai": "saaf hai",
+                "safi hain": "saaf hai",
+                "do no saman": "dono saman",
+                "do no same": "dono same",
+                "do no barabar": "dono barabar",
+                "donosaman": "dono saman",
+                "दोनोंसमान": "दोनों समान",
+                "दोनोंसमान है": "दोनों समान",
+                "दोनों समान है": "दोनों समान",
+                "दोनोंसैम": "दोनों समान",
+                "jule hai": "dhundla hai",
+                "jule hain": "dhundla hai",
+                "dundle hai": "dhundla hai",
+                "dundle hai": "dhundla hai",
+                "dunai hai": "dhundla hai",
+                "dundla hai": "dhundla hai",
+                "dundhla hai": "dhundla hai",
             },
         },
     },
@@ -931,23 +999,26 @@ LOCALIZED_OPTION_LABELS = {
 
 HINDI_QUESTION_TRANSLATIONS = {
     "Can you read all the letters in this line, or are they blurry?": "क्या आप इस लाइन के सभी अक्षर पढ़ पा रहे हैं, या वे धुंधले हैं?",
-    "Read the line, or say blurry.": "लाइन पढ़िए, या धुंधला कहिए।",
-    "Read the line.": "लाइन पढ़िए।",
+    "Please read the line. If the letters are not clear, say blurry, or repeat.": "क्या अक्षर साफ हैं, धुंधले हैं, या फिर से?",
+    "Read the line, say blurry, or repeat.": "साफ, धुंधला, या फिर से?",
+    "Read the line, or say blurry.": "साफ या धुंधला?",
+    "Read the line.": "क्या अक्षर साफ हैं या धुंधले?",
     "Did it get better now? Say yes or no.": "क्या अब यह बेहतर हुआ? हाँ या नहीं कहिए।",
     "Better now, yes or no?": "अब बेहतर है, हाँ या नहीं?",
-    "Can you read the line now, or is it still blurry?": "क्या अब आप लाइन पढ़ पा रहे हैं, या यह अभी भी धुंधली है?",
-    "Read it now, or is it still blurry?": "अब इसे पढ़िए, या क्या यह अभी भी धुंधली है?",
+    "Can you read the line now, or is it still blurry?": "क्या अब यह साफ है, अभी भी धुंधला है, या फिर से?",
+    "Read it now, or say still blurry.": "साफ, अभी भी धुंधला, या फिर से?",
     "Please compare the two choices. Which one is clearer or sharper? say first option, second option, both same, or repeat.": "कृपया दोनों विकल्पों की तुलना कीजिए। कौन सा ज़्यादा साफ या शार्प दिख रहा है? पहला विकल्प, दूसरा विकल्प, दोनों समान, या फिर से कहिए।",
     "First, second, or both same?": "पहला, दूसरा, या दोनों समान?",
     "First option, second option, both same, or repeat?": "पहला विकल्प, दूसरा विकल्प, दोनों समान, या फिर से?",
     "First option, second option, or both same?": "पहला विकल्प, दूसरा विकल्प, या दोनों समान?",
     "Please compare the green and red sides. Letters on which side look sharper and darker? Say green side, red side, both same, or repeat.": "कृपया हरे और लाल साइड की तुलना कीजिए। अक्षर किस साइड पर ज़्यादा शार्प और गहरे दिख रहे हैं? हरा साइड, लाल साइड, दोनों समान, या फिर से कहिए।",
-    "Green side, red side, or both same?": "हरा साइड, लाल साइड, या दोनों समान?",
+    "Green side, red side, both same, or repeat?": "हरा साइड, लाल साइड, दोनों समान, या फिर से?",
     "Please compare the letters on the bottom and the top line. Which line looks sharper? Say bottom line, top line, both same, or repeat.": "कृपया नीचे और ऊपर की लाइन के अक्षरों की तुलना कीजिए। कौन सी लाइन ज़्यादा शार्प दिख रही है? नीचे की लाइन, ऊपर की लाइन, दोनों समान, या फिर से कहिए।",
-    "Bottom line, top line, or both same?": "नीचे की लाइन, ऊपर की लाइन, या दोनों समान?",
-    "Please look at the near text. Are the letters clear, blurry, or do you want me to repeat?": "कृपया पास के टेक्स्ट को देखिए। क्या अक्षर साफ हैं, धुंधले हैं, या क्या आप चाहते हैं कि मैं फिर से कहूँ?",
-    "Clear or blurry?": "साफ या धुंधला?",
+    "Bottom line, top line, both same, or repeat?": "नीचे की लाइन, ऊपर की लाइन, दोनों समान, या फिर से?",
+    "Please look at the near text. Is it clear, blurry, or repeat?": "कृपया पास के टेक्स्ट को देखिए। क्या यह साफ है, धुंधला है, या \"फिर से\"?",
+    "Clear, blurry, or repeat?": "साफ, धुंधला, या फिर से?",
     "Please read the line.": "कृपया लाइन पढ़िए।",
+    "Please read the line, or say blurry.": "कृपया लाइन पढ़िए, या धुंधला कहिए।",
     "This is the final confirmation before I finish your eye test. This is option 1. Please observe the line carefully.": "आई टेस्ट समाप्त करने से पहले यह अंतिम पुष्टि है। यह विकल्प 1 है। कृपया लाइन को ध्यान से देखिए।",
     "Option 1. Please observe the line carefully.": "विकल्प 1। कृपया लाइन को ध्यान से देखिए।",
     "Now this is option 2. Please observe the line carefully.": "अब यह विकल्प 2 है। कृपया लाइन को ध्यान से देखिए।",
@@ -992,9 +1063,14 @@ def _localized_hindi_question(*, state: str, fallback_question: str, retry: bool
     if state in {"B", "D"} and ("better now" in prompt_lc or "yes or no" in prompt_lc):
         return "अब बेहतर है, हाँ या नहीं?"
     if state in {"B", "D"} and "still blurry" in prompt_lc:
-        return "क्या अब आप लाइन पढ़ पा रहे हैं, या यह अभी भी धुंधली है?"
-    if state in {"B", "D"} and "read the line" in prompt_lc and "say blurry" in prompt_lc:
-        return "लाइन पढ़िए, या धुंधला कहिए।"
+        return "क्या अब यह साफ है, अभी भी धुंधला है, या फिर से?"
+    if state in {"B", "D", "C", "L"} and "read the line" in prompt_lc:
+        if "say blurry, or repeat" in prompt_lc:
+            if "if the letters are not clear" in prompt_lc or "if it is not clear" in prompt_lc:
+                return "क्या अक्षर साफ हैं, धुंधले हैं, या फिर से?"
+            return "साफ, धुंधला, या फिर से?"
+        if "say blurry" in prompt_lc:
+            return "साफ, धुंधला, या फिर से?"
     if state in {"S", "T"} and ("look carefully at the line" in prompt_lc or "observe the line carefully" in prompt_lc):
         return "कृपया लाइन को ध्यान से देखिए।"
     if state in {"B", "C", "D", "L", "S", "T"} and "read the line" in prompt_lc:
@@ -1004,11 +1080,13 @@ def _localized_hindi_question(*, state: str, fallback_question: str, retry: bool
     if state == "U" and "first option" in prompt_lc and "second option" in prompt_lc:
         return "कौन बेहतर था, पहला विकल्प, दूसरा विकल्प, या फिर से?"
     if state in {"G", "J"} and "both same" in prompt_lc:
-        return "हरा साइड, लाल साइड, या दोनों समान?"
+        return "हरा साइड, लाल साइड, दोनों समान, या फिर से?"
     if state == "K" and "both same" in prompt_lc:
-        return "नीचे की लाइन, ऊपर की लाइन, या दोनों समान?"
-    if state in {"P", "Q", "R"} and ("clear or blurry" in prompt_lc or "letters clear" in prompt_lc):
-        return "साफ या धुंधला?"
+        return "नीचे की लाइन, ऊपर की लाइन, दोनों समान, या फिर से?"
+    if state in {"P", "Q", "R"} and ("clear or blurry" in prompt_lc or "letters clear" in prompt_lc or "is it clear" in prompt_lc):
+        if "please look at the near text" in prompt_lc:
+            return "कृपया पास के टेक्स्ट को देखिए। क्या यह साफ है, धुंधला है, या \"फिर से\"?"
+        return "साफ, धुंधला, या फिर से?"
     return ""
 
 
@@ -1023,14 +1101,14 @@ def _hindi_option_label(option: str, *, state: str, question: str) -> str:
 
     if state in {"B", "D"} and "still blurry" in prompt:
         return {
-            "CLEAR": "अब पढ़ पा रहा",
+            "CLEAR": "साफ",
             "BLURRY": "अभी भी धुंधला",
             "REPEAT": "फिर से",
         }.get(option, option)
 
     if state in {"B", "C", "D", "L", "S", "T"}:
         return {
-            "CLEAR": "लाइन पढ़ी",
+            "CLEAR": "साफ",
             "BLURRY": "धुंधला",
             "REPEAT": "फिर से",
         }.get(option, option)
@@ -1061,8 +1139,8 @@ def _hindi_option_label(option: str, *, state: str, question: str) -> str:
 
     if state in {"P", "Q", "R"}:
         return {
-            "CLEAR": "अक्षर साफ",
-            "BLURRY": "अक्षर धुंधले",
+            "CLEAR": "साफ",
+            "BLURRY": "धुंधला",
             "REPEAT": "फिर से",
         }.get(option, option)
 
@@ -1327,12 +1405,13 @@ COMPACT_MATCH_ALIASES = {
             "exact": ["clear", "readable", "visible", "sharp", "crisp", "yes", "good", "fine", "okay", "ok", "clear hai", "साफ", "ठीक", "सही", "haan", "हाँ"],
             "phrases": [
                 "it is clear", "looks clear", "very clear", "fully clear", "i can read", "i can read it", "i can see it",
-                "readable hai", "साफ है", "साफ दिख रहा है", "दिख रहा है", "पढ़ पा रहा हूं", "padh pa raha", "saaf dikh raha",
+                "readable hai", "साफ है", "साफ दिख रहा है", "दिख रहा है", "पढ़ पा रहा हूं", "padh pa raha", "saaf dikh raha", "saf hai", "saf dikh raha",
                 "comfortable", "clear and comfortable", "आराम है",
                 "letters clear", "last line clear", "read last line", "got clearer", "became clearer",
                 "got better", "became better", "it got better", "yes it got better", "better now",
+                "क्लियर", "क्लियर है", "हाँ बेहतर है", "हां बेहतर है", "हाँ बेहतर", "हां बेहतर",
             ],
-            "fuzzy": ["bloody clear", "cleer", "clar", "cler", "clir", "klear", "kleer", "saaf", "saf", "theek", "thik", "पड़बारा हूं", "पढ़वाराएं", "here", "hear", "cheers", "cheer"],
+            "fuzzy": ["bloody clear", "cleer", "clar", "cler", "clir", "klear", "kleer", "saaf", "saf", "theek", "thik", "haanji", "पड़बारा हूं", "पढ़वाराएं", "here", "hear", "cheers", "cheer"],
         },
         "BLURRY": {
             "exact": ["blur", "blurry", "unclear", "hazy", "fuzzy", "bloody", "धुंधला", "ब्लर", "not clear", "no", "nahin", "nahi", "नहीं"],
@@ -1340,56 +1419,56 @@ COMPACT_MATCH_ALIASES = {
                 "it is blurry", "looks blurry", "slightly blurry", "not clear", "not that clear", "not very clear",
                 "its not clear", "it is not clear", "not so clear", "still not clear", "not sharp", "not readable",
                 "hard to read", "difficult to read", "nahi clear", "clear nahi",
-                "धुंधला है", "ब्लर है", "थोड़ा blur है", "साफ नहीं",
+                "धुंधला है", "ब्लर है", "थोड़ा blur है", "साफ नहीं", "थुला है", "हुलाहुला", "थुला थुला", "dhundla hai", "dhundhla hai",
                 "not comfortable", "eye strain", "still blurry", "not good", "not proper",
                 "letters blurry", "more blurry", "got more blurry", "became more blurry",
                 "not better", "did not get better", "didn't get better", "no better", "not improved",
             ],
-            "fuzzy": ["blurr", "blury", "blr", "bluddy", "bladi", "dhundla", "dhundhla", "bilari", "blari", "blairy", "larry"],
+            "fuzzy": ["blurr", "blury", "blr", "bluddy", "bladi", "dhundla", "dhundhla", "dhundlaa", "dhundhlaa", "bilari", "blari", "blairy", "larry", "thula", "thula hai", "hulahula"],
         },
         "REPEAT": {
             "exact": ["repeat", "again", "dubara", "दोबारा", "फिर", "again please", "repeat please"],
             "phrases": [
                 "say again", "please repeat", "repeat question", "repeat please", "again please",
-                "फिर से", "दोबारा बोलिए", "फिर से बोलिए", "question repeat", "repeat karo",
+                "फिर से", "दोबारा बोलिए", "फिर से बोलिए", "question repeat", "repeat karo", "फिरसे", "फिर से कहिए", "fir se", "firse", "phir se", "phirse",
                 "again say",
                 "not sure", "don't know", "cannot tell", "hard to tell", "समझ नहीं आ रहा",
                 "not readable", "cannot read", "can't read", "cannot see", "can't see", "कुछ नहीं दिख रहा", "nahi dikh raha",
             ],
-            "fuzzy": ["repit", "repeet", "dobara", "phis se", "fir se", "cant tell", "notshur"],
+            "fuzzy": ["repit", "repeet", "dobara", "phis se", "fir se", "firse", "phirse", "cant tell", "notshur"],
         },
     },
     "comparison_4way": {
         "ONE": {
             "exact": ["1", "one", "first", "ek", "एक"],
-            "phrases": ["option one", "first one", "number one", "one is better", "first is better", "first option", "एक बेहतर", "पहला"],
-            "fuzzy": ["won", "wan", "wahn", "on", "ik", "yek", "pahla"],
+            "phrases": ["option one", "first one", "number one", "one is better", "first is better", "first option", "एक बेहतर", "पहला", "pehla vikalp", "पहला विकल्प"],
+            "fuzzy": ["won", "wan", "wahn", "on", "ik", "yek", "pahla", "pehla"],
         },
         "TWO": {
             "exact": ["2", "two", "second", "do", "दो"],
-            "phrases": ["option two", "second one", "number two", "two is better", "second is better", "second option", "दो बेहतर", "दूसरा"],
-            "fuzzy": ["to", "too", "tu", "doo", "dusra"],
+            "phrases": ["option two", "second one", "number two", "two is better", "second is better", "second option", "दो बेहतर", "दूसरा", "dusra vikalp", "doosra vikalp", "दूसरा विकल्प"],
+            "fuzzy": ["to", "too", "tu", "doo", "dusra", "doosra"],
         },
         "SAME": {
             "exact": ["same", "equal", "both", "बराबर", "barabar", "दोनों", "dono"],
-            "phrases": ["both same", "both are same", "no difference", "about the same", "दोनों same", "कोई फर्क नहीं"],
-            "fuzzy": ["barabr"],
+            "phrases": ["both same", "both are same", "no difference", "about the same", "दोनों same", "कोई फर्क नहीं", "dono saman", "दोनों समान"],
+            "fuzzy": ["barabr", "saman"],
         },
         "REPEAT": {
             "exact": ["repeat", "again", "dubara", "दोबारा"],
-            "phrases": ["say again", "please repeat", "repeat please", "can't tell", "cannot tell", "hard to tell", "not sure", "समझ नहीं आ रहा"],
-            "fuzzy": ["repit", "repeet", "cant tell", "pata nai"],
+            "phrases": ["say again", "please repeat", "repeat please", "can't tell", "cannot tell", "hard to tell", "not sure", "समझ नहीं आ रहा", "फिर से", "फिरसे"],
+            "fuzzy": ["repit", "repeet", "cant tell", "pata nai", "fir se", "firse", "phirse"],
         },
     },
     "duochrome_4way": {
         "RED": {
             "exact": ["red", "लाल", "lal"],
-            "phrases": ["red side", "red is clearer", "red side clearer", "लाल साफ है"],
+            "phrases": ["red side", "red is clearer", "red side clearer", "लाल साफ है", "lal side", "laal side"],
             "fuzzy": ["redd", "laal"],
         },
         "GREEN": {
             "exact": ["green", "हरा", "hara"],
-            "phrases": ["green side", "green is clearer", "green side clearer", "हरा साफ है"],
+            "phrases": ["green side", "green is clearer", "green side clearer", "हरा साफ है", "hara side"],
             "fuzzy": ["grean", "haraa"],
         },
         "SAME": {
@@ -1399,20 +1478,20 @@ COMPACT_MATCH_ALIASES = {
         },
         "REPEAT": {
             "exact": ["repeat", "again", "dubara", "दोबारा"],
-            "phrases": ["say again", "please repeat", "can't tell", "cannot tell", "hard to tell", "समझ नहीं आ रहा"],
-            "fuzzy": ["repit", "cant tell"],
+            "phrases": ["say again", "please repeat", "can't tell", "cannot tell", "hard to tell", "समझ नहीं आ रहा", "फिर से", "फिरसे"],
+            "fuzzy": ["repit", "cant tell", "fir se", "firse", "phirse"],
         },
     },
     "distance_bino_4way": {
         "TOP": {
             "exact": ["top", "upper", "ऊपर", "upar"],
-            "phrases": ["top is clearer", "top better", "top line", "top line clearer", "ऊपर साफ है"],
+            "phrases": ["top is clearer", "top better", "top line", "top line clearer", "ऊपर साफ है", "upar line", "upar ki line"],
             "fuzzy": ["topp", "uparr"],
         },
         "BOTTOM": {
             "exact": ["bottom", "lower", "नीचे", "neeche"],
-            "phrases": ["bottom is clearer", "bottom better", "bottom line", "bottom line clearer", "नीचे साफ है"],
-            "fuzzy": ["botom", "niche"],
+            "phrases": ["bottom is clearer", "bottom better", "bottom line", "bottom line clearer", "नीचे साफ है", "neeche line", "neeche ki line"],
+            "fuzzy": ["botom", "niche", "neecha"],
         },
         "SAME": {
             "exact": ["same", "equal", "both", "बराबर", "barabar", "दोनों", "dono"],
@@ -1421,35 +1500,572 @@ COMPACT_MATCH_ALIASES = {
         },
         "REPEAT": {
             "exact": ["repeat", "again", "dubara", "दोबारा"],
-            "phrases": ["say again", "please repeat", "can't tell", "hard to tell", "समझ नहीं आ रहा"],
-            "fuzzy": ["repit", "cant tell"],
+            "phrases": ["say again", "please repeat", "can't tell", "hard to tell", "समझ नहीं आ रहा", "फिर से", "फिरसे"],
+            "fuzzy": ["repit", "cant tell", "fir se", "firse", "phirse"],
         },
     },
 }
 
 
+HINDI_CLEAR_VARIANTS = _merge_variant_groups(
+    ["साफ", "साफ है", "ठीक", "ठीक है", "सही", "सही है", "हाँ", "हाँ जी"],
+    _expand_with_suffixes(
+        ["saaf", "saf", "safi", "saif", "safe", "saff", "saafh", "safh", "saafi", "safee", "saph", "sahf"],
+        ["hai", "he", "hey", "h", "hai ji", "he ji", "ji"],
+    ),
+    _expand_with_suffixes(
+        ["haan", "han", "haan ji", "han ji", "haanji", "hanji", "haan जी", "han जी"],
+        ["", "please"],
+    ),
+    _expand_with_suffixes(
+        ["theek", "thik", "thek", "tik", "teek", "sahi", "sai"],
+        ["hai", "he", "hey", "h", "ji"],
+    ),
+    [
+        "saaf dikh raha",
+        "saf dikh raha",
+        "saaf dikhraha",
+        "saf dikhraha",
+        "saaf nazar aa raha",
+        "saf nazar aa raha",
+        "clear hai",
+        "readable hai",
+        "ab saaf hai",
+        "ab saf hai",
+        "bilkul saaf",
+        "ekdum saaf",
+    ],
+)
+
+HINDI_BLURRY_VARIANTS = _merge_variant_groups(
+    ["धुंधला", "धुंधला है", "धुंदला", "धुन्दला", "ब्लर", "ब्लर है", "नहीं", "साफ नहीं"],
+    _expand_with_suffixes(
+        [
+            "dhundla", "dhundhla", "dundla", "dundhla", "dhoondla", "dhoondhla",
+            "dhudla", "dhudhla", "dudla", "dudhla", "dundle", "jule", "jula",
+            "jhula", "thula", "hulahula", "hula hula", "blurry", "blur", "blurr", "blari",
+        ],
+        ["hai", "he", "hey", "h", "hain", "sa"],
+    ),
+    [
+        "abhi bhi dhundla",
+        "abhi bhi dhundhla",
+        "abhi bhi blurry",
+        "saaf nahi",
+        "saf nahi",
+        "nahi saaf",
+        "not clear",
+        "blur hai",
+        "blurry hai",
+        "nahi dikh raha",
+        "abhi dhundla hai",
+        "bilkul dhundla",
+        "ekdum dhundla",
+        "still dhundla",
+        "still blurry",
+        "no clear",
+        "nahi hua better",
+    ],
+    _expand_with_suffixes(["nahi", "nahin", "nhi", "nai", "na"], ["", "ji", "hai"]),
+)
+
+HINDI_REPEAT_VARIANTS = _merge_variant_groups(
+    ["फिर से", "फिरसे", "दोबारा", "repeat", "again"],
+    _expand_with_suffixes(
+        [
+            "fir se", "phir se", "firse", "phirse", "firsey", "phirsey",
+            "fir say", "phir say", "fir see", "phir see", "repeat", "again",
+            "dobara", "dobaara", "dobaraa", "doobara", "dubara", "duwara",
+        ],
+        ["boliye", "bolo", "kahiye", "please", "kar do", "again"],
+    ),
+    [
+        "samajh nahi aaya",
+        "samajh nahi aya",
+        "samaj nahi aaya",
+        "phir se kahiye",
+        "phirse boliye",
+        "fir se boliye",
+        "dobara boliye",
+        "dubara boliye",
+        "ek baar aur",
+        "once more",
+        "repeat please",
+        "again please",
+    ],
+)
+
+HINDI_ONE_VARIANTS = _merge_variant_groups(
+    ["पहला", "पहला विकल्प"],
+    _expand_with_suffixes(
+        ["pehla", "pahla", "pahila", "pehlaa", "phela", "pela", "pehला"],
+        ["option", "vikalp", "wala", "better", "clear", "saaf", "number one", "option hai"],
+    ),
+    [
+        "option one",
+        "first option",
+        "pehla better hai",
+        "pehla zyada saaf",
+        "pehla clear hai",
+        "pehla wala",
+        "pahla vikalp",
+        "pahla option",
+    ],
+)
+
+HINDI_TWO_VARIANTS = _merge_variant_groups(
+    ["दूसरा", "दूसरा विकल्प", "दो"],
+    _expand_with_suffixes(
+        ["dusra", "doosra", "dosra", "doosra", "duusra", "dugra", "do"],
+        ["option", "vikalp", "wala", "better", "clear", "saaf", "number two", "option hai"],
+    ),
+    [
+        "option two",
+        "second option",
+        "dusra better hai",
+        "dusra zyada saaf",
+        "dusra clear hai",
+        "dusra wala",
+        "doosra vikalp",
+        "doosra option",
+    ],
+)
+
+HINDI_SAME_VARIANTS = _merge_variant_groups(
+    ["दोनों", "दोनों समान", "बराबर"],
+    [
+        "dono",
+        "dono same",
+        "dono saman",
+        "dono barabar",
+        "barabar",
+        "same hai",
+        "same same",
+        "koi fark nahi",
+        "no difference",
+        "ek jaisa",
+        "bilkul same",
+        "lagbhag same",
+        "barabar hai",
+        "dono ek jaisa",
+        "dono bilkul same",
+        "same same",
+        "same hi hai",
+        "same lag raha",
+        "saman hai",
+        "bilkul barabar",
+        "almost same",
+        "kafi same",
+        "same jaisa",
+        "ekdam same",
+        "dono hi same",
+        "dono hi barabar",
+        "dono equal",
+        "equal hai",
+        "ek jaisi clarity",
+        "same clarity",
+    ],
+    _expand_with_templates(
+        ["dono", "both", "ye dono", "donon"],
+        [
+            "{root} same",
+            "{root} saman",
+            "{root} barabar",
+            "{root} same hai",
+            "{root} ek jaisa",
+            "{root} bilkul same",
+            "{root} equal",
+            "{root} equal hai",
+            "{root} same lag raha",
+        ],
+    ),
+)
+
+HINDI_RED_VARIANTS = _merge_variant_groups(
+    ["लाल", "लाल साइड"],
+    _expand_with_suffixes(
+        ["lal", "laal", "laalh", "laal side", "red", "rad"],
+        ["side", "wala", "better", "saaf", "clear", "clearer", "zyada saaf", "side hai", "zyaada clear"],
+    ),
+    [
+        "lal side better",
+        "laal side clear",
+        "red side better",
+        "red side clear",
+        "lal better hai",
+        "laal better hai",
+        "lal zyada saaf",
+        "laal zyada saaf",
+        "lal clear hai",
+        "laal clear hai",
+        "red clearer hai",
+        "red hi better",
+        "lal hi better",
+    ],
+)
+
+HINDI_GREEN_VARIANTS = _merge_variant_groups(
+    ["हरा", "हरा साइड"],
+    _expand_with_suffixes(
+        ["hara", "haraa", "hara side", "har", "harr", "hari", "हरी", "हरा", "green", "grean"],
+        ["side", "wala", "better", "saaf", "clear", "clearer", "zyada saaf", "side hai", "zyaada clear"],
+    ),
+    [
+        "hara side better",
+        "green side clear",
+        "green side better",
+        "hara side zyada saaf",
+        "hara better hai",
+        "green better hai",
+        "hara clear hai",
+        "green clear hai",
+        "hara zyada saaf",
+        "green zyada saaf",
+        "green clearer hai",
+        "green hi better",
+        "hara hi better",
+        "har side",
+        "har clear",
+        "hari side",
+    ],
+)
+
+HINDI_TOP_VARIANTS = _merge_variant_groups(
+    ["ऊपर", "ऊपर की लाइन"],
+    _expand_with_suffixes(
+        ["upar", "uparr", "upper", "top", "top line", "upar line"],
+        ["line", "ki line", "wala", "better", "saaf", "clear", "clearer", "zyada saaf", "line hai", "zyaada clear"],
+    ),
+    [
+        "upar line better",
+        "top line clear",
+        "upar ki line better",
+        "top zyada saaf",
+        "upar better hai",
+        "top better hai",
+        "upar clear hai",
+        "top clear hai",
+        "upar wali line",
+        "top wali line",
+        "upar hi better",
+        "top hi better",
+        "upper line better",
+    ],
+)
+
+HINDI_BOTTOM_VARIANTS = _merge_variant_groups(
+    ["नीचे", "नीचे की लाइन"],
+    _expand_with_suffixes(
+        ["neeche", "niche", "neche", "lower", "bottom"],
+        ["line", "ki line", "wala", "better", "saaf", "clear", "clearer", "zyada saaf", "line hai"],
+    ),
+    ["neeche line better", "bottom line clear", "neeche ki line better", "bottom zyada saaf"],
+)
+
+
+ENGLISH_CLEAR_VARIANTS = _merge_variant_groups(
+    [
+        "clear", "clear now", "clearly", "readable", "readable now", "visible", "visible now",
+        "sharp", "sharp now", "crisp", "good", "good now", "fine", "fine now", "okay", "ok",
+        "yes", "yeah", "yep", "yup", "all clear", "crystal clear",
+    ],
+    [
+        "it's clear", "it is clear", "looks clear", "looks good", "looks sharp", "looks readable",
+        "i can read", "i can read it", "i can read now", "i can see it", "i can see now",
+        "got better", "better now", "much better", "more clear", "fully clear", "very clear",
+        "all letters clear", "everything clear", "everything is clear", "easy to read",
+        "comfortable now", "perfectly clear", "super clear", "can read this", "can read line",
+        "yes better", "yes it is better", "yes clearer", "yes it is clear", "looks fine",
+    ],
+    ["clearenough", "allclear", "readablenow", "visibleenough"],
+)
+
+ENGLISH_BLURRY_VARIANTS = _merge_variant_groups(
+    [
+        "blur", "blurry", "blurred", "unclear", "hazy", "fuzzy", "not clear", "no", "nope",
+        "still blurry", "blurrier", "more blurry",
+    ],
+    [
+        "it is blurry", "it's blurry", "looks blurry", "still not clear", "hard to read",
+        "difficult to read", "not readable", "not visible", "not sharp", "not crisp",
+        "got worse", "more blurry now", "became more blurry", "not better", "no better",
+        "did not get better", "didn't get better", "not improved", "out of focus",
+        "still not readable", "still not visible", "cannot read clearly", "too blurry",
+        "blurry now", "worse now", "still fuzzy", "too hazy", "cannot read this",
+    ],
+    ["notclear", "stillblurry", "moreblurry", "blurrynow"],
+)
+
+ENGLISH_REPEAT_VARIANTS = _merge_variant_groups(
+    [
+        "repeat", "again", "once more", "one more time", "say again", "repeat please",
+        "please repeat", "come again", "pardon", "repeat that", "again please",
+    ],
+    [
+        "can you repeat", "please say again", "say that again", "repeat the question",
+        "i am not sure", "not sure", "can't tell", "cannot tell", "hard to tell",
+        "too close to tell", "no idea", "say again please", "repeat it", "tell me again",
+    ],
+    ["repeatplease", "sayagain", "bothsameagain"],
+)
+
+ENGLISH_ONE_VARIANTS = _merge_variant_groups(
+    [
+        "one", "1", "first", "option one", "option 1", "first option", "first one",
+        "number one", "one is better", "first is better", "one better", "first better",
+    ],
+    [
+        "one is clearer", "first is clearer", "one looks better", "first looks better",
+        "i choose one", "i prefer one", "going with one", "one is sharper",
+        "first is sharper", "one is more clear", "first option better", "one clearer",
+        "first clearer", "option one better", "first one better",
+    ],
+    ["firstoption", "optionone", "onebetter", "firstbetter"],
+)
+
+ENGLISH_TWO_VARIANTS = _merge_variant_groups(
+    [
+        "two", "2", "second", "option two", "option 2", "second option", "second one",
+        "number two", "two is better", "second is better", "two better", "second better",
+    ],
+    [
+        "two is clearer", "second is clearer", "two looks better", "second looks better",
+        "i choose two", "i prefer two", "going with two", "two is sharper",
+        "second is sharper", "two is more clear", "second option better", "two clearer",
+        "second clearer", "option two better", "second one better",
+    ],
+    ["secondoption", "optiontwo", "twobetter", "secondbetter"],
+)
+
+ENGLISH_SAME_VARIANTS = _merge_variant_groups(
+    [
+        "same", "both", "equal", "similar", "both same", "both are same",
+        "no difference", "about the same", "identical", "same same",
+    ],
+    [
+        "they are the same", "they look the same", "both look same", "both look the same",
+        "both are similar", "equally clear", "equally blurry", "pretty much same",
+        "looks identical", "almost the same", "still the same", "both seem same",
+        "both equal", "same on both", "same for both",
+    ],
+    ["bothsame", "botharesame", "lookssame", "samesame", "bothlooksame", "bothlooksthesame", "bootsame", "butsame"],
+)
+
+ENGLISH_RED_VARIANTS = _merge_variant_groups(
+    ["red", "red side", "red one", "reddish side"],
+    [
+        "red is better", "red is clearer", "red looks better", "red looks clearer",
+        "red side better", "red side clearer", "red is darker", "red looks darker",
+        "red is sharper", "red sharper", "red side sharper", "more red", "red clearer",
+    ],
+    ["redside", "readside", "redclearer"],
+)
+
+ENGLISH_GREEN_VARIANTS = _merge_variant_groups(
+    ["green", "green side", "green one", "greenish side"],
+    [
+        "green is better", "green is clearer", "green looks better", "green looks clearer",
+        "green side better", "green side clearer", "green is darker", "green looks darker",
+        "green is sharper", "green sharper", "green side sharper", "more green", "green clearer",
+    ],
+    ["greenside", "greenclearer", "greenone"],
+)
+
+ENGLISH_TOP_VARIANTS = _merge_variant_groups(
+    ["top", "top line", "upper", "upper line"],
+    [
+        "top is better", "top is clearer", "top looks better", "top looks clearer",
+        "top line better", "top line clearer", "upper is better", "upper line better",
+        "top sharper", "top line sharper", "upper looks clearer", "top clearer",
+    ],
+    ["topline", "upperline", "topclearer"],
+)
+
+ENGLISH_BOTTOM_VARIANTS = _merge_variant_groups(
+    ["bottom", "bottom line", "lower", "lower line"],
+    [
+        "bottom is better", "bottom is clearer", "bottom looks better", "bottom looks clearer",
+        "bottom line better", "bottom line clearer", "lower is better", "lower line better",
+        "bottom sharper", "bottom line sharper", "lower looks clearer", "bottom clearer",
+    ],
+    ["bottomline", "lowerline", "bottomclearer"],
+)
+
+
+HINDI_VARIANT_LIBRARY = {
+    "CLEAR": HINDI_CLEAR_VARIANTS,
+    "BLURRY": HINDI_BLURRY_VARIANTS,
+    "REPEAT": HINDI_REPEAT_VARIANTS,
+    "ONE": HINDI_ONE_VARIANTS,
+    "TWO": HINDI_TWO_VARIANTS,
+    "SAME": HINDI_SAME_VARIANTS,
+    "RED": HINDI_RED_VARIANTS,
+    "GREEN": HINDI_GREEN_VARIANTS,
+    "TOP": HINDI_TOP_VARIANTS,
+    "BOTTOM": HINDI_BOTTOM_VARIANTS,
+}
+
+ENGLISH_VARIANT_LIBRARY = {
+    "CLEAR": ENGLISH_CLEAR_VARIANTS,
+    "BLURRY": ENGLISH_BLURRY_VARIANTS,
+    "REPEAT": ENGLISH_REPEAT_VARIANTS,
+    "ONE": ENGLISH_ONE_VARIANTS,
+    "TWO": ENGLISH_TWO_VARIANTS,
+    "SAME": ENGLISH_SAME_VARIANTS,
+    "RED": ENGLISH_RED_VARIANTS,
+    "GREEN": ENGLISH_GREEN_VARIANTS,
+    "TOP": ENGLISH_TOP_VARIANTS,
+    "BOTTOM": ENGLISH_BOTTOM_VARIANTS,
+}
+
+
+def _extend_compact_hindi_matcher_variants() -> None:
+    corrections = FSM_AUDIO_RESPONSE_LIBRARY_V1["matching_pipeline"]["normalization"]["common_asr_corrections"]
+    canonical_targets = {
+        "CLEAR": "saaf hai",
+        "BLURRY": "dhundla hai",
+        "REPEAT": "fir se",
+        "ONE": "pehla",
+        "TWO": "dusra",
+        "SAME": "dono saman",
+        "RED": "lal",
+        "GREEN": "hara",
+        "TOP": "upar",
+        "BOTTOM": "neeche",
+    }
+
+    alias_targets = {
+        ("clarity_3way", "CLEAR"): HINDI_CLEAR_VARIANTS,
+        ("clarity_3way", "BLURRY"): HINDI_BLURRY_VARIANTS,
+        ("clarity_3way", "REPEAT"): HINDI_REPEAT_VARIANTS,
+        ("comparison_4way", "ONE"): HINDI_ONE_VARIANTS,
+        ("comparison_4way", "TWO"): HINDI_TWO_VARIANTS,
+        ("comparison_4way", "SAME"): HINDI_SAME_VARIANTS,
+        ("comparison_4way", "REPEAT"): HINDI_REPEAT_VARIANTS,
+        ("duochrome_4way", "RED"): HINDI_RED_VARIANTS,
+        ("duochrome_4way", "GREEN"): HINDI_GREEN_VARIANTS,
+        ("duochrome_4way", "SAME"): HINDI_SAME_VARIANTS,
+        ("duochrome_4way", "REPEAT"): HINDI_REPEAT_VARIANTS,
+        ("distance_bino_4way", "TOP"): HINDI_TOP_VARIANTS,
+        ("distance_bino_4way", "BOTTOM"): HINDI_BOTTOM_VARIANTS,
+        ("distance_bino_4way", "SAME"): HINDI_SAME_VARIANTS,
+        ("distance_bino_4way", "REPEAT"): HINDI_REPEAT_VARIANTS,
+    }
+
+    for label, variants in HINDI_VARIANT_LIBRARY.items():
+        canonical = canonical_targets[label]
+        for variant in variants:
+            if variant and variant != canonical:
+                corrections.setdefault(variant, canonical)
+
+    for (family, label), variants in alias_targets.items():
+        alias_cfg = COMPACT_MATCH_ALIASES[family][label]
+        alias_cfg["exact"] = _merge_variant_groups(alias_cfg.get("exact", []), variants)
+
+    english_alias_targets = {
+        ("clarity_3way", "CLEAR"): ENGLISH_CLEAR_VARIANTS,
+        ("clarity_3way", "BLURRY"): ENGLISH_BLURRY_VARIANTS,
+        ("clarity_3way", "REPEAT"): ENGLISH_REPEAT_VARIANTS,
+        ("comparison_4way", "ONE"): ENGLISH_ONE_VARIANTS,
+        ("comparison_4way", "TWO"): ENGLISH_TWO_VARIANTS,
+        ("comparison_4way", "SAME"): ENGLISH_SAME_VARIANTS,
+        ("comparison_4way", "REPEAT"): ENGLISH_REPEAT_VARIANTS,
+        ("duochrome_4way", "RED"): ENGLISH_RED_VARIANTS,
+        ("duochrome_4way", "GREEN"): ENGLISH_GREEN_VARIANTS,
+        ("duochrome_4way", "SAME"): ENGLISH_SAME_VARIANTS,
+        ("duochrome_4way", "REPEAT"): ENGLISH_REPEAT_VARIANTS,
+        ("distance_bino_4way", "TOP"): ENGLISH_TOP_VARIANTS,
+        ("distance_bino_4way", "BOTTOM"): ENGLISH_BOTTOM_VARIANTS,
+        ("distance_bino_4way", "SAME"): ENGLISH_SAME_VARIANTS,
+        ("distance_bino_4way", "REPEAT"): ENGLISH_REPEAT_VARIANTS,
+    }
+
+    english_canonical_targets = {
+        "CLEAR": "clear",
+        "BLURRY": "blurry",
+        "REPEAT": "repeat",
+        "ONE": "first option",
+        "TWO": "second option",
+        "SAME": "both same",
+        "RED": "red side",
+        "GREEN": "green side",
+        "TOP": "top line",
+        "BOTTOM": "bottom line",
+    }
+    for label, variants in ENGLISH_VARIANT_LIBRARY.items():
+        canonical = english_canonical_targets[label]
+        for variant in variants:
+            if variant and variant != canonical:
+                corrections.setdefault(variant, canonical)
+
+    for (family, label), variants in english_alias_targets.items():
+        alias_cfg = COMPACT_MATCH_ALIASES[family][label]
+        alias_cfg["exact"] = _merge_variant_groups(alias_cfg.get("exact", []), variants)
+
+
+_extend_compact_hindi_matcher_variants()
+
+
 COARSE_RESPONSE_STATES = {"B", "C", "D", "L"}
 
 
+def _question_expects_line_reading(*, state: str, question: Optional[str], language: Optional[str] = None) -> bool:
+    if language == "hi" and state in {"B", "C", "D", "L"}:
+        return False
+    prompt = str(question or "").strip().lower()
+    if state in {"C", "L"}:
+        return True
+    if state not in {"B", "D"}:
+        return False
+    if not prompt:
+        return True
+    if (
+        "better now" in prompt
+        or "yes or no" in prompt
+        or "हाँ या नहीं" in prompt
+        or "ha ya nahi" in prompt
+        or "बेहतर" in prompt
+    ):
+        return False
+    return True
+
+
+def _is_line_clarity_phase(*, state: str, question: Optional[str]) -> bool:
+    if state in {"C", "L"}:
+        return True
+    if state not in {"B", "D"}:
+        return False
+    prompt = str(question or "").strip().lower()
+    if (
+        "better now" in prompt
+        or "yes or no" in prompt
+        or "हाँ या नहीं" in prompt
+        or "ha ya nahi" in prompt
+        or "बेहतर" in prompt
+    ):
+        return False
+    return True
+
+
 CHART_LETTER_ALIASES = {
-    "A": {"a", "ay", "eh"},
-    "B": {"b", "bee", "be"},
-    "C": {"c", "see", "cee", "sea"},
-    "D": {"d", "dee", "di"},
-    "E": {"e", "ee"},
-    "F": {"f", "eff"},
-    "G": {"g", "gee", "ji"},
-    "H": {"h", "aitch", "etch"},
-    "K": {"k", "kay"},
-    "L": {"l", "ell", "el"},
-    "N": {"n", "en"},
-    "O": {"o", "oh"},
-    "P": {"p", "pee"},
-    "R": {"r", "are", "ar"},
-    "S": {"s", "ess"},
-    "T": {"t", "tee", "ti"},
-    "V": {"v", "vee", "we"},
-    "Z": {"z", "zee", "zed"},
+    "A": {"a", "ay", "eh", "ए"},
+    "B": {"b", "bee", "be", "बी"},
+    "C": {"c", "see", "cee", "sea", "सी"},
+    "D": {"d", "dee", "di", "डी"},
+    "E": {"e", "ee", "ई"},
+    "F": {"f", "eff", "एफ"},
+    "G": {"g", "gee", "ji", "जी"},
+    "H": {"h", "aitch", "etch", "एच"},
+    "K": {"k", "kay", "के"},
+    "L": {"l", "ell", "el", "एल"},
+    "N": {"n", "en", "एन"},
+    "O": {"o", "oh", "ओ"},
+    "P": {"p", "pee", "पी"},
+    "R": {"r", "are", "ar", "आर"},
+    "S": {"s", "ess", "एस"},
+    "T": {"t", "tee", "ti", "टी"},
+    "V": {"v", "vee", "we", "वी"},
+    "Z": {"z", "zee", "zed", "जेड", "ज़ेड"},
 }
 
 
@@ -1770,8 +2386,8 @@ def _english_option_label(option: str, *, state: str, question: str) -> str:
 
     if state in {"P", "Q", "R"}:
         return {
-            "CLEAR": "Letters clear",
-            "BLURRY": "Letters blurry",
+            "CLEAR": "Clear",
+            "BLURRY": "Blurry",
             "REPEAT": "Repeat",
         }.get(option, option)
 
@@ -2624,6 +3240,13 @@ def _compact_clarity_intent_match(normalized_text: str) -> Optional[str]:
     if short_utterance and token_set & {"no", "nahin", "nahi", "नहीं", "nope"}:
         return "BLURRY"
 
+    if re.search(r"(हाँ|हां|haan)\s+बेहतर", normalized_text):
+        return "CLEAR"
+    if re.search(r"(नहीं|nahin|nahi)\s+बेहतर", normalized_text):
+        return "BLURRY"
+    if "क्लियर" in normalized_text:
+        return "CLEAR"
+
     if any(re.search(pattern, normalized_text) for pattern in comparative_blurry_patterns):
         return "BLURRY"
 
@@ -2642,6 +3265,63 @@ def _compact_clarity_intent_match(normalized_text: str) -> Optional[str]:
     if any(re.search(pattern, normalized_text) for pattern in clear_patterns):
         return "CLEAR"
 
+    return None
+
+
+def _line_phase_clarity_override(*, transcript: str, normalized_text: str) -> Optional[str]:
+    combined = f"{normalized_text} {str(transcript or '').lower()}".strip()
+    if not combined:
+        return None
+
+    clear_cues = (
+        " clear",
+        " readable",
+        " visible",
+        " sharp",
+        " crisp",
+        " saaf",
+        " saf",
+        "साफ",
+        "ठीक",
+        "सही",
+    )
+    blurry_cues = (
+        " blurry",
+        " blur",
+        " fuzzy",
+        " hazy",
+        " unclear",
+        " dhund",
+        " dhundla",
+        " dhundhla",
+        "धुंध",
+        "धुंद",
+        "धुँध",
+        "ब्लर",
+        "thula",
+        "hulahula",
+        " not clear",
+    )
+    repeat_cues = (
+        " repeat",
+        " again",
+        " fir se",
+        " फिर से",
+        " फिरसे",
+        " दोबारा",
+        " dobara",
+    )
+
+    has_clear = any(cue in combined for cue in clear_cues)
+    has_blurry = any(cue in combined for cue in blurry_cues)
+    has_repeat = any(cue in combined for cue in repeat_cues)
+
+    if has_blurry and has_clear:
+        return "BLURRY"
+    if has_repeat:
+        return "REPEAT"
+    if has_blurry:
+        return "BLURRY"
     return None
 
 
@@ -2839,6 +3519,8 @@ def match_response(
     state: str,
     available_options: list[str],
     stimulus_letters: Optional[str] = None,
+    question: Optional[str] = None,
+    language: Optional[str] = None,
 ) -> MatchResult:
     compact_cfg = _compact_state_match_config(state)
     if compact_cfg is not None:
@@ -2918,10 +3600,26 @@ def match_response(
             if token_label is not None:
                 return build_compact_result(token_label, 0.93, "token_intent")
         elif family in {"coarse_clarity", "near_clarity", "near_bino_3way"}:
+            if _is_line_clarity_phase(state=state, question=question):
+                override_label = _line_phase_clarity_override(
+                    transcript=transcript,
+                    normalized_text=normalized_text,
+                )
+                if override_label is not None:
+                    confidence = 0.96 if override_label != "REPEAT" else 0.95
+                    return build_compact_result(override_label, confidence, "line_phase_clarity_override")
             clarity_label = _compact_clarity_intent_match(normalized_text)
             if clarity_label is not None:
                 confidence = 0.96 if clarity_label != "REPEAT" else 0.95
                 return build_compact_result(clarity_label, confidence, "clarity_intent")
+            if _question_expects_line_reading(state=state, question=question, language=language):
+                letter_label, letter_confidence, letter_method = _match_chart_letters(
+                    transcript=transcript,
+                    normalized_text=normalized_text,
+                    stimulus_letters=stimulus_letters,
+                )
+                if letter_label is not None:
+                    return build_compact_result(letter_label, letter_confidence, letter_method)
 
         matched_label, matched_confidence, matched_method = _compact_exact_phrase_fuzzy_match(
             normalized_text=normalized_text,
@@ -2931,7 +3629,7 @@ def match_response(
         if matched_label is not None:
             return build_compact_result(matched_label, matched_confidence, matched_method)
 
-        if state in COARSE_RESPONSE_STATES:
+        if state in COARSE_RESPONSE_STATES and _question_expects_line_reading(state=state, question=question, language=language):
             letter_label, letter_confidence, letter_method = _match_chart_letters(
                 transcript=transcript,
                 normalized_text=normalized_text,
