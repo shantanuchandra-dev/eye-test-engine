@@ -50,6 +50,12 @@ const HINDI_VOICE_PREFERENCE_ORDER = [
   'Google हिन्दी',
 ];
 
+function isSafariBrowser() {
+  const ua = navigator.userAgent || '';
+  const vendor = navigator.vendor || '';
+  return /Safari/i.test(ua) && /Apple/i.test(vendor) && !/Chrome|CriOS|Edg|OPR|Firefox|FxiOS/i.test(ua);
+}
+
 function scoreVoiceForTTS(voice, lang = 'en') {
   if (!voice) return Number.NEGATIVE_INFINITY;
 
@@ -120,23 +126,6 @@ function getTTSProfile(profileKey = 'default', lang = 'en') {
   return profiles[profileKey] || profiles.default;
 }
 
-function ensureSpeechEnding(text) {
-  const trimmed = (text || '').replace(/\s+/g, ' ').trim();
-  if (!trimmed) return '';
-  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
-}
-
-function joinSpeechParts(...parts) {
-  const cleaned = parts
-    .map((part, index) => {
-      const normalized = (part || '').replace(/\s+/g, ' ').trim();
-      if (!normalized) return '';
-      return index < parts.length - 1 ? ensureSpeechEnding(normalized) : normalized;
-    })
-    .filter(Boolean);
-  return cleaned.join(' ').replace(/\s+/g, ' ').trim();
-}
-
 function getQuestionTTSProfile(data) {
   if (!data) return 'default';
   if (['B', 'C', 'D', 'L'].includes(data.state)) return 'reading';
@@ -144,37 +133,38 @@ function getQuestionTTSProfile(data) {
   return 'default';
 }
 
-function buildSpokenQuestionText(data, localizedQuestion, prefacePrompt = '') {
-  let spoken = (localizedQuestion || '').replace(/\s+/g, ' ').trim();
-  const lang = sessionLanguage || 'en';
+function getStaticQuestionSpeech(localizedQuestion) {
+  return (localizedQuestion || '').replace(/\s+/g, ' ').trim();
+}
 
-  if (lang !== 'hi') {
-    if (/^(please )?read the line\.$/i.test(spoken) || /^last line only\.$/i.test(spoken)) {
-      spoken = 'Please read the line.';
-    } else if (/^can you read the line now, or is it still blurry\?$/i.test(spoken)) {
-      spoken = 'Can you read the line now, or is it still blurry?';
-    } else if (/^read it now, or is it still blurry\?$/i.test(spoken)) {
-      spoken = 'Read it now, or is it still blurry?';
-    } else if (/^did it get better now\? say yes or no\.$/i.test(spoken)) {
-      spoken = 'Did that look better now? Say yes or no.';
-    } else if (/^better now, yes or no\?$/i.test(spoken)) {
-      spoken = 'Better now? Say yes or no.';
-    } else if (/^first, second, or both same\?$/i.test(spoken) || /^first option, second option, or both same\?$/i.test(spoken) || /^first option, second option, both same, or repeat\?$/i.test(spoken)) {
-      spoken = 'Which looks clearer: first option, second option, both same, or repeat?';
-    } else if (/^green side, red side, or both same\?$/i.test(spoken)) {
-      spoken = 'Which side looks clearer: green side, red side, or both same?';
-    } else if (/^bottom line, top line, or both same\?$/i.test(spoken)) {
-      spoken = 'Which line looks clearer: bottom line, top line, or both same?';
-    } else if (/^clear or blurry\?$/i.test(spoken)) {
-      spoken = 'Do the letters look clear, or blurry?';
-    } else if (/^please compare the two choices\./i.test(spoken)) {
-      spoken = spoken.replace('Which one is clearer or sharper?', 'Which one looks clearer or sharper?');
-    } else if (/^please compare the green and red sides\./i.test(spoken)) {
-      spoken = spoken.replace('Letters on which side look sharper and darker?', 'Which side looks sharper and darker?');
-    }
+function getStaticFlipPrompt(stage) {
+  if (sessionLanguage === 'hi') {
+    if (stage === 'flip1') return 'यह पहला विकल्प है। कृपया ध्यान से देखिए।';
+    return 'यह दूसरा विकल्प है। पहला विकल्प, दूसरा विकल्प, दोनों समान, या फिर से कहिए।';
   }
+  if (stage === 'flip1') return 'This is the first option. Please observe carefully.';
+  return 'This is the second option. First option, second option, both same, or repeat.';
+}
 
-  return joinSpeechParts(prefacePrompt, spoken);
+function getStaticTerminalSpeech({ isEscalate, compareRan, acceptedAchieved }) {
+  if (isEscalate) {
+    return sessionLanguage === 'hi'
+      ? 'इस टेस्ट को ऑप्टोमेट्रिस्ट की समीक्षा की आवश्यकता है।'
+      : 'This test requires optometrist review.';
+  }
+  if (compareRan && acceptedAchieved) {
+    return sessionLanguage === 'hi'
+      ? 'बधाई हो। आपका आई टेस्ट पूरा हो गया है। आपने पी जी पी की तुलना में प्राप्त आर एक्स को पसंद किया। धन्यवाद।'
+      : 'Congratulations. Your eye test is complete. You preferred the achieved prescription over the PGP. Thank you.';
+  }
+  if (compareRan) {
+    return sessionLanguage === 'hi'
+      ? 'बधाई हो। आपका आई टेस्ट पूरा हो गया है। आपने पी जी पी को पसंद किया। धन्यवाद।'
+      : 'Congratulations. Your eye test is complete. You preferred the PGP. Thank you.';
+  }
+  return sessionLanguage === 'hi'
+    ? 'बधाई हो! आपका आई टेस्ट पूरा हो गया है। धन्यवाद।'
+    : 'Congratulations. Your eye test is complete. Thank you.';
 }
 
 function populateTTSVoiceDropdown() {
@@ -260,6 +250,8 @@ function showComingSoonToast() {
 }
 
 function speakQuestion(text, langOverride, onEnd, profileKey = 'default') {
+  const ttsSessionId = ++_ttsSessionId;
+
   if (!ttsEnabled || !('speechSynthesis' in window)) {
     console.log('[TTS] Disabled or unavailable');
     if (onEnd) onEnd();
@@ -303,9 +295,13 @@ function speakQuestion(text, langOverride, onEnd, profileKey = 'default') {
       }
     }
 
+    const startupGuardMs = lang === 'hi' ? 2500 : 800;
+    let speechStarted = false;
+
     // Guard against double-fire (cancel() on a previous utterance can fire onend)
     let callbackFired = false;
     const fireOnEnd = () => {
+      if (ttsSessionId !== _ttsSessionId) return;
       if (callbackFired) return;
       callbackFired = true;
       clearInterval(keepAlive);
@@ -313,9 +309,22 @@ function speakQuestion(text, langOverride, onEnd, profileKey = 'default') {
       if (onEnd) onEnd();
     };
 
-    utterance.onstart = () => { console.log('[TTS] Started speaking'); clearTimeout(startupGuard); };
-    utterance.onend = () => { console.log('[TTS] Finished speaking'); fireOnEnd(); };
-    utterance.onerror = (e) => { console.error('[TTS] Error:', e.error); fireOnEnd(); };
+    utterance.onstart = () => {
+      if (ttsSessionId !== _ttsSessionId) return;
+      speechStarted = true;
+      console.log('[TTS] Started speaking');
+      clearTimeout(startupGuard);
+    };
+    utterance.onend = () => {
+      if (ttsSessionId !== _ttsSessionId) return;
+      console.log('[TTS] Finished speaking');
+      fireOnEnd();
+    };
+    utterance.onerror = (e) => {
+      if (ttsSessionId !== _ttsSessionId) return;
+      console.error('[TTS] Error:', e.error);
+      fireOnEnd();
+    };
 
     speechSynthesis.speak(utterance);
 
@@ -327,13 +336,14 @@ function speakQuestion(text, langOverride, onEnd, profileKey = 'default') {
     }, 10000);
 
     // Safety fallback: if the browser silently blocks TTS (autoplay policy),
-    // neither onend nor onerror fires. Fire the callback after 800ms if speech never started.
+    // neither onend nor onerror fires.
     const startupGuard = setTimeout(() => {
-      if (!speechSynthesis.speaking) {
-        console.warn('[TTS] Speech did not start within 800ms — firing callback as fallback.');
+      if (ttsSessionId !== _ttsSessionId) return;
+      if (!speechStarted && !speechSynthesis.speaking && !speechSynthesis.pending) {
+        console.warn(`[TTS] Speech did not start within ${startupGuardMs}ms — firing callback as fallback.`);
         fireOnEnd();
       }
-    }, 800);
+    }, startupGuardMs);
   };
 
   // Voices may not be loaded yet — wait with timeout
@@ -357,6 +367,35 @@ function speakQuestion(text, langOverride, onEnd, profileKey = 'default') {
     };
     setTimeout(waitForVoices, 50);
   }
+}
+
+let _spokenFlowGeneration = 0;
+
+function invalidateSpokenFlow() {
+  _spokenFlowGeneration += 1;
+}
+
+function estimateSpeechFloorMs(text, lang) {
+  const cleaned = (text || '').replace(/\s+/g, ' ').trim();
+  if (!cleaned) return 0;
+  const wordCount = cleaned.split(' ').filter(Boolean).length;
+  const punctuationCount = (cleaned.match(/[,.!?]/g) || []).length;
+  if (lang === 'hi') {
+    return Math.min(12000, Math.max(2200, 900 + wordCount * 340 + punctuationCount * 140));
+  }
+  return 0;
+}
+
+function speakQuestionWithStableFollowup(text, langOverride, onEnd, profileKey = 'default') {
+  if (!ttsEnabled || !('speechSynthesis' in window)) {
+    if (onEnd) onEnd();
+    return;
+  }
+
+  _spokenFlowGeneration += 1;
+  speakQuestion(text, langOverride, () => {
+    if (onEnd) onEnd();
+  }, profileKey);
 }
 
 // Preload voices and populate dropdown (needed on some browsers)
@@ -455,10 +494,45 @@ function localizeStimulusDescription(state, description, lang) {
   return description || '';
 }
 
+const STATIC_MOTIVATION_PROMPTS = Object.freeze({
+  en: Object.freeze({
+    'You are doing great. Please blink a few times. About 9 minutes left.':
+      'You are doing great. Please blink a few times. About 9 minutes left.',
+    'You are doing great. Please blink a few times. About 8 minutes left.':
+      'You are doing great. Please blink a few times. About 8 minutes left.',
+    'You are doing great. Please blink a few times. About 6 minutes left.':
+      'You are doing great. Please blink a few times. About 6 minutes left.',
+    'You are doing great. Please blink a few times. About 4 minutes left.':
+      'You are doing great. Please blink a few times. About 4 minutes left.',
+    'You are doing great. Please blink a few times. About 3 minutes left.':
+      'You are doing great. Please blink a few times. About 3 minutes left.',
+    'You are doing great. Please blink a few times. About 1 minute left.':
+      'You are doing great. Please blink a few times. About 1 minute left.',
+  }),
+  hi: Object.freeze({
+    'You are doing great. Please blink a few times. About 9 minutes left.':
+      'आप बहुत अच्छा कर रहे हैं। कृपया कुछ बार पलक झपकाइए। लगभग 9 मिनट बाकी हैं।',
+    'You are doing great. Please blink a few times. About 8 minutes left.':
+      'आप बहुत अच्छा कर रहे हैं। कृपया कुछ बार पलक झपकाइए। लगभग 8 मिनट बाकी हैं।',
+    'You are doing great. Please blink a few times. About 6 minutes left.':
+      'आप बहुत अच्छा कर रहे हैं। कृपया कुछ बार पलक झपकाइए। लगभग 6 मिनट बाकी हैं।',
+    'You are doing great. Please blink a few times. About 4 minutes left.':
+      'आप बहुत अच्छा कर रहे हैं। कृपया कुछ बार पलक झपकाइए। लगभग 4 मिनट बाकी हैं।',
+    'You are doing great. Please blink a few times. About 3 minutes left.':
+      'आप बहुत अच्छा कर रहे हैं। कृपया कुछ बार पलक झपकाइए। लगभग 3 मिनट बाकी हैं।',
+    'You are doing great. Please blink a few times. About 1 minute left.':
+      'आप बहुत अच्छा कर रहे हैं। कृपया कुछ बार पलक झपकाइए। लगभग 1 मिनट बाकी है।',
+  }),
+});
+
 function localizePrefacePrompt(prefacePrompt, lang) {
   const activeLang = lang || sessionLanguage || 'en';
   const text = (prefacePrompt || '').trim();
-  if (!text || activeLang !== 'hi') return text;
+  if (!text) return text;
+
+  const staticPrompt = STATIC_MOTIVATION_PROMPTS[activeLang]?.[text];
+  if (staticPrompt) return staticPrompt;
+  if (activeLang !== 'hi') return text;
 
   const match = text.match(/^You are doing great(?:\s+(.+?))?\. Please blink a few times\. About (\d+) (minute|minutes) left\.$/i);
   if (match) {
@@ -469,22 +543,71 @@ function localizePrefacePrompt(prefacePrompt, lang) {
   return text;
 }
 
+function getMotivationSpeech(prefacePrompt, lang) {
+  const activeLang = lang || sessionLanguage || 'en';
+  const text = (prefacePrompt || '').trim();
+  if (!text) return '';
+
+  const staticPrompt = STATIC_MOTIVATION_PROMPTS[activeLang]?.[text];
+  if (staticPrompt) return staticPrompt;
+
+  const match = text.match(/^You are doing great(?:\s+.+?)?\. Please blink a few times\. About (\d+) (minute|minutes) left\.$/i);
+  if (!match) return '';
+
+  const minutes = match[1];
+  if (activeLang === 'hi') {
+    return `आप बहुत अच्छा कर रहे हैं। कृपया कुछ बार पलक झपकाइए। लगभग ${minutes} मिनट बाकी हैं।`;
+  }
+  return `You are doing great. Please blink a few times. About ${minutes} minutes left.`;
+}
+
 // ── Voice input state ──
 let voiceEnabled = true; // ON by default, like FSMv3.1_R2
 let voiceRecording = false;
 let recognition = null;
 let voiceSubmitting = false; // Prevent double-submit during async match
+let responseSubmitting = false; // Prevent duplicate submit/transition races
 let voiceAttemptCount = 0; // Per-question attempt counter
 const VOICE_REPROMPT_LIMIT = 2; // After this many failed attempts, show keyboard fallback msg
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let failedVoiceAttempts = []; // Structured log of failed voice attempts
 let _observeAdvanceTimer = null;
+let _ttsSessionId = 0;
+let _voiceStartGeneration = 0;
+let _voiceStartTimer = null;
 
 // ── Faster-whisper backend state ──
 let whisperAvailable = false; // Set true if backend has faster-whisper loaded
 let mediaRecorder = null;
 let audioChunks = [];
 let micStream = null;
+
+function invalidatePendingVoiceStart() {
+  _voiceStartGeneration += 1;
+  if (_voiceStartTimer) {
+    clearTimeout(_voiceStartTimer);
+    _voiceStartTimer = null;
+  }
+}
+
+function stopActiveVoiceCapture({ resetVoiceSubmitting = false } = {}) {
+  invalidatePendingVoiceStart();
+  invalidateSpokenFlow();
+  if (recognition) {
+    try { recognition.abort(); } catch (e) {}
+    recognition = null;
+  }
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    try { mediaRecorder.stop(); } catch (e) {}
+  }
+  if (micStream) {
+    try { micStream.getTracks().forEach(t => t.stop()); } catch (e) {}
+    micStream = null;
+  }
+  mediaRecorder = null;
+  voiceRecording = false;
+  if (resetVoiceSubmitting) voiceSubmitting = false;
+}
 
 // Check whisper availability on load
 async function checkWhisperAvailability() {
@@ -518,6 +641,39 @@ function playBeep() {
     // Fallback in case onended doesn't fire
     setTimeout(resolve, 200);
   });
+}
+
+function cueAndStartVoiceCapture(state, options, step, { delayMs = null, enableInput = true, statusText = null } = {}) {
+  if (!voiceEnabled) return;
+  invalidatePendingVoiceStart();
+  const generation = _voiceStartGeneration;
+  const resolvedDelayMs = delayMs == null ? (sessionLanguage === 'hi' ? 50 : 200) : delayMs;
+
+  const waitForSpeechAndStart = () => {
+    if (generation !== _voiceStartGeneration) return;
+    if (!voiceEnabled || voiceSubmitting || responseSubmitting) return;
+    if ('speechSynthesis' in window && (speechSynthesis.speaking || speechSynthesis.pending)) {
+      _voiceStartTimer = setTimeout(waitForSpeechAndStart, 100);
+      return;
+    }
+    if (statusText) updateVoiceStatus(statusText);
+    playBeep().then(() => {
+      if (generation !== _voiceStartGeneration) return;
+      _voiceStartTimer = setTimeout(() => {
+        _voiceStartTimer = null;
+        if (generation !== _voiceStartGeneration) return;
+        if (!voiceEnabled || voiceSubmitting || responseSubmitting) return;
+        if ('speechSynthesis' in window && (speechSynthesis.speaking || speechSynthesis.pending)) {
+          waitForSpeechAndStart();
+          return;
+        }
+        if (enableInput) _inputEnabled = true;
+        startVoiceCapture(state, options, step);
+      }, resolvedDelayMs);
+    });
+  };
+
+  waitForSpeechAndStart();
 }
 
 // ── Phase definitions ──
@@ -783,12 +939,14 @@ function showLanguageSelection(pendingData) {
   grid.appendChild(hiBtn);
 
   // Speak first, then beep + listen only after TTS finishes (prevents mic from picking up TTS)
-  speakQuestion('Please select your preferred language. English or Hindi?', 'en', () => {
+  speakQuestionWithStableFollowup('Please select your preferred language. English or Hindi?', 'en', () => {
     if (voiceEnabled && SpeechRecognition) {
-      updateVoiceStatus('Say "English" or "Hindi"');
-      playBeep().then(() => setTimeout(() => startVoiceCapture('LANG_SELECT', ['ENGLISH', 'HINDI'], 0), 200));
+      cueAndStartVoiceCapture('LANG_SELECT', ['ENGLISH', 'HINDI'], 0, {
+        statusText: 'Say "English" or "Hindi"',
+        enableInput: false,
+      });
     }
-  });
+  }, 'default');
 }
 
 function selectLanguage(lang, pendingData) {
@@ -889,6 +1047,7 @@ async function handleSessionUpdate(data) {
     return;
   }
 
+  stopActiveVoiceCapture({ resetVoiceSubmitting: true });
   if (_observeAdvanceTimer) {
     clearTimeout(_observeAdvanceTimer);
     _observeAdvanceTimer = null;
@@ -1026,7 +1185,8 @@ async function showQuestion(data) {
   const canListen = voiceEnabled && (voiceMode === 'whisper' || SpeechRecognition);
   const isAutoFlip = data.auto_flip;
   const isObserveOnly = Number(data.auto_advance_seconds || 0) > 0;
-  const spokenPrompt = buildSpokenQuestionText(data, localizedQuestion, prefacePrompt);
+  const motivationSpeech = getMotivationSpeech(data.preface_prompt || '', sessionLanguage);
+  const spokenPrompt = [motivationSpeech, getStaticQuestionSpeech(localizedQuestion)].filter(Boolean).join(' ').trim();
   const startObserveAdvance = () => {
     const delayMs = Math.max(0, Number(data.auto_advance_seconds || 0)) * 1000;
     updateVoiceStatus(sessionLanguage === 'hi' ? 'ध्यान से देखिए...' : 'Observe carefully...');
@@ -1042,7 +1202,7 @@ async function showQuestion(data) {
 
   if (isObserveOnly) {
     if (ttsEnabled && !isAutoFlip) {
-      speakQuestion(spokenPrompt, null, startObserveAdvance, getQuestionTTSProfile(data));
+      speakQuestionWithStableFollowup(spokenPrompt, null, startObserveAdvance, getQuestionTTSProfile(data));
     } else {
       startObserveAdvance();
     }
@@ -1050,16 +1210,23 @@ async function showQuestion(data) {
   }
 
   if (ttsEnabled && !isAutoFlip) {
-    speakQuestion(spokenPrompt, null, async () => {
-      await playBeep();
-      _inputEnabled = true; // Enable ALL input (voice, gamepad, keyboard) after beep
-      if (canListen) startVoiceCapture(data.state, data.options || [], data.step);
+    speakQuestionWithStableFollowup(spokenPrompt, null, () => {
+      if (canListen) {
+        cueAndStartVoiceCapture(data.state, data.options || [], data.step, { enableInput: true });
+      } else {
+        playBeep().then(() => {
+          _inputEnabled = true;
+        });
+      }
     }, getQuestionTTSProfile(data));
   } else if (!isAutoFlip) {
-    playBeep().then(() => {
-      _inputEnabled = true;
-      if (canListen) startVoiceCapture(data.state, data.options || [], data.step);
-    });
+    if (canListen) {
+      cueAndStartVoiceCapture(data.state, data.options || [], data.step, { enableInput: true });
+    } else {
+      playBeep().then(() => {
+        _inputEnabled = true;
+      });
+    }
   }
   // For JCC auto-flip states: _inputEnabled is set in handleAutoFlip after Flip 2 beep
 }
@@ -1073,11 +1240,7 @@ let voiceMode = 'browser'; // 'off', 'browser', 'whisper'
 
 function setVoiceMode(mode) {
   // Stop any active recording
-  if (recognition) { try { recognition.abort(); } catch(e) {} recognition = null; }
-  if (mediaRecorder && mediaRecorder.state === 'recording') { mediaRecorder.stop(); }
-  if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
-  voiceRecording = false;
-  voiceSubmitting = false;
+  stopActiveVoiceCapture({ resetVoiceSubmitting: true });
 
   voiceMode = mode;
   voiceEnabled = mode !== 'off';
@@ -1087,8 +1250,7 @@ function setVoiceMode(mode) {
 
   // If turning on and we have an active question, start listening
   if (voiceEnabled && currentState && !currentState.is_terminal) {
-    playBeep();
-    setTimeout(() => startVoiceCapture(currentState.state, currentState.options || [], currentState.step), 200);
+    cueAndStartVoiceCapture(currentState.state, currentState.options || [], currentState.step, { enableInput: true });
   }
 }
 
@@ -1104,13 +1266,9 @@ function updateVoiceButton() { updateVoiceModeSelect(); }
 function startVoiceCapture(state, options, step) {
   if (!voiceEnabled) return;
   if (voiceSubmitting) return;
+  if (responseSubmitting) return;
   // Don't start listening while TTS is speaking
-  if (speechSynthesis.speaking) {
-    const waitForTTS = () => {
-      if (speechSynthesis.speaking) { setTimeout(waitForTTS, 100); return; }
-      startVoiceCapture(state, options, step);
-    };
-    setTimeout(waitForTTS, 100);
+  if ('speechSynthesis' in window && (speechSynthesis.speaking || speechSynthesis.pending)) {
     return;
   }
 
@@ -1133,12 +1291,13 @@ function startVoiceCapture(state, options, step) {
 
   // Small delay to let previous recognition clean up
   setTimeout(() => {
-    if (!voiceEnabled || voiceSubmitting) return;
+    if (!voiceEnabled || voiceSubmitting || responseSubmitting) return;
 
     recognition = new SpeechRecognition();
-    // Fix 4: en-US better for short words than en-IN
-    recognition.lang = sessionLanguage === 'hi' ? 'hi-IN' : 'en-US';
-    // Fix 1: continuous=true prevents premature termination on single-syllable words
+    const currentQuestionText = getCurrentQuestionText();
+    recognition.lang = getBrowserRecognitionLang(state, currentQuestionText);
+    const isEnglishLineReadingCapture = sessionLanguage !== 'hi'
+      && questionExpectsEnglishLetterReading(state, getCurrentMatcherQuestionText());
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.maxAlternatives = 5;
@@ -1146,7 +1305,7 @@ function startVoiceCapture(state, options, step) {
     // Fix 5: SpeechGrammarList constrains recognition to expected vocabulary
     try {
       const SpeechGrammarList = window.SpeechGrammarList || window.webkitSpeechGrammarList;
-      if (SpeechGrammarList) {
+      if (SpeechGrammarList && !recognition.lang.startsWith('hi')) {
         const grammar = '#JSGF V1.0; grammar r; public <r> = clear | blurry | repeat | first option | second option | both same | red side | green side | top line | bottom line | clearer | more blurry ;';
         const list = new SpeechGrammarList();
         list.addFromString(grammar, 1);
@@ -1159,6 +1318,8 @@ function startVoiceCapture(state, options, step) {
     const capturedStep = step;
     let lastInterimTranscript = ''; // store interim for fallback
     let quickMatchTimer = null; // 1s timer to force-process short words
+    let lineReadingFinalizeTimer = null;
+    let accumulatedFinalTranscript = '';
     let alreadyProcessed = false; // prevent double-processing
 
     recognition.onstart = () => {
@@ -1169,12 +1330,62 @@ function startVoiceCapture(state, options, step) {
 
     // Quick-match check: does this interim text match a known response?
     function interimMatchesOption(text) {
+      if (isEnglishLineReadingCapture) return false;
       const t = text.toLowerCase().trim();
       if (!t) return false;
       // Also try with digits stripped of punctuation (Chrome may add "." or spaces)
       const cleaned = t.replace(/[^a-z0-9]/g, '');
       return clientSideMatch(t, capturedOptions) !== null
           || clientSideMatch(cleaned, capturedOptions) !== null;
+    }
+
+    function clearLineReadingFinalizeTimer() {
+      if (lineReadingFinalizeTimer) {
+        clearTimeout(lineReadingFinalizeTimer);
+        lineReadingFinalizeTimer = null;
+      }
+    }
+
+    function buildLineReadingTranscript() {
+      const parts = [];
+      const finalText = accumulatedFinalTranscript.trim();
+      const interimText = lastInterimTranscript.trim();
+      if (finalText) parts.push(finalText);
+      if (interimText) {
+        const finalNorm = finalText.toLowerCase();
+        const interimNorm = interimText.toLowerCase();
+        if (!finalNorm || (!finalNorm.includes(interimNorm) && !interimNorm.includes(finalNorm))) {
+          parts.push(interimText);
+        }
+      }
+      return parts.join(' ').trim();
+    }
+
+    function processLineReadingBuffer() {
+      if (alreadyProcessed) return;
+      const combinedTranscript = buildLineReadingTranscript();
+      if (!combinedTranscript) return;
+      alreadyProcessed = true;
+      clearLineReadingFinalizeTimer();
+      try { recognition.stop(); } catch (e) {}
+      voiceRecording = false;
+      console.log(`[Voice] Line-reading final: "${combinedTranscript}"`);
+      updateVoiceStatus(`Processing: "${combinedTranscript}"`);
+      const altSet = new Set();
+      if (accumulatedFinalTranscript.trim()) altSet.add(accumulatedFinalTranscript.trim());
+      if (lastInterimTranscript.trim()) altSet.add(lastInterimTranscript.trim());
+      matchVoiceResponseWithAlternatives(
+        combinedTranscript,
+        Array.from(altSet).filter(t => t && t !== combinedTranscript),
+        capturedState,
+        capturedOptions,
+      );
+    }
+
+    function scheduleLineReadingFinalize(delayMs = 1600) {
+      if (!isEnglishLineReadingCapture) return;
+      clearLineReadingFinalizeTimer();
+      lineReadingFinalizeTimer = setTimeout(processLineReadingBuffer, delayMs);
     }
 
     function forceProcessInterim() {
@@ -1213,6 +1424,11 @@ function startVoiceCapture(state, options, step) {
         lastInterimTranscript = interimTranscript.trim();
         updateVoiceStatus(`🎙 "${interimTranscript}"...`);
 
+        if (isEnglishLineReadingCapture) {
+          scheduleLineReadingFinalize();
+          return;
+        }
+
         // If interim matches a valid option, force-process it
         // Single digits/chars (1, 2): process IMMEDIATELY (Chrome keeps appending)
         // Short words (≤3 chars: "to", "red"): 300ms
@@ -1237,11 +1453,21 @@ function startVoiceCapture(state, options, step) {
       // Process final result (overrides any pending quick-match)
       if (finalTranscript) {
         if (quickMatchTimer) { clearTimeout(quickMatchTimer); quickMatchTimer = null; }
+        const trimmed = finalTranscript.trim();
+        const alts = finalAlternatives.map(a => a.trim()).filter(a => a);
+        if (isEnglishLineReadingCapture) {
+          if (trimmed) {
+            accumulatedFinalTranscript = [accumulatedFinalTranscript, trimmed].filter(Boolean).join(' ').trim();
+          }
+          lastInterimTranscript = '';
+          console.log(`[Voice] Line-reading chunk: "${trimmed}" | Combined: "${accumulatedFinalTranscript}" | Alternatives: ${JSON.stringify(alts)}`);
+          updateVoiceStatus(`🎙 "${accumulatedFinalTranscript || trimmed}"...`);
+          scheduleLineReadingFinalize();
+          return;
+        }
         alreadyProcessed = true;
         try { recognition.stop(); } catch(e) {}
         voiceRecording = false;
-        const trimmed = finalTranscript.trim();
-        const alts = finalAlternatives.map(a => a.trim()).filter(a => a);
         console.log(`[Voice] Final: "${trimmed}" | Alternatives: ${JSON.stringify(alts)}`);
         updateVoiceStatus(`Processing: "${trimmed}"`);
         matchVoiceResponseWithAlternatives(trimmed, alts, capturedState, capturedOptions);
@@ -1250,6 +1476,7 @@ function startVoiceCapture(state, options, step) {
 
     recognition.onerror = (event) => {
       if (quickMatchTimer) { clearTimeout(quickMatchTimer); quickMatchTimer = null; }
+      clearLineReadingFinalizeTimer();
       voiceRecording = false;
       console.log(`[Voice] Error: ${event.error}`);
       if (event.error === 'no-speech') {
@@ -1261,8 +1488,8 @@ function startVoiceCapture(state, options, step) {
           const retryPrompt = sessionLanguage === 'hi'
             ? `फिर से सुनिए। ${questionText}`
             : `Let me repeat. ${questionText}`;
-          speakQuestion(retryPrompt, null, () => {
-            playBeep().then(() => setTimeout(() => startVoiceCapture(capturedState, capturedOptions, capturedStep), 200));
+          speakQuestionWithStableFollowup(retryPrompt, null, () => {
+            cueAndStartVoiceCapture(capturedState, capturedOptions, capturedStep);
           }, 'retry');
         }
       } else if (event.error === 'aborted') {
@@ -1292,7 +1519,19 @@ function startVoiceCapture(state, options, step) {
 
     recognition.onend = () => {
       if (quickMatchTimer) { clearTimeout(quickMatchTimer); quickMatchTimer = null; }
+      clearLineReadingFinalizeTimer();
       voiceRecording = false;
+
+      if (isEnglishLineReadingCapture) {
+        if (alreadyProcessed || gotError || voiceSubmitting) return;
+        const combinedTranscript = buildLineReadingTranscript();
+        if (combinedTranscript) {
+          console.log(`[Voice] Using line-reading buffer on end: "${combinedTranscript}"`);
+          updateVoiceStatus(`Processing: "${combinedTranscript}"`);
+          matchVoiceResponseWithAlternatives(combinedTranscript, [], capturedState, capturedOptions);
+          return;
+        }
+      }
 
       // If already processed (final, quick-match, or error), do nothing
       if (alreadyProcessed || gotFinalResult || gotError || voiceSubmitting) return;
@@ -1315,8 +1554,8 @@ function startVoiceCapture(state, options, step) {
         const retryPrompt = sessionLanguage === 'hi'
           ? `सुनाई नहीं दिया। ${questionText}`
           : `I could not hear you. ${questionText}`;
-        speakQuestion(retryPrompt, null, () => {
-          playBeep().then(() => setTimeout(() => startVoiceCapture(capturedState, capturedOptions, capturedStep), 200));
+        speakQuestionWithStableFollowup(retryPrompt, null, () => {
+          cueAndStartVoiceCapture(capturedState, capturedOptions, capturedStep);
         }, 'retry');
       }
     };
@@ -1332,7 +1571,8 @@ function startVoiceCapture(state, options, step) {
 
 // ── Faster-whisper recording pipeline ──
 async function startWhisperCapture(state, options, step) {
-  if (!voiceEnabled || voiceSubmitting) return;
+  if (!voiceEnabled || voiceSubmitting || responseSubmitting) return;
+  stopActiveVoiceCapture();
 
   // Request mic access
   try {
@@ -1481,7 +1721,9 @@ async function startWhisperCapture(state, options, step) {
           state: state,
           options: options,
           language: sessionLanguage,
+          stt_language: getWhisperSTTLanguageHint(state, getCurrentMatcherQuestionText()),
           stimulus_letters: getCurrentStimulusLetters(),
+          question: getCurrentMatcherQuestionText(),
         }),
       });
 
@@ -1565,8 +1807,8 @@ function repeatAndListen(state, options, step) {
   const retryPrompt = sessionLanguage === 'hi'
     ? `समझ नहीं आया। ${questionText}`
     : `I didn't catch that. ${questionText}`;
-  speakQuestion(retryPrompt, null, () => {
-    playBeep().then(() => setTimeout(() => startVoiceCapture(state, options, step), 200));
+  speakQuestionWithStableFollowup(retryPrompt, null, () => {
+    cueAndStartVoiceCapture(state, options, step);
   }, 'retry');
 }
 
@@ -1579,6 +1821,52 @@ function getCurrentStimulusLetters() {
   if (!letters) return null;
   // Format as space-separated letters per line (matching FSMv3.1_R2 format)
   return letters.map(line => line.join(' ')).join('\n');
+}
+
+function getCurrentQuestionText() {
+  const questionEl = document.getElementById('questionText');
+  return questionEl ? (questionEl.textContent || '') : '';
+}
+
+function getCurrentMatcherQuestionText() {
+  if (currentState && typeof currentState.question === 'string' && currentState.question.trim()) {
+    return currentState.question;
+  }
+  return getCurrentQuestionText();
+}
+
+function questionExpectsEnglishLetterReading(state, questionText) {
+  const question = (questionText || '').toLowerCase();
+  if (state === 'C' || state === 'L') return true;
+  if (state === 'B' || state === 'D') {
+    if (
+      question.includes('better now')
+      || question.includes('yes or no')
+      || question.includes('हाँ या नहीं')
+      || question.includes('बेहतर')
+    ) {
+      return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+function getBrowserRecognitionLang(state, questionText) {
+  if (state === 'LANG_SELECT') {
+    return 'en-US';
+  }
+  if (sessionLanguage === 'hi') {
+    return isSafariBrowser() ? 'en-US' : 'hi-IN';
+  }
+  return 'en-US';
+}
+
+function getWhisperSTTLanguageHint(state, questionText) {
+  if (state === 'LANG_SELECT') {
+    return 'en';
+  }
+  return sessionLanguage === 'hi' ? 'hi' : 'en';
 }
 
 let _currentVoiceAlternatives = []; // Stored for inclusion in voiceMeta
@@ -1604,8 +1892,10 @@ async function matchVoiceResponseWithAlternatives(primary, alternatives, state, 
     updateVoiceStatus('Say "English" or "Hindi"');
     if (voiceEnabled) {
       setTimeout(() => {
-        playBeep();
-        setTimeout(() => startVoiceCapture('LANG_SELECT', ['ENGLISH', 'HINDI'], 0), 200);
+        cueAndStartVoiceCapture('LANG_SELECT', ['ENGLISH', 'HINDI'], 0, {
+          statusText: 'Say "English" or "Hindi"',
+          enableInput: false,
+        });
       }, 1000);
     }
     return;
@@ -1661,8 +1951,8 @@ async function matchVoiceResponseWithAlternatives(primary, alternatives, state, 
       const retryPrompt = sessionLanguage === 'hi'
         ? `समझ नहीं आया। ${questionText}`
         : `I didn't catch that. ${questionText}`;
-      speakQuestion(retryPrompt, null, () => {
-        playBeep().then(() => setTimeout(() => startVoiceCapture(state, options, 0), 200));
+      speakQuestionWithStableFollowup(retryPrompt, null, () => {
+        cueAndStartVoiceCapture(state, options, 0);
       }, 'retry');
     }
   }
@@ -1700,6 +1990,7 @@ async function matchVoiceResponse(transcript, state, options) {
         session_id: sessionId,
         stimulus_letters: stimulusLetters,
         language: sessionLanguage,
+        question: getCurrentMatcherQuestionText(),
       }),
     });
     if (resp.ok) {
@@ -1761,8 +2052,8 @@ async function matchVoiceResponse(transcript, state, options) {
   }
 
   if (matched) {
-    await submitResponse(matched, voiceMeta);
     voiceSubmitting = false;
+    await submitResponse(matched, voiceMeta);
     return { matched: true }; // Successfully matched
   }
 
@@ -1771,39 +2062,66 @@ async function matchVoiceResponse(transcript, state, options) {
 }
 
 function clientSideMatch(transcript, options) {
-  const t = transcript.toLowerCase().trim();
+  const raw = transcript.toLowerCase().trim();
+  let t = raw
+    .replace(/\bदोनोंसमान है\b/g, 'दोनों समान')
+    .replace(/\bदोनोंसमान\b/g, 'दोनों समान')
+    .replace(/\bdo\s+no\s+saman\b/g, 'dono saman')
+    .replace(/\bdo\s+no\s+same\b/g, 'dono same')
+    .replace(/\bdo\s+no\s+barabar\b/g, 'dono barabar')
+    .replace(/\bdono\s*saman\b/g, 'dono saman')
+    .replace(/\bdono\s*same\b/g, 'dono same')
+    .replace(/\bdono\s*barabar\b/g, 'dono barabar')
+    .replace(/\bdono\s*equal\b/g, 'dono equal')
+    .replace(/\bsaif nahi hai\b/g, 'dhundla hai')
+    .replace(/\bsafi nahi hai\b/g, 'dhundla hai')
+    .replace(/\bsaaf nahi hai\b/g, 'dhundla hai')
+    .replace(/\bsaf nahi hai\b/g, 'dhundla hai')
+    .replace(/\bsaath nahi hai\b/g, 'dhundla hai');
+
+  if (
+    (t.includes('nahi') || t.includes('nahin') || t.includes('not')) &&
+    (t.includes('saaf') || t.includes('saf') || t.includes('safi') || t.includes('saif') || t.includes('clear'))
+  ) {
+    t = 'dhundla hai';
+  }
 
   // Direct keyword map + common Chrome misrecognitions for single-syllable words
   const KEYWORD_MAP = {
     // Clarity + misrecognitions
     'clear': 'CLEAR', 'clearly': 'CLEAR', 'yes': 'CLEAR', 'readable': 'CLEAR',
-    'clearer': 'CLEAR', 'got clearer': 'CLEAR', 'letters clear': 'CLEAR', 'read line': 'CLEAR', 'read last line': 'CLEAR',
+    'clearer': 'CLEAR', 'got clearer': 'CLEAR', 'read line': 'CLEAR', 'read last line': 'CLEAR',
     'better now': 'CLEAR', 'got better': 'CLEAR', 'it got better': 'CLEAR',
     'here': 'CLEAR', 'beer': 'CLEAR', 'cheer': 'CLEAR', 'dear': 'CLEAR', 'near': 'CLEAR',
-    'saaf': 'CLEAR', 'saaf hai': 'CLEAR', 'haan': 'CLEAR',
+    'saaf': 'CLEAR', 'saaf hai': 'CLEAR', 'saf': 'CLEAR', 'saf hai': 'CLEAR', 'safi': 'CLEAR', 'safi hai': 'CLEAR', 'saif': 'CLEAR', 'saif hai': 'CLEAR', 'saath hai': 'CLEAR', 'haan': 'CLEAR', 'haan ji': 'CLEAR', 'हाँ': 'CLEAR', 'साफ': 'CLEAR', 'साफ है': 'CLEAR', 'क्लियर': 'CLEAR', 'क्लियर है': 'CLEAR', 'हां बेहतर है': 'CLEAR', 'हाँ बेहतर है': 'CLEAR', 'clear enough': 'CLEAR', 'all clear': 'CLEAR', 'allclear': 'CLEAR',
     'blurry': 'BLURRY', 'blurred': 'BLURRY', 'blur': 'BLURRY', 'not clear': 'BLURRY',
-    'more blurry': 'BLURRY', 'got more blurry': 'BLURRY', 'letters blurry': 'BLURRY',
+    'more blurry': 'BLURRY', 'got more blurry': 'BLURRY',
     'no': 'BLURRY', 'not better': 'BLURRY', 'did not get better': 'BLURRY', "didn't get better": 'BLURRY',
     'blare': 'BLURRY', 'blaring': 'BLURRY', 'glory': 'BLURRY',
-    'dhundhla': 'BLURRY', 'nahi dikh raha': 'BLURRY',
-    'repeat': 'REPEAT', 'again': 'REPEAT', 'dobara': 'REPEAT', 'phir se': 'REPEAT',
+    'dhundhla': 'BLURRY', 'dhundla': 'BLURRY', 'dhundhla hai': 'BLURRY', 'dhundla hai': 'BLURRY', 'dundle hai': 'BLURRY', 'jule hai': 'BLURRY', 'jule hain': 'BLURRY', 'dunai hai': 'BLURRY', 'nahi dikh raha': 'BLURRY', 'धुंधला': 'BLURRY', 'धुंधला है': 'BLURRY', 'धुंदला': 'BLURRY', 'धुन्दला': 'BLURRY', 'धुंधली': 'BLURRY', 'नहीं': 'BLURRY', 'अभी भी धुंधला': 'BLURRY',
+    'thula': 'BLURRY', 'thula hai': 'BLURRY', 'hulahula': 'BLURRY', 'thula thula': 'BLURRY',
+    'repeat': 'REPEAT', 'again': 'REPEAT', 'dobara': 'REPEAT', 'dubara': 'REPEAT', 'phir se': 'REPEAT', 'phirse': 'REPEAT', 'फिर से': 'REPEAT', 'फिरसे': 'REPEAT', 'दोबारा': 'REPEAT',
+    'fir se': 'REPEAT', 'firse': 'REPEAT', 'phirse': 'REPEAT', 'फिर से कहिए': 'REPEAT', 'दोबारा बोलिए': 'REPEAT', 'say again': 'REPEAT', 'repeat please': 'REPEAT', 'please repeat': 'REPEAT',
     // Comparison + misrecognitions
-    'one': 'ONE', 'first': 'ONE', 'first option': 'ONE', 'option 1': 'ONE', 'ek': 'ONE', 'pehla': 'ONE', '1': 'ONE',
+    'one': 'ONE', 'first': 'ONE', 'first option': 'ONE', 'option 1': 'ONE', 'ek': 'ONE', 'pehla': 'ONE', 'pehla vikalp': 'ONE', '1': 'ONE', 'firstoption': 'ONE', 'optionone': 'ONE',
+    'एक': 'ONE', 'पहला': 'ONE', 'पहला विकल्प': 'ONE',
     'won': 'ONE', 'want': 'ONE', 'on': 'ONE', 'wan': 'ONE', 'wand': 'ONE',
-    'two': 'TWO', 'second': 'TWO', 'second option': 'TWO', 'option 2': 'TWO', 'do': 'TWO', 'doosra': 'TWO', '2': 'TWO',
+    'two': 'TWO', 'second': 'TWO', 'second option': 'TWO', 'option 2': 'TWO', 'do': 'TWO', 'doosra': 'TWO', 'dusra': 'TWO', 'dusra vikalp': 'TWO', 'doosra vikalp': 'TWO', '2': 'TWO', 'secondoption': 'TWO', 'optiontwo': 'TWO',
+    'दो': 'TWO', 'दूसरा': 'TWO', 'दूसरा विकल्प': 'TWO',
     'to': 'TWO', 'too': 'TWO', 'tu': 'TWO', 'who': 'TWO', 'through': 'TWO',
-    'same': 'SAME', 'both same': 'SAME', 'both are same': 'SAME', 'equal': 'SAME', 'barabar': 'SAME', 'dono same': 'SAME',
+    'same': 'SAME', 'both same': 'SAME', 'both are same': 'SAME', 'equal': 'SAME', 'barabar': 'SAME', 'dono same': 'SAME', 'dono saman': 'SAME', 'donosaman': 'SAME', 'dono barabar': 'SAME', 'dono equal': 'SAME', 'saman': 'SAME',
+    'both': 'SAME', 'दोनों': 'SAME', 'दोनों समान': 'SAME', 'दोनोंसमान': 'SAME', 'दोनोंसमान है': 'SAME', 'बराबर': 'SAME', 'bothsame': 'SAME', 'botharesame': 'SAME', 'but same': 'SAME', 'bootsame': 'SAME',
     "can't tell": 'SAME', 'cant tell': 'SAME',
     'sane': 'SAME', 'saint': 'SAME', 'shame': 'SAME', 'came': 'SAME',
     // Duochrome + misrecognitions
-    'red': 'RED', 'red one': 'RED', 'red side': 'RED', 'laal': 'RED',
+    'red': 'RED', 'red one': 'RED', 'red side': 'RED', 'laal': 'RED', 'लाल': 'RED', 'लाल साइड': 'RED', 'redside': 'RED', 'readside': 'RED', 'lal side': 'RED',
     'read': 'RED', 'bread': 'RED', 'wed': 'RED', 'said': 'RED', 'bed': 'RED', 'dead': 'RED',
-    'green': 'GREEN', 'green one': 'GREEN', 'green side': 'GREEN', 'hara': 'GREEN',
+    'green': 'GREEN', 'green one': 'GREEN', 'green side': 'GREEN', 'hara': 'GREEN', 'har': 'GREEN', 'hari': 'GREEN', 'हरा': 'GREEN', 'हरा साइड': 'GREEN', 'greenside': 'GREEN', 'hara side': 'GREEN',
     'queen': 'GREEN', 'cream': 'GREEN', 'gene': 'GREEN', 'lean': 'GREEN', 'mean': 'GREEN',
     // Binocular + misrecognitions
-    'top': 'TOP', 'top one': 'TOP', 'top line': 'TOP', 'upar': 'TOP',
+    'top': 'TOP', 'top one': 'TOP', 'top line': 'TOP', 'upar': 'TOP', 'ऊपर': 'TOP', 'ऊपर की लाइन': 'TOP', 'topline': 'TOP', 'upper line': 'TOP',
     'talk': 'TOP', 'tall': 'TOP', 'stop': 'TOP',
-    'bottom': 'BOTTOM', 'bottom one': 'BOTTOM', 'bottom line': 'BOTTOM', 'neeche': 'BOTTOM',
+    'bottom': 'BOTTOM', 'bottom one': 'BOTTOM', 'bottom line': 'BOTTOM', 'neeche': 'BOTTOM', 'नीचे': 'BOTTOM', 'नीचे की लाइन': 'BOTTOM', 'bottomline': 'BOTTOM', 'neeche line': 'BOTTOM',
     'button': 'BOTTOM', 'bought him': 'BOTTOM',
     // Near
     'target ok': 'TARGET_OK', 'ok': 'TARGET_OK', 'fine': 'TARGET_OK',
@@ -1815,8 +2133,14 @@ function clientSideMatch(transcript, options) {
     return KEYWORD_MAP[t];
   }
 
+  const letterMatch = clientSideLetterReadingMatch(transcript, options);
+  if (letterMatch) {
+    return letterMatch;
+  }
+
   // Try partial match
-  for (const [keyword, value] of Object.entries(KEYWORD_MAP)) {
+  const sortedKeywordEntries = Object.entries(KEYWORD_MAP).sort((a, b) => b[0].length - a[0].length);
+  for (const [keyword, value] of sortedKeywordEntries) {
     if (t.includes(keyword) && options.includes(value)) {
       return value;
     }
@@ -1829,6 +2153,115 @@ function clientSideMatch(transcript, options) {
     }
   }
 
+  return null;
+}
+
+const CHART_LETTER_ALIASES_JS = Object.freeze({
+  A: new Set(['a', 'ay', 'eh', 'ए']),
+  B: new Set(['b', 'bee', 'बी']),
+  C: new Set(['c', 'see', 'सी']),
+  D: new Set(['d', 'dee', 'डी']),
+  E: new Set(['e', 'ee', 'ई']),
+  F: new Set(['f', 'eff', 'एफ']),
+  G: new Set(['g', 'gee', 'जी']),
+  H: new Set(['h', 'aitch', 'etch', 'एच']),
+  L: new Set(['l', 'ell', 'el', 'एल']),
+  N: new Set(['n', 'en', 'एन']),
+  O: new Set(['o', 'oh', 'ओ']),
+  P: new Set(['p', 'pee', 'पी']),
+  S: new Set(['s', 'ess', 'एस']),
+  T: new Set(['t', 'tee', 'टी']),
+  U: new Set(['u', 'you', 'यू']),
+  V: new Set(['v', 'vee', 'वी']),
+  Z: new Set(['z', 'zee', 'zed', 'जेड', 'ज़ेड']),
+});
+
+function questionExpectsLineReading(state, questionText) {
+  const question = (questionText || '').toLowerCase();
+  if (state === 'C' || state === 'L') return true;
+  if (state === 'B' || state === 'D') {
+    if (
+      question.includes('better now')
+      || question.includes('yes or no')
+      || question.includes('हाँ या नहीं')
+      || question.includes('बेहतर')
+      || question.includes('still blurry')
+      || question.includes('अभी भी धुंधला')
+    ) {
+      return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+function extractChartLetterTokensJS(text) {
+  const normalized = (text || '').replace(/[^\p{L}\p{N}\s']/gu, ' ').trim();
+  const tokens = normalized.split(/\s+/).filter(Boolean);
+  const extracted = [];
+  const allowedLetters = new Set(Object.keys(CHART_LETTER_ALIASES_JS));
+
+  for (const token of tokens) {
+    const upper = token.toUpperCase();
+    if (allowedLetters.has(upper)) {
+      extracted.push(upper);
+      continue;
+    }
+    if (/^[A-Z]+$/.test(upper) && upper.length > 1) {
+      upper.split('').forEach(ch => {
+        if (allowedLetters.has(ch)) extracted.push(ch);
+      });
+      continue;
+    }
+    for (const [letter, aliases] of Object.entries(CHART_LETTER_ALIASES_JS)) {
+      if (aliases.has(token.toLowerCase()) || aliases.has(token)) {
+        extracted.push(letter);
+        break;
+      }
+    }
+  }
+  return extracted;
+}
+
+function lcsLengthJS(a, b) {
+  if (!a.length || !b.length) return 0;
+  const dp = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      if (a[i - 1] === b[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+  }
+  return dp[a.length][b.length];
+}
+
+function clientSideLetterReadingMatch(transcript, options) {
+  if (!currentState) return null;
+  if (sessionLanguage === 'hi') return null;
+  const state = currentState.state;
+  if (!['B', 'C', 'D', 'L'].includes(state)) return null;
+  if (!questionExpectsLineReading(state, getCurrentMatcherQuestionText())) return null;
+  if (!options.includes('CLEAR')) return null;
+
+  const stimulus = getCurrentStimulusLetters();
+  if (!stimulus) return null;
+
+  const targetLetters = stimulus
+    .split(/\s+/)
+    .map(token => token.trim().toUpperCase())
+    .filter(Boolean)
+    .flatMap(token => token.split(''));
+  const spokenLetters = extractChartLetterTokensJS(transcript);
+
+  if (targetLetters.length < 2 || spokenLetters.length < 2) return null;
+
+  const accuracy = lcsLengthJS(spokenLetters, targetLetters) / targetLetters.length;
+  if (accuracy >= 0.8 && options.includes('CLEAR')) return 'CLEAR';
+  if (accuracy >= 0.3 && options.includes('BLURRY')) return 'BLURRY';
+  if (options.includes('REPEAT')) return 'REPEAT';
   return null;
 }
 
@@ -1906,26 +2339,22 @@ function showTerminal(data) {
       `<div style="height:12px"></div>` +
       `<div style="font-size:0.85rem;color:var(--ink-secondary)">Please review and sign off below.</div>`;
 
-    // Speak congratulations (no power details)
-    const terminalSpeech = compareRan
-      ? acceptedAchieved
-        ? (sessionLanguage === 'hi'
-            ? 'बधाई हो। आपका आई टेस्ट पूरा हो गया है। आपने पी जी पी की तुलना में प्राप्त आर एक्स को पसंद किया। धन्यवाद।'
-            : 'Congratulations. Your eye test is complete. You preferred the achieved prescription over the PGP. Thank you.')
-        : (sessionLanguage === 'hi'
-            ? 'बधाई हो। आपका आई टेस्ट पूरा हो गया है। आपने पी जी पी को पसंद किया। धन्यवाद।'
-            : 'Congratulations. Your eye test is complete. You preferred the PGP. Thank you.')
-      : (sessionLanguage === 'hi'
-          ? 'बधाई हो! आपका आई टेस्ट पूरा हो गया है। धन्यवाद।'
-          : 'Congratulations. Your eye test is complete. Thank you.');
+    const terminalSpeech = getStaticTerminalSpeech({
+      isEscalate: false,
+      compareRan,
+      acceptedAchieved,
+    });
     speakQuestion(terminalSpeech, null, null, 'terminal');
   } else {
     document.getElementById('terminalIcon').textContent = '⚠️';
     document.getElementById('terminalTitle').textContent = 'Escalation Required';
     document.getElementById('terminalSubtitle').textContent = 'This test requires optometrist review. Please consult with a qualified optometrist.';
-    speakQuestion(sessionLanguage === 'hi'
-      ? 'इस टेस्ट को ऑप्टोमेट्रिस्ट की समीक्षा की आवश्यकता है।'
-      : 'This test requires optometrist review.', null, null, 'terminal');
+    speakQuestion(
+      getStaticTerminalSpeech({ isEscalate: true, compareRan: false, acceptedAchieved: false }),
+      null,
+      null,
+      'terminal',
+    );
   }
 }
 
@@ -2005,6 +2434,19 @@ function prescriptionsEqual(a, b) {
 // ── Submit response ──
 async function submitResponse(responseValue, voiceMeta, overrides = {}) {
   if (!sessionId) return;
+  if (responseSubmitting) return;
+  responseSubmitting = true;
+  _inputEnabled = false;
+  if (_observeAdvanceTimer) {
+    clearTimeout(_observeAdvanceTimer);
+    _observeAdvanceTimer = null;
+  }
+  stopActiveVoiceCapture({ resetVoiceSubmitting: true });
+  if ('speechSynthesis' in window && (speechSynthesis.speaking || speechSynthesis.pending)) {
+    _ttsSessionId += 1;
+    try { speechSynthesis.cancel(); } catch (e) {}
+  }
+
   const prevStateId = currentState ? currentState.state : '';
   const prevPrescription = currentState ? currentState.prescription : null;
 	
@@ -2066,6 +2508,7 @@ async function submitResponse(responseValue, voiceMeta, overrides = {}) {
   } catch (e) {
     alert('Error: ' + e.message);
   } finally {
+    responseSubmitting = false;
     _lastInputMethod = 'Button'; // Reset to default after each submission
   }
 }
@@ -2528,7 +2971,10 @@ function restoreCachedConversation() {
 function toggleTTS() {
   ttsEnabled = !ttsEnabled;
   document.getElementById('ttsBtn').textContent = `TTS: ${ttsEnabled ? 'ON' : 'OFF'}`;
-  if (!ttsEnabled) speechSynthesis.cancel();
+  if (!ttsEnabled) {
+    _ttsSessionId += 1;
+    speechSynthesis.cancel();
+  }
 }
 
 // ── Phoropter auto-dispatch toggle ──
@@ -2843,8 +3289,6 @@ function handleAutoFlip(data) {
     return;
   }
 
-  const isAxis = data.state === 'E' || data.state === 'H';
-  const prefacePrompt = data.preface_prompt || '';
   const promptQuestion = (document.getElementById('questionText')?.textContent || data.question || '').trim();
 
   // ── Flip 1: Show + speak "This is Flip 1", WAIT for TTS, THEN start 2s timer ──
@@ -2852,15 +3296,12 @@ function handleAutoFlip(data) {
   updateFlipIndicator('flip1');
   setOptionsEnabled(false);
 
-  const baseFlip1Text = sessionLanguage === 'hi'
-    ? `यह पहला विकल्प है। आराम से ध्यान से देखिए।`
-    : `Here is the first option. Take your time and look carefully.`;
-  const flip1Text = joinSpeechParts(prefacePrompt, baseFlip1Text);
-  document.getElementById('questionText').textContent = baseFlip1Text;
+  const flip1Text = getStaticFlipPrompt('flip1');
+  document.getElementById('questionText').textContent = flip1Text;
   const waitSeconds = data.flip_wait_seconds || 2;
 
   // Wait for Flip 1 TTS to finish via onEnd callback, THEN wait the observation period
-  speakQuestion(flip1Text, null, () => {
+  speakQuestionWithStableFollowup(flip1Text, null, () => {
     _autoFlipTimer = setTimeout(doFlip2, waitSeconds * 1000);
   }, 'flip1');
 
@@ -2879,24 +3320,19 @@ function handleAutoFlip(data) {
     _flipState = 'flip2';
     updateFlipIndicator('flip2');
 
-    const flip2Prompt = promptQuestion || (
-      sessionLanguage === 'hi'
-        ? `पहला, दूसरा, समान, या फिर से कहिए।`
-        : `Say first option, second option, both same, or repeat.`
-    );
-    const flip2Text = sessionLanguage === 'hi'
-      ? `अब दूसरा विकल्प है। ${flip2Prompt}`
-      : `And now the second option. ${flip2Prompt}`;
+    const flip2Text = getStaticFlipPrompt('flip2');
+    const flip2Prompt = promptQuestion;
     document.getElementById('questionText').textContent = flip2Prompt;
     // Wait for Flip 2 TTS to finish via onEnd callback, then beep + enable buttons + listen
-    speakQuestion(flip2Text, null, () => {
+    speakQuestionWithStableFollowup(flip2Text, null, () => {
       setOptionsEnabled(true);
-      playBeep().then(() => {
-        _inputEnabled = true; // Enable ALL input after Flip 2 beep
-        if (voiceEnabled && currentState) {
-          startVoiceCapture(currentState.state, currentState.options || [], currentState.step);
-        }
-      });
+      if (voiceEnabled && currentState) {
+        cueAndStartVoiceCapture(currentState.state, currentState.options || [], currentState.step, { enableInput: true });
+      } else {
+        playBeep().then(() => {
+          _inputEnabled = true;
+        });
+      }
     }, 'flip2');
   }
 }

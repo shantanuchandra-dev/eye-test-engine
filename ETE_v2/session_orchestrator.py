@@ -980,86 +980,18 @@ class SessionOrchestrator:
         }
         self.conversation_log.append(entry)
 
-    def _remaining_phase_sequence(self, start_state: str, *, skip_bino_balance: bool) -> List[str]:
-        near_required = bool(getattr(self.derived_variables, "dv_near_test_required", False))
-        final_compare_enabled = self._has_final_compare_current_rx()
-        sequence: List[str] = []
-        state = start_state
-        guard = 0
-        while state not in ("", "END", "ESCALATE") and guard < 24:
-            sequence.append(state)
-            if state == "E":
-                state = "F"
-            elif state == "F":
-                state = "G"
-            elif state == "G":
-                state = "C"
-            elif state == "C":
-                state = "D"
-            elif state == "D":
-                state = "H"
-            elif state == "H":
-                state = "I"
-            elif state == "I":
-                state = "J"
-            elif state == "J":
-                state = "L"
-            elif state == "L":
-                if skip_bino_balance:
-                    if near_required:
-                        state = "P"
-                    else:
-                        state = "S" if final_compare_enabled else "END"
-                else:
-                    state = "K"
-            elif state == "K":
-                if near_required:
-                    state = "P"
-                else:
-                    state = "S" if final_compare_enabled else "END"
-            elif state == "P":
-                state = "Q"
-            elif state == "Q":
-                state = "R"
-            elif state == "R":
-                state = "S" if final_compare_enabled else "END"
-            elif state == "S":
-                state = "T"
-            elif state == "T":
-                state = "U"
-            elif state == "U":
-                state = "END"
-            else:
-                state = "END"
-            guard += 1
-        return sequence
-
     def _estimate_minutes_remaining(self, start_state: str, *, skip_bino_balance: bool) -> int:
-        per_phase_minutes = {
-            "B": 1.0,
-            "C": 0.5,
-            "D": 1.0,
-            "E": 0.8,
-            "F": 0.8,
-            "G": 0.5,
-            "H": 0.8,
-            "I": 0.8,
-            "J": 0.5,
-            "K": 0.5,
-            "L": 0.5,
-            "P": 0.8,
-            "Q": 0.8,
-            "R": 0.6,
-            "S": 0.4,
-            "T": 0.4,
-            "U": 0.4,
+        del skip_bino_balance  # Spoken timing is now a fixed, prerecordable estimate by phase.
+        static_minutes_by_state = {
+            # Based on an average 10-minute eye test and learned relative phase durations.
+            "E": 9,
+            "G": 8,
+            "H": 6,
+            "J": 4,
+            "P": 3,
+            "S": 1,
         }
-        remaining = self._remaining_phase_sequence(
-            start_state,
-            skip_bino_balance=skip_bino_balance,
-        )
-        total_minutes = sum(per_phase_minutes.get(state, 0.5) for state in remaining)
-        return max(1, int(round(total_minutes)))
+        return static_minutes_by_state.get(start_state, 1)
 
     def _build_transition_preface(
         self,
@@ -1077,12 +1009,9 @@ class SessionOrchestrator:
             next_state,
             skip_bino_balance=skip_bino_balance,
         )
-        patient_name = ""
-        if self.patient_input and self.patient_input.patient_name:
-            patient_name = f" {self.patient_input.patient_name.strip()}"
         minute_label = "minute" if minutes_left == 1 else "minutes"
         return (
-            f"You are doing great{patient_name}. Please blink a few times. "
+            "You are doing great. Please blink a few times. "
             f"About {minutes_left} {minute_label} left."
         )
 
