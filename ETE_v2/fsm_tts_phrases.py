@@ -27,7 +27,8 @@ RETRY_PREFIXES_HI: tuple[str, ...] = (
 
 # ── frontend/app.js: LANG_SELECT, terminal speech, JCC auto-flip (handleAutoFlip) ──
 APP_UI_TTS_PHRASES: tuple[str, ...] = (
-    "Please select your preferred language / कृपया अपनी भाषा चुनें",
+    # Sentence break, not "/" — Sarvam TTS reads "/" as "slash"; UI still shows "/" (app.js LANG_SELECT_DISPLAY_TEXT).
+    "Please select your preferred language. कृपया अपनी भाषा चुनें",
     "Congratulations! Your eye test is complete. Thank you.",
     "Congratulations! Your eye test is complete. You preferred the achieved prescription over the PGP. Thank you.",
     "Congratulations! Your eye test is complete. You preferred the PGP. Thank you.",
@@ -48,6 +49,8 @@ APP_UI_TTS_PHRASES: tuple[str, ...] = (
 # After frontend/app.js buildSpokenQuestionText() normalization (English TTS path)
 CANONICAL_EN_SPOKEN_QUESTIONS: tuple[str, ...] = (
     "Please read the line.",
+    "Please read the line. If the letters are not clear, say blurry, or repeat.",
+    "Read the line, say blurry, or repeat.",
     "Can you read the line now, or is it still blurry?",
     "Read it now, or is it still blurry?",
     "Can you read all the letters in this line, or are they blurry?",
@@ -64,7 +67,10 @@ CANONICAL_EN_SPOKEN_QUESTIONS: tuple[str, ...] = (
     "Please compare the two choices. Which one looks clearer or sharper? say first option, second option, both same, or repeat.",
     "Please compare the green and red sides. Which side looks sharper and darker? Say green side, red side, both same, or repeat.",
     "Please compare the letters on the bottom and the top line. Which line looks sharper? Say bottom line, top line, both same, or repeat.",
-    "Please look at the near text. Are the letters clear, blurry, or do you want me to repeat?",
+    "Please look at the near text. Is it clear, blurry, or repeat?",
+    "Clear, blurry, or repeat?",
+    "This is the final confirmation before I finish your eye test. This is option 1. Please observe the line carefully.",
+    "Now this is option 2. Please observe the line carefully.",
     "Option 1. Please observe the line carefully.",
     "Option 2. Please observe the line carefully.",
     "Which option was better, first option or second option? Say first option, second option, or repeat.",
@@ -125,11 +131,13 @@ def _collect_transition_preface_variants(*, en_tail: str, hi_tail: str, max_minu
 
 
 def collect_all_tts_phrases() -> list[str]:
-    """Return sorted unique phrases to pre-generate with ElevenLabs."""
+    """Return sorted unique phrases to pre-generate (Sarvam / ElevenLabs)."""
     from fsm.audio.response_matching import (
         COMPACT_LOCALIZED_VOICE_PROMPTS,
         FSM_AUDIO_RESPONSE_LIBRARY_V1,
+        HINDI_QUESTION_TRANSLATIONS,
         LOCALIZED_LANGUAGE_SELECTION_PROMPTS,
+        LOCALIZED_REPROMPT_TEXTS,
         LOCALIZED_VOICE_PROMPTS,
         _reprompt_text,
     )
@@ -163,13 +171,37 @@ def collect_all_tts_phrases() -> list[str]:
     phrases.update(RETRY_PREFIXES_HI)
     phrases.update(CANONICAL_EN_SPOKEN_QUESTIONS)
 
-    # JCC auto-flip (states E, F, H, I): flip2 uses full English question from DOM + Hindi compact prompt
-    flip2_en = "And now the second option. "
-    flip2_hi = "अब दूसरा विकल्प है। "
-    jcc_compare_q = COMPACT_PROMPT_CONFIG["E"]["question"]
-    phrases.add(flip2_en + jcc_compare_q)
+    # Full-sentence Hindi (and any EN keys) used when not in compact chart mode
+    for en_q, hi_q in HINDI_QUESTION_TRANSLATIONS.items():
+        phrases.add(en_q)
+        phrases.add(hi_q)
+
+    for _rt, hi_line in LOCALIZED_REPROMPT_TEXTS.get("hi", {}).items():
+        phrases.add(hi_line)
+
+    # JCC auto-flip flip2: frontend joinSpeechParts(FLIP2_PREFIX, buildSpokenQuestionText(..., domQuestion))
+    # EN comparison body is normalized to "looks clearer" (not "is clearer") before hashing.
+    flip2_prefix_en = "And now the second option."
+    flip2_prefix_hi = "अब दूसरा विकल्प है।"
+    jcc_compare_dom = COMPACT_PROMPT_CONFIG["E"]["question"]
+    jcc_compare_spoken_en = (
+        "Please compare the two choices. Which one looks clearer or sharper? "
+        "say first option, second option, both same, or repeat."
+    )
+    duochrome_dom = COMPACT_PROMPT_CONFIG["G"]["question"]
+    duochrome_spoken_en = (
+        "Please compare the green and red sides. Which side looks sharper and darker? "
+        "Say green side, red side, both same, or repeat."
+    )
+    phrases.add(_join_speech_parts(flip2_prefix_en, jcc_compare_dom))
+    phrases.add(_join_speech_parts(flip2_prefix_en, jcc_compare_spoken_en))
+    phrases.add(_join_speech_parts(flip2_prefix_en, "Green side, red side, or both same?"))
+    phrases.add(_join_speech_parts(flip2_prefix_en, duochrome_dom))
+    phrases.add(_join_speech_parts(flip2_prefix_en, duochrome_spoken_en))
     hi_compare = COMPACT_LOCALIZED_VOICE_PROMPTS["comparison_4way"]["hi"]["initial"]
-    phrases.add(flip2_hi + hi_compare)
+    hi_duochrome = COMPACT_LOCALIZED_VOICE_PROMPTS["duochrome_4way"]["hi"]["initial"]
+    phrases.add(_join_speech_parts(flip2_prefix_hi, hi_compare))
+    phrases.add(_join_speech_parts(flip2_prefix_hi, hi_duochrome))
 
     # Transition preface + common following prompts (session_orchestrator._build_transition_preface)
     phrases.update(

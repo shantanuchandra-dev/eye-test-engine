@@ -8,9 +8,11 @@
 const API = window.BACKEND_URL || '';
 const LOGS_PASSWORD = 'Shantanu';
 
-/** Same string for on-screen copy and cloud TTS cache hash (must match fsm_tts_phrases APP_UI). */
-const LANG_SELECT_SPOKEN_TEXT =
+/** On-screen copy uses "/" between EN and HI; Sarvam reads "/" aloud, so TTS uses a sentence break (must match fsm_tts_phrases APP_UI). */
+const LANG_SELECT_DISPLAY_TEXT =
   'Please select your preferred language / कृपया अपनी भाषा चुनें';
+const LANG_SELECT_SPOKEN_TEXT =
+  'Please select your preferred language. कृपया अपनी भाषा चुनें';
 
 // ── TTS: pre-rendered cloud clips (ElevenLabs or Sarvam) + browser SpeechSynthesis fallback ──
 let ttsEnabled = true;
@@ -651,16 +653,16 @@ function getStaticTerminalSpeech({ isEscalate, compareRan, acceptedAchieved }) {
   if (compareRan && acceptedAchieved) {
     return sessionLanguage === 'hi'
       ? 'बधाई हो। आपका आई टेस्ट पूरा हो गया है। आपने पी जी पी की तुलना में प्राप्त आर एक्स को पसंद किया। धन्यवाद।'
-      : 'Congratulations. Your eye test is complete. You preferred the achieved prescription over the PGP. Thank you.';
+      : 'Congratulations! Your eye test is complete. You preferred the achieved prescription over the PGP. Thank you.';
   }
   if (compareRan) {
     return sessionLanguage === 'hi'
       ? 'बधाई हो। आपका आई टेस्ट पूरा हो गया है। आपने पी जी पी को पसंद किया। धन्यवाद।'
-      : 'Congratulations. Your eye test is complete. You preferred the PGP. Thank you.';
+      : 'Congratulations! Your eye test is complete. You preferred the PGP. Thank you.';
   }
   return sessionLanguage === 'hi'
     ? 'बधाई हो! आपका आई टेस्ट पूरा हो गया है। धन्यवाद।'
-    : 'Congratulations. Your eye test is complete. Thank you.';
+    : 'Congratulations! Your eye test is complete. Thank you.';
 }
 
 function populateTTSVoiceDropdown() {
@@ -1432,7 +1434,7 @@ function showLanguageSelection(pendingData) {
   document.getElementById('questionStep').textContent = 'LANGUAGE SELECTION';
   document.getElementById('questionState').textContent = 'Setup';
   document.getElementById('questionState').className = 'question-state bin';
-  document.getElementById('questionText').textContent = LANG_SELECT_SPOKEN_TEXT;
+  document.getElementById('questionText').textContent = LANG_SELECT_DISPLAY_TEXT;
 
   const stimEl = document.getElementById('stimulusDescription');
   if (stimEl) stimEl.textContent = '';
