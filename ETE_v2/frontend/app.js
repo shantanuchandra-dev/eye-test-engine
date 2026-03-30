@@ -738,11 +738,11 @@ const STATE_OPTION_SLOT_PREFERENCE = Object.freeze({
 
 // Change these four values later if you want a different physical controller
 // button to act as semantic button 1/2/3/4.
-// Current Chrome/Xbox indices are A=0, B=1, X=2, Y=3.
+// These are raw Gamepad API button indices for the attached controller.
 const GAMEPAD_SLOT_BINDINGS = Object.freeze({
-  1: 1,
-  2: 0,
-  3: 2,
+  1: 11,
+  2: 10,
+  3: 4,
   4: 3,
 });
 
