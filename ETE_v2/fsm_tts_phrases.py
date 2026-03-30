@@ -56,7 +56,7 @@ CANONICAL_EN_SPOKEN_QUESTIONS: tuple[str, ...] = (
     "Can you read all the letters in this line, or are they blurry?",
     "Read the line, or say blurry.",
     "Did that look better now? Say yes or no.",
-    "Better now? Say yes or no.",
+    "Is it better now? Say yes or no.",
     "Which looks clearer: first option, second option, both same, or repeat?",
     "First option, second option, both same, or repeat?",
     "Which side looks clearer: green side, red side, or both same?",
@@ -82,7 +82,11 @@ def _ensure_speech_ending(text: str) -> str:
     t = " ".join(text.split()).strip()
     if not t:
         return ""
-    return t if t[-1] in ".!?" else f"{t}."
+    # Devanagari danda / double danda — must not append "." (breaks TTS hash vs JS join)
+    last = t[-1]
+    if last in ".!?" or last in "\u0964\u0965":
+        return t
+    return f"{t}."
 
 
 def _join_speech_parts(*parts: str) -> str:
@@ -216,8 +220,84 @@ def collect_all_tts_phrases() -> list[str]:
             hi_tail="यह पहला विकल्प है। आराम से ध्यान से देखिए।",
         )
     )
+    # Transition + long FSM prompt (Hindi session): matches motivationSpeech + localizedQuestion (simple join, no extra ".")
+    _jcc_long_en = (
+        "Please compare the two choices. Which one is clearer or sharper? "
+        "say first option, second option, both same, or repeat."
+    )
+    phrases.update(
+        _collect_transition_preface_variants(
+            en_tail=_jcc_long_en,
+            hi_tail=HINDI_QUESTION_TRANSLATIONS[_jcc_long_en],
+        )
+    )
+    _duo_long_en = (
+        "Please compare the green and red sides. Letters on which side look sharper and darker? "
+        "Say green side, red side, both same, or repeat."
+    )
+    phrases.update(
+        _collect_transition_preface_variants(
+            en_tail=_duo_long_en,
+            hi_tail=HINDI_QUESTION_TRANSLATIONS[_duo_long_en],
+        )
+    )
+    _bino_long_en = (
+        "Please compare the letters on the bottom and the top line. Which line looks sharper? "
+        "Say bottom line, top line, both same, or repeat."
+    )
+    phrases.update(
+        _collect_transition_preface_variants(
+            en_tail=_bino_long_en,
+            hi_tail=HINDI_QUESTION_TRANSLATIONS[_bino_long_en],
+        )
+    )
+    _read_long_en = "Please read the line. If the letters are not clear, say blurry, or repeat."
+    phrases.update(
+        _collect_transition_preface_variants(
+            en_tail=_read_long_en,
+            hi_tail=HINDI_QUESTION_TRANSLATIONS[_read_long_en],
+        )
+    )
+    _near_long_en = "Please look at the near text. Is it clear, blurry, or repeat?"
+    phrases.update(
+        _collect_transition_preface_variants(
+            en_tail=_near_long_en,
+            hi_tail=HINDI_QUESTION_TRANSLATIONS[_near_long_en],
+        )
+    )
     # Preface-only clips (frontend plays preface + flip1 body as two MP3s when combined hash misses)
     phrases.update(_collect_transition_preface_only(max_minutes=20))
+
+    # Standalone stimulus captions (frontend app.js STIMULUS_DESCRIPTIONS / STIMULUS_DESCRIPTIONS_HI) —
+    # may appear as the spoken "body" after splitGenericTransitionPrefaceAndBody (e.g. transition + chart label).
+    _stimulus_en = (
+        "Distance letter chart",
+        "Distance vision confirmation",
+        "Dot chart for axis comparison",
+        "Dot chart for power comparison",
+        "Red-green chart",
+        "Top-bottom balance chart",
+        "Near text chart",
+        "Near text with both eyes",
+        "Final prescription comparison option 1 achieved Rx",
+        "Final prescription comparison option 2 PGP",
+        "Final prescription comparison",
+    )
+    _stimulus_hi = (
+        "दूरी का अक्षर चार्ट",
+        "दूरी की दृष्टि की पुष्टि",
+        "अक्ष तुलना के लिए डॉट चार्ट",
+        "पावर तुलना के लिए डॉट चार्ट",
+        "लाल-हरा चार्ट",
+        "ऊपर-नीचे बैलेंस चार्ट",
+        "पास का टेक्स्ट चार्ट",
+        "दोनों आँखों से पास का टेक्स्ट",
+        "अंतिम प्रिस्क्रिप्शन तुलना विकल्प 1 प्राप्त Rx",
+        "अंतिम प्रिस्क्रिप्शन तुलना विकल्प 2 PGP",
+        "अंतिम प्रिस्क्रिप्शन तुलना",
+    )
+    phrases.update(_stimulus_en)
+    phrases.update(_stimulus_hi)
 
     return sorted(phrases)
 

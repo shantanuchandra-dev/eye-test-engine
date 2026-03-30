@@ -20,6 +20,7 @@ import hashlib
 import json
 import os
 import sys
+import unicodedata
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -39,7 +40,8 @@ DEFAULT_TTS_CACHE_DIR = _ETE_ROOT / "tts_cache"
 
 
 def phrase_hash(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    t = unicodedata.normalize("NFC", text or "")
+    return hashlib.sha256(t.encode("utf-8")).hexdigest()
 
 
 def _get_client():

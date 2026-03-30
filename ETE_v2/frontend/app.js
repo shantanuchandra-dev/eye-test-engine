@@ -122,7 +122,8 @@ function stopExamTtsAndTimers() {
 
 async function sha256Hex(str) {
   if (!crypto || !crypto.subtle) return null;
-  const buf = new TextEncoder().encode(str);
+  const normalized = (str || '').normalize('NFC');
+  const buf = new TextEncoder().encode(normalized);
   const hashBuffer = await crypto.subtle.digest('SHA-256', buf);
   return Array.from(new Uint8Array(hashBuffer))
     .map((b) => b.toString(16).padStart(2, '0'))
@@ -170,22 +171,23 @@ function splitTransitionPrefaceFlipBody(text) {
  */
 function splitGenericTransitionPrefaceAndBody(text) {
   const t = (text || '').replace(/\s+/g, ' ').trim();
-  const enNamed =
-    /^You are doing great .+?\. Please blink a few times\. About (\d+) (?:minute|minutes) left\.\s+([\s\S]+)$/;
-  let m = t.match(enNamed);
+  // Optional patient name between "great" / "हैं" and the period (must also match generic, no-name preface).
+  const enRe =
+    /^You are doing great(?:\s+(.+?))?\. Please blink a few times\. About (\d+) (?:minute|minutes) left\.\s+([\s\S]+)$/;
+  let m = t.match(enRe);
   if (m) {
-    const n = parseInt(m[1], 10);
-    const body = m[2].trim();
+    const n = parseInt(m[2], 10);
+    const body = m[3].trim();
     const lab = n === 1 ? 'minute' : 'minutes';
     const genericPreface = `You are doing great. Please blink a few times. About ${n} ${lab} left.`;
     return [genericPreface, body];
   }
-  const hiNamed =
-    /^आप बहुत अच्छा कर रहे हैं .+?। कृपया कुछ बार पलक झपकाइए। लगभग (\d+) मिनट बाकी हैं।\s+([\s\S]+)$/u;
-  m = t.match(hiNamed);
+  const hiRe =
+    /^आप बहुत अच्छा कर रहे हैं(?:\s+(.+?))?। कृपया कुछ बार पलक झपकाइए। लगभग (\d+) मिनट बाकी हैं।\s+([\s\S]+)$/u;
+  m = t.match(hiRe);
   if (m) {
-    const n = parseInt(m[1], 10);
-    const body = m[2].trim();
+    const n = parseInt(m[2], 10);
+    const body = m[3].trim();
     const genericPreface = `आप बहुत अच्छा कर रहे हैं। कृपया कुछ बार पलक झपकाइए। लगभग ${n} मिनट बाकी हैं।`;
     return [genericPreface, body];
   }
@@ -582,14 +584,22 @@ function getQuestionTTSProfile(data) {
   return 'default';
 }
 
+/** NFC so TTS SHA-256 matches Python phrase_hash (Devanagari compatibility). */
+function nfcStr(s) {
+  const t = (s || '');
+  return typeof t.normalize === 'function' ? t.normalize('NFC') : t;
+}
+
 function getStaticQuestionSpeech(localizedQuestion) {
-  return (localizedQuestion || '').replace(/\s+/g, ' ').trim();
+  return nfcStr((localizedQuestion || '').replace(/\s+/g, ' ').trim());
 }
 
 function ensureSpeechEnding(text) {
   const trimmed = (text || '').replace(/\s+/g, ' ').trim();
   if (!trimmed) return '';
-  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+  // Hindi / Devanagari sentence ends (। ॥) — do not append ASCII "."
+  if (/[.!?]$/.test(trimmed) || /[\u0964\u0965]$/.test(trimmed)) return trimmed;
+  return `${trimmed}.`;
 }
 
 function joinSpeechParts(...parts) {
@@ -623,7 +633,7 @@ function buildSpokenQuestionText(data, localizedQuestion, prefacePrompt = '') {
     } else if (/^did it get better now\? say yes or no\.$/i.test(spoken)) {
       spoken = 'Did that look better now? Say yes or no.';
     } else if (/^better now, yes or no\?$/i.test(spoken)) {
-      spoken = 'Better now? Say yes or no.';
+      spoken = 'Is it better now? Say yes or no.';
     } else if (/^first, second, or both same\?$/i.test(spoken) || /^first option, second option, or both same\?$/i.test(spoken) || /^first option, second option, both same, or repeat\?$/i.test(spoken)) {
       spoken = 'Which looks clearer: first option, second option, both same, or repeat?';
     } else if (/^say first option, second option, both same, or repeat\.?$/i.test(spoken)) {
@@ -641,7 +651,7 @@ function buildSpokenQuestionText(data, localizedQuestion, prefacePrompt = '') {
     }
   }
 
-  return joinSpeechParts(prefacePrompt, spoken);
+  return nfcStr(joinSpeechParts(prefacePrompt, spoken));
 }
 
 function getStaticTerminalSpeech({ isEscalate, compareRan, acceptedAchieved }) {
@@ -1068,16 +1078,18 @@ function getMotivationSpeech(prefacePrompt, lang) {
   if (!text) return '';
 
   const staticPrompt = STATIC_MOTIVATION_PROMPTS[activeLang]?.[text];
-  if (staticPrompt) return staticPrompt;
+  if (staticPrompt) return nfcStr(staticPrompt);
 
   const match = text.match(/^You are doing great(?:\s+.+?)?\. Please blink a few times\. About (\d+) (minute|minutes) left\.$/i);
   if (!match) return '';
 
   const minutes = match[1];
+  const n = parseInt(minutes, 10);
+  const unit = n === 1 ? 'minute' : 'minutes';
   if (activeLang === 'hi') {
-    return `आप बहुत अच्छा कर रहे हैं। कृपया कुछ बार पलक झपकाइए। लगभग ${minutes} मिनट बाकी हैं।`;
+    return nfcStr(`आप बहुत अच्छा कर रहे हैं। कृपया कुछ बार पलक झपकाइए। लगभग ${minutes} मिनट बाकी हैं।`);
   }
-  return `You are doing great. Please blink a few times. About ${minutes} minutes left.`;
+  return nfcStr(`You are doing great. Please blink a few times. About ${minutes} ${unit} left.`);
 }
 
 // ── Voice input state ──

@@ -6,6 +6,7 @@ from difflib import SequenceMatcher
 import json
 from pathlib import Path
 import re
+import unicodedata
 from typing import Any, Optional
 
 
@@ -1005,6 +1006,7 @@ HINDI_QUESTION_TRANSLATIONS = {
     "Read the line.": "क्या अक्षर साफ हैं या धुंधले?",
     "Did it get better now? Say yes or no.": "क्या अब यह बेहतर हुआ? हाँ या नहीं कहिए।",
     "Better now, yes or no?": "अब बेहतर है, हाँ या नहीं?",
+    "Is it better now? Say yes or no.": "क्या अब यह बेहतर है? हाँ या नहीं कहिए।",
     "Can you read the line now, or is it still blurry?": "क्या अब यह साफ है, अभी भी धुंधला है, या फिर से?",
     "Read it now, or say still blurry.": "साफ, अभी भी धुंधला, या फिर से?",
     "Please compare the two choices. Which one is clearer or sharper? say first option, second option, both same, or repeat.": "कृपया दोनों विकल्पों की तुलना कीजिए। कौन सा ज़्यादा साफ या शार्प दिख रहा है? पहला विकल्प, दूसरा विकल्प, दोनों समान, या फिर से कहिए।",
@@ -1026,6 +1028,22 @@ HINDI_QUESTION_TRANSLATIONS = {
     "Which option was better, first option or second option? Say first option, second option, or repeat.": "कौन सा विकल्प बेहतर था, पहला विकल्प या दूसरा विकल्प? पहला विकल्प, दूसरा विकल्प, या फिर से कहिए।",
     "Which was better, first option, second option, or repeat?": "कौन बेहतर था, पहला विकल्प, दूसरा विकल्प, या फिर से?",
 }
+
+
+def _hindi_question_lookup(prompt: str) -> Optional[str]:
+    """Match HINDI_QUESTION_TRANSLATIONS with collapsed whitespace, NFC, and case-insensitive English keys."""
+    raw = " ".join(str(prompt or "").split()).strip()
+    if not raw:
+        return None
+    p = unicodedata.normalize("NFC", raw)
+    t = HINDI_QUESTION_TRANSLATIONS.get(p)
+    if t:
+        return t
+    p_lc = p.lower()
+    for k, v in HINDI_QUESTION_TRANSLATIONS.items():
+        if k.lower() == p_lc:
+            return v
+    return None
 
 
 LOCALIZED_REPROMPT_TEXTS = {
@@ -1055,13 +1073,15 @@ def _localized_hindi_question(*, state: str, fallback_question: str, retry: bool
     if not prompt:
         return ""
 
-    translated = HINDI_QUESTION_TRANSLATIONS.get(prompt)
+    translated = _hindi_question_lookup(prompt)
     if translated:
         return translated
 
     prompt_lc = prompt.lower()
+    # Short yes/no only — long prompts must come from HINDI_QUESTION_TRANSLATIONS (Sarvam hash match).
     if state in {"B", "D"} and ("better now" in prompt_lc or "yes or no" in prompt_lc):
-        return "अब बेहतर है, हाँ या नहीं?"
+        if len(prompt.split()) <= 6:
+            return "अब बेहतर है, हाँ या नहीं?"
     if state in {"B", "D"} and "still blurry" in prompt_lc:
         return "क्या अब यह साफ है, अभी भी धुंधला है, या फिर से?"
     if state in {"B", "D", "C", "L"} and "read the line" in prompt_lc:
@@ -1074,19 +1094,39 @@ def _localized_hindi_question(*, state: str, fallback_question: str, retry: bool
     if state in {"S", "T"} and ("look carefully at the line" in prompt_lc or "observe the line carefully" in prompt_lc):
         return "कृपया लाइन को ध्यान से देखिए।"
     if state in {"B", "C", "D", "L", "S", "T"} and "read the line" in prompt_lc:
-        return "लाइन पढ़िए।"
-    if state in {"E", "F", "H", "I", "U"} and "both same" in prompt_lc:
+        if len(prompt.split()) <= 3:
+            return "लाइन पढ़िए।"
+    # "both same" appears in long "Please compare…" questions — do not shorten those to 4-word Hindi.
+    if (
+        state in {"E", "F", "H", "I", "U"}
+        and "both same" in prompt_lc
+        and "please compare" not in prompt_lc
+    ):
         return "पहला विकल्प, दूसरा विकल्प, या दोनों समान?"
-    if state == "U" and "first option" in prompt_lc and "second option" in prompt_lc:
+    if (
+        state == "U"
+        and "first option" in prompt_lc
+        and "second option" in prompt_lc
+        and "which option was better" not in prompt_lc
+    ):
         return "कौन बेहतर था, पहला विकल्प, दूसरा विकल्प, या फिर से?"
-    if state in {"G", "J"} and "both same" in prompt_lc:
+    if (
+        state in {"G", "J"}
+        and "both same" in prompt_lc
+        and "please compare" not in prompt_lc
+    ):
         return "हरा साइड, लाल साइड, दोनों समान, या फिर से?"
-    if state == "K" and "both same" in prompt_lc:
+    if (
+        state == "K"
+        and "both same" in prompt_lc
+        and "please compare" not in prompt_lc
+    ):
         return "नीचे की लाइन, ऊपर की लाइन, दोनों समान, या फिर से?"
     if state in {"P", "Q", "R"} and ("clear or blurry" in prompt_lc or "letters clear" in prompt_lc or "is it clear" in prompt_lc):
         if "please look at the near text" in prompt_lc:
             return "कृपया पास के टेक्स्ट को देखिए। क्या यह साफ है, धुंधला है, या \"फिर से\"?"
-        return "साफ, धुंधला, या फिर से?"
+        if "please look" not in prompt_lc:
+            return "साफ, धुंधला, या फिर से?"
     return ""
 
 

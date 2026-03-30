@@ -7,11 +7,13 @@ The Flask app serves them as GET /api/tts-sarvam/<sha256>.mp3.
 Generate (requires SARVAM_API_KEY and network):
   cd ETE_v2 && python sarvam_tts_cache.py generate
   cd ETE_v2 && python sarvam_tts_cache.py generate --regenerate   # overwrite all clips
+  cd ETE_v2 && python sarvam_tts_cache.py generate --regenerate --no-trim  # raw Sarvam MP3s, no ffmpeg
   cd ETE_v2 && python sarvam_tts_cache.py generate --regenerate --prune-after  # refresh + delete orphans
 
 Regenerate a single clip by SHA-256 (hex) of the UTF-8 phrase (must match fsm_tts_phrases):
   cd ETE_v2 && python sarvam_tts_cache.py generate-one f36cefa56a15c17ec64837a8228b418c9570366d1be3db4f4e5c5a43ed74e6ce
   cd ETE_v2 && python sarvam_tts_cache.py generate-one f36cefa56a15   # unique prefix ok
+  cd ETE_v2 && python sarvam_tts_cache.py generate-one HASH --no-trim  # raw Sarvam MP3, no ffmpeg trim/pad
 
 Prune MP3s whose text is no longer in fsm_tts_phrases (no API):
   cd ETE_v2 && python sarvam_tts_cache.py prune
@@ -40,6 +42,7 @@ import base64
 import hashlib
 import json
 import os
+import unicodedata
 import shutil
 import subprocess
 import sys
@@ -64,7 +67,8 @@ SARVAM_SPEECH_SAMPLE_RATE = os.environ.get("SARVAM_SPEECH_SAMPLE_RATE", "48000")
 
 
 def phrase_hash(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    t = unicodedata.normalize("NFC", text or "")
+    return hashlib.sha256(t.encode("utf-8")).hexdigest()
 
 
 def _target_language_code(text: str) -> str:
@@ -254,6 +258,7 @@ def generate_fsm_audio_cache(
     *,
     skip_existing: bool = True,
     prune_after: bool = False,
+    no_trim: bool = False,
 ) -> dict:
     from fsm_tts_phrases import collect_all_tts_phrases
 
@@ -274,7 +279,8 @@ def generate_fsm_audio_cache(
             continue
         try:
             raw = synthesize_sarvam_mp3_bytes(text, key)
-            raw = postprocess_sarvam_mp3_bytes(raw)
+            if not no_trim:
+                raw = postprocess_sarvam_mp3_bytes(raw)
             out.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(raw)
             created += 1
@@ -287,6 +293,7 @@ def generate_fsm_audio_cache(
         "model": MODEL,
         "pace": SARVAM_TTS_PACE,
         "speech_sample_rate_hz": SARVAM_SPEECH_SAMPLE_RATE,
+        "postprocess": "none" if no_trim else "ffmpeg_trim_pad",
         "phrase_count": len(phrases),
         "created": created,
         "skipped": skipped,
@@ -335,6 +342,8 @@ def resolve_phrase_for_hash(want_hash: str, phrases: list[str]) -> tuple[str, st
 def generate_one_fsm_clip(
     output_dir: Path,
     want_hash: str,
+    *,
+    no_trim: bool = False,
 ) -> dict:
     """Synthesize and write exactly one MP3 for the phrase identified by hash (full or unique prefix)."""
     from fsm_tts_phrases import collect_all_tts_phrases
@@ -350,7 +359,8 @@ def generate_one_fsm_clip(
     out.mkdir(parents=True, exist_ok=True)
 
     raw = synthesize_sarvam_mp3_bytes(text, key)
-    raw = postprocess_sarvam_mp3_bytes(raw)
+    if not no_trim:
+        raw = postprocess_sarvam_mp3_bytes(raw)
     dest.write_bytes(raw)
 
     return {
@@ -358,6 +368,7 @@ def generate_one_fsm_clip(
         "phrase_preview": text[:120] + ("…" if len(text) > 120 else ""),
         "path": str(dest),
         "bytes": len(raw),
+        "postprocess": "none" if no_trim else "ffmpeg_trim_pad",
     }
 
 
@@ -382,6 +393,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="After generate, delete *.mp3 not in current fsm_tts_phrases set",
     )
+    p_gen.add_argument(
+        "--no-trim",
+        action="store_true",
+        help="Write raw Sarvam MP3s (skip ffmpeg tail trim and end pad for every phrase)",
+    )
 
     p_one = sub.add_parser(
         "generate-one",
@@ -397,6 +413,11 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         default=DEFAULT_SARVAM_CACHE_DIR,
         help="Cache directory (default: ETE_v2/sarvam_tts_cache)",
+    )
+    p_one.add_argument(
+        "--no-trim",
+        action="store_true",
+        help="Write raw Sarvam MP3 (skip ffmpeg tail trim and end pad)",
     )
 
     p_prune = sub.add_parser(
@@ -439,12 +460,17 @@ def main(argv: list[str] | None = None) -> int:
             args.output,
             skip_existing=not args.regenerate,
             prune_after=getattr(args, "prune_after", False),
+            no_trim=getattr(args, "no_trim", False),
         )
         print(json.dumps(report, indent=2))
         return 1 if report.get("errors") else 0
     if args.cmd == "generate-one":
         try:
-            report = generate_one_fsm_clip(args.output, args.hash)
+            report = generate_one_fsm_clip(
+                args.output,
+                args.hash,
+                no_trim=getattr(args, "no_trim", False),
+            )
             print(json.dumps(report, indent=2))
             return 0
         except (RuntimeError, ValueError) as e:

@@ -310,7 +310,7 @@ class RefractionFSMEngine:
                 question = (
                     "Did it get better now? Say yes or no."
                     if early
-                    else "Better now, yes or no?"
+                    else "Is it better now? Say yes or no."
                 )
                 return question, ("CLEAR", "BLURRY", "REPEAT")
             if row.coarse_recheck_mode:
