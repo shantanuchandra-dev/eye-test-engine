@@ -1,12 +1,10 @@
 Section,Parameter_Key,Value,Unit_or_Type,Allowed_Values,Notes_Used_By,Parameter_Explanation
-SYSTEM,system_version,3.1,text,any,Version tracking,Version number of the calibration setup
 SYSTEM,active_profile,FSMv3.1,text,any,Calibration profile name,Name of the currently active calibration profile
 
 PATIENT_TO_DV,age_child_max,17,years,integer,dv_age_bucket,Maximum age classified as Child
 PATIENT_TO_DV,age_presbyope_min,40,years,integer,dv_age_bucket,Minimum age classified as Presbyope
 PATIENT_TO_DV,driving_hours_high,2,hours,float/int,dv_distance_priority,Driving time threshold above which distance priority becomes high
 PATIENT_TO_DV,screen_time_high,6,hours,float/int,dv_near_priority,Screen-time threshold above which near priority becomes high
-PATIENT_TO_DV,near_work_hours_high,4,hours,float/int,dv_near_priority,Near-work threshold above which near priority becomes high
 PATIENT_TO_DV,last_eye_test_uncertain_months,24,months,integer,dv_stability_level,Months after which refraction history is considered uncertain
 PATIENT_TO_DV,add_possible_min_age,38,years,integer,dv_add_expected,Minimum age at which ADD can become possible
 PATIENT_TO_DV,add_likely_min_age,42,years,integer,dv_add_expected,Minimum age at which ADD is likely
@@ -51,16 +49,16 @@ STEP_POLICY,conservative_cyl_step,0.25,D,float,FSM cyl_step,Cylinder step used i
 STEP_POLICY,standard_cyl_step,0.25,D,float,FSM cyl_step,Cylinder step used in Standard mode
 STEP_POLICY,aggressive_cyl_step,0.25,D,float,FSM cyl_step,Cylinder step used in Aggressive mode
 
-AXIS_POLICY,axis_start_step,5,deg,integer,FSM axis_step initialization,Initial JCC axis refinement step
-AXIS_POLICY,axis_reversal_step_1,3,deg,integer,FSM axis_step after first reversal,Axis step after first preference reversal
-AXIS_POLICY,axis_reversal_step_2,1,deg,integer,FSM axis_step after second reversal,Axis step after second preference reversal
 AXIS_POLICY,axis_fixed_step,5,deg,integer,FSM v2.3 JCC axis delta,Fixed JCC axis step used for all axis changes
 AXIS_POLICY,jcc_axis_same_required,1,count,integer,FSM axis convergence,Number of SAME confirmations required before exiting axis refinement
 AXIS_POLICY,jcc_axis_max_flips,3,count,integer,FSM axis convergence,Maximum BETTER_1 ↔ BETTER_2 reversals allowed in JCC axis
-AXIS_POLICY,quick_axis_scan_step,45,deg,integer,FSM quick axis search coarse step,Axis jump used while scanning away from cardinal AR/lenso axes
-AXIS_POLICY,quick_axis_reversal_step,30,deg,integer,FSM quick axis search first reversal step,Axis jump used when preference first reverses during quick axis search
-AXIS_POLICY,quick_axis_refine_step_1,10,deg,integer,FSM quick axis search mid refinement step,Axis jump used after the first quick-search reversal
-AXIS_POLICY,quick_axis_refine_step_2,5,deg,integer,FSM quick axis search fine refinement step,Axis jump used for final fine refinement after the second reversal
+AXIS_POLICY,axis_near_cardinal_threshold_deg,10,deg,float,FSM adaptive axis lane selection,Axis is treated as near-cardinal when within this many degrees of 0/90/180
+AXIS_POLICY,axis_low_cyl_threshold_d,0.5,D,float,FSM adaptive axis lane selection,Cylinder magnitude below this threshold is treated as low for axis confidence
+AXIS_POLICY,axis_meaningful_cyl_threshold_d,0.75,D,float,FSM adaptive axis lane selection,Cylinder magnitude at or above this threshold is treated as meaningful for stronger axis confidence
+AXIS_POLICY,lane_1_sequence_deg,"10,5",deg sequence,text,FSM adaptive axis lane selection,Step sequence for high-confidence axis refinement
+AXIS_POLICY,lane_2_sequence_deg,"20,10,5",deg sequence,text,FSM adaptive axis lane selection,Step sequence for medium-confidence axis refinement
+AXIS_POLICY,lane_3_sequence_deg,"30,20,10,5",deg sequence,text,FSM adaptive axis lane selection,Step sequence for low-confidence axis refinement
+AXIS_POLICY,lane_4_sequence_deg,"45,30,20,10,5",deg sequence,text,FSM adaptive axis lane selection,Step sequence for very low-confidence axis refinement
 AXIS_POLICY,axis_tol_strict,1,deg,integer,dv_axis_tolerance_deg,Axis tolerance used when branching guardrails are strict
 AXIS_POLICY,axis_tol_normal,3,deg,integer,dv_axis_tolerance_deg,Axis tolerance used when branching guardrails are normal
 AXIS_POLICY,axis_tol_relaxed,5,deg,integer,dv_axis_tolerance_deg,Axis tolerance used when branching guardrails are relaxed
@@ -73,17 +71,9 @@ CYL_POLICY,jcc_power_same_medium,1,count,integer,FSM JCC power convergence,Numbe
 CYL_POLICY,jcc_power_same_high,1,count,integer,FSM JCC power convergence,Number of SAME confirmations required in high confidence cases
 CYL_POLICY,jcc_power_max_flips,2,count,integer,FSM JCC power convergence,Maximum allowed BETTER_1 ↔ BETTER_2 flips in JCC power before forcing exit to duochrome
 
-FOGGING,no_fog_amount,0.5,D,float,dv_fogging_amount_D,Sphere shift added when no fogging is applied
+FOGGING,low_fog_amount,0.5,D,float,dv_fogging_amount_D,Sphere shift added when low fogging is applied
 FOGGING,standard_fog_amount,1.25,D,float,dv_fogging_amount_D,Sphere fog amount used for standard fogging
 FOGGING,strong_fog_amount,1.5,D,float,dv_fogging_amount_D,Sphere fog amount used for strong fogging
-FOGGING,fogging_apply_at_coarse_entry_only,TRUE,boolean,TRUE/FALSE,FSM v3.1 coarse sphere entry,If TRUE fogging is applied once at entry into coarse sphere and not re-applied later
-FOGGING,fogging_clear_until_target_va,TRUE,boolean,TRUE/FALSE,FSM v3.1 fogging clearance,If TRUE fogging is reduced only until target VA is reached during coarse refinement
-FOGGING,fogging_use_accommodation_logic,TRUE,boolean,TRUE/FALSE,FSM v3.1 fogging decision,If TRUE fogging behavior is interpreted as an accommodation control mechanism rather than a generic risk feature
-FOGGING,strong_fog_for_children,TRUE,boolean,TRUE/FALSE,FSM v3.1 fogging decision,Documentation row for FSM v3.1: child cases are treated as high accommodation risk and receive strong fogging
-FOGGING,standard_fog_for_adult_instability_or_moderate_risk,TRUE,boolean,TRUE/FALSE,FSM v3.1 fogging decision,Documentation row for FSM v3.1: unstable adults or moderate-risk adults receive standard fogging
-FOGGING,no_fog_for_presbyopes,TRUE,boolean,TRUE/FALSE,FSM v3.1 fogging decision,Documentation row for FSM v3.1: presbyopes are treated as low accommodation risk and receive no fogging
-FOGGING,strong_fog_if_presbyope,FALSE,boolean,TRUE/FALSE,dv_fogging_policy,Legacy deprecated row. FSM v3.1 does NOT use presbyopia as a trigger for fogging.
-FOGGING,strong_fog_if_unstable,FALSE,boolean,TRUE/FALSE,dv_fogging_policy,Legacy deprecated row. FSM v3.1 does NOT use instability alone to trigger strong fogging.
 
 DUOCHROME,duochrome_red_step,-0.25,D,float,FSM dS in duochrome,Sphere adjustment applied when red is clearer
 DUOCHROME,duochrome_green_step,0.25,D,float,FSM dS in duochrome,Sphere adjustment applied when green is clearer
@@ -127,10 +117,5 @@ PHASE_TIMEOUTS,timeout_near_fast,16,steps,integer,FSM phaseMax,Maximum allowed n
 PHASE_TIMEOUTS,timeout_near_normal,22,steps,integer,FSM phaseMax,Maximum allowed near workflow iterations in normal cases
 PHASE_TIMEOUTS,timeout_near_slow,28,steps,integer,FSM phaseMax,Maximum allowed near workflow iterations in slow cases
 
-CHARTS,dist_chart_1,400,text,chart label,Distance chart ladder,First / easiest distance chart group
-CHARTS,coarse_start_chart,200_150,text,chart label,FSM v3.1 coarse sphere entry,Default starting chart for coarse sphere after baseline removal
+CHARTS,coarse_start_chart,70_60_50,text,chart label,FSM v3.1 coarse sphere entry,Default starting chart for coarse sphere after baseline removal
 CHARTS,dist_chart_2,200_150,text,chart label,Distance chart ladder,Second distance chart group
-CHARTS,dist_chart_3,100_80,text,chart label,Distance chart ladder,Third distance chart group
-CHARTS,dist_chart_4,70_60_50,text,chart label,Distance chart ladder,Fourth distance chart group
-CHARTS,dist_chart_5,40_30_25,text,chart label,Distance chart ladder,Fifth distance chart group
-CHARTS,dist_chart_6,20_20_20,text,chart label,Distance chart ladder,Final / hardest distance chart group

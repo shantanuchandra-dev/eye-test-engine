@@ -8,6 +8,18 @@ DISTANCE_CHART_ORDER = [
 ]
 
 
+DISTANCE_CHART_LAST_LINE_ITEMS = {
+    "400": "",
+    "200_150": "150",
+    "100_80": "80",
+    "70_60_50": "50",
+    "40_30_25": "25",
+    "20_15_10": "10",
+    "20_20_20": "20_3",
+    "25_20_15": "15",
+}
+
+
 def _normalize_chart(chart_param):
     if chart_param is None:
         return ""
@@ -36,6 +48,10 @@ def _normalize_chart(chart_param):
     return text
 
 
+def normalize_chart_param(chart_param: str) -> str:
+    return _normalize_chart(chart_param)
+
+
 def get_chart_index(chart_param: str) -> int:
     text = _normalize_chart(chart_param)
 
@@ -57,6 +73,30 @@ def get_next_chart(chart_param: str) -> str:
         return text
 
     return DISTANCE_CHART_ORDER[idx]
+
+
+def get_previous_chart(chart_param: str) -> str:
+    text = _normalize_chart(chart_param)
+    idx = get_chart_index(text)
+
+    if idx <= 1:
+        return text
+
+    return DISTANCE_CHART_ORDER[idx - 2]
+
+
+def chart_to_last_line_va(chart_param: str) -> str:
+    text = _normalize_chart(chart_param)
+    if not text:
+        return ""
+    if "_" not in text:
+        return f"20/{text}"
+    return f"20/{text.split('_')[-1]}"
+
+
+def chart_to_last_line_item(chart_param: str) -> str:
+    text = _normalize_chart(chart_param)
+    return DISTANCE_CHART_LAST_LINE_ITEMS.get(text, "")
 
 
 def target_line_to_chart(target_line: str, calibration) -> str:

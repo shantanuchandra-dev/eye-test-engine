@@ -46,8 +46,20 @@ from ete_io.dashboard_data import (
     export_metadata_columns,
 )
 
+# ── App paths ──
+APP_ROOT = Path(__file__).resolve().parent
+FRONTEND_DIR = APP_ROOT / "frontend"
+
+
+def _resolve_app_path(raw_path: str | Path) -> Path:
+    path = Path(raw_path).expanduser()
+    if path.is_absolute():
+        return path
+    return APP_ROOT / path
+
+
 # ── App setup ──
-app = Flask(__name__, static_folder="frontend", static_url_path="")
+app = Flask(__name__, static_folder=str(FRONTEND_DIR), static_url_path="")
 CORS(app)
 
 # ── Configuration ──
@@ -56,10 +68,12 @@ PHOROPTER_BASE_URL = os.environ.get(
     "https://rajasthan-royals.preprod.lenskart.com",
 )
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:5050")
-CALIBRATION_PATH = os.environ.get("CALIBRATION_PATH", "config/calibration.csv")
+CALIBRATION_PATH = _resolve_app_path(
+    os.environ.get("CALIBRATION_PATH", "config/calibration.csv")
+)
 
 # ── Log paths ──
-LOG_BASE = Path(os.environ.get("LOG_DIR", "logs"))
+LOG_BASE = _resolve_app_path(os.environ.get("LOG_DIR", "logs"))
 SESSIONS_DIR = LOG_BASE / "sessions"
 COMBINED_LOG_PATH = LOG_BASE / "combined_log.csv"
 COMBINED_METADATA_PATH = LOG_BASE / "combined_metadata.csv"
@@ -119,45 +133,57 @@ def _proxy_request(method: str, path: str, body: Optional[dict] = None) -> tuple
 
 @app.route("/")
 def serve_index():
-        return send_from_directory("frontend", "index.html")
+        return send_from_directory(FRONTEND_DIR, "index.html")
 
 
 @app.route("/intake")
 def serve_intake():
-    return send_from_directory("frontend", "intake.html")
+    return send_from_directory(FRONTEND_DIR, "intake.html")
 
 
 @app.route("/dashboard")
 def serve_dashboard():
-    return send_from_directory("frontend", "dashboard.html")
+    return send_from_directory(FRONTEND_DIR, "dashboard.html")
 
 
 @app.route("/cal")
 def serve_calibration():
-    return send_from_directory("frontend", "calibration.html")
+    return send_from_directory(FRONTEND_DIR, "calibration.html")
 
 
-# Pre-rendered ElevenLabs TTS clips (SHA-256 hex of UTF-8 phrase text). See elevenlabs_tts_cache.py generate.
+# Pre-rendered cloud TTS clips (SHA-256 hex of UTF-8 phrase text; same strings as fsm_tts_phrases).
 TTS_CACHE_DIR = Path(__file__).resolve().parent / "tts_cache"
+SARVAM_TTS_CACHE_DIR = Path(__file__).resolve().parent / "sarvam_tts_cache"
 
 
-@app.route("/api/tts/<phrase_id>.mp3")
-def serve_tts_audio(phrase_id: str):
+def _serve_phrase_mp3(cache_dir: Path, phrase_id: str):
     if (
         len(phrase_id) != 64
         or any(c not in "0123456789abcdefABCDEF" for c in phrase_id)
     ):
         abort(400)
     safe = phrase_id.lower()
-    path = TTS_CACHE_DIR / f"{safe}.mp3"
+    path = cache_dir / f"{safe}.mp3"
     if not path.is_file():
         abort(404)
-    return send_from_directory(TTS_CACHE_DIR, f"{safe}.mp3", mimetype="audio/mpeg")
+    return send_from_directory(cache_dir, f"{safe}.mp3", mimetype="audio/mpeg")
+
+
+@app.route("/api/tts/<phrase_id>.mp3")
+def serve_tts_audio(phrase_id: str):
+    """ElevenLabs cache (elevenlabs_tts_cache.py generate)."""
+    return _serve_phrase_mp3(TTS_CACHE_DIR, phrase_id)
+
+
+@app.route("/api/tts-sarvam/<phrase_id>.mp3")
+def serve_sarvam_tts_audio(phrase_id: str):
+    """Sarvam AI cache (sarvam_tts_cache.py generate)."""
+    return _serve_phrase_mp3(SARVAM_TTS_CACHE_DIR, phrase_id)
 
 
 @app.route("/<path:path>")
 def serve_static(path):
-    return send_from_directory("frontend", path)
+    return send_from_directory(FRONTEND_DIR, path)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -487,6 +513,7 @@ def voice_labels():
     state = data.get("state", "")
     language = data.get("language", "en")
     question = data.get("question", "")
+    options = data.get("options", [])
 
     try:
         from fsm.audio.response_matching import (
@@ -495,10 +522,10 @@ def voice_labels():
             localized_option_label,
         )
 
-        display_labels = interactive_option_labels(state)
+        display_labels = options or interactive_option_labels(state)
         localized_labels = []
         for label in display_labels:
-            loc = localized_option_label(label, language)
+            loc = localized_option_label(label, language, state=state, question=question)
             localized_labels.append({
                 "internal": label,
                 "display": loc if loc != label else label,

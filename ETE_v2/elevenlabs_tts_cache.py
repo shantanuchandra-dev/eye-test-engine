@@ -1,8 +1,9 @@
 """
 Build and maintain the pre-rendered ElevenLabs TTS cache (FSM + UI phrases → MP3).
 
-The Flask app serves files from tts_cache/ as GET /api/tts/<sha256>.mp3; the browser
-falls back to speechSynthesis when a clip is missing.
+The Flask app serves files from tts_cache/ as GET /api/tts/<sha256>.mp3; Sarvam clips
+live in sarvam_tts_cache/ as GET /api/tts-sarvam/<sha256>.mp3 (see sarvam_tts_cache.py).
+The browser falls back to speechSynthesis when a clip is missing.
 
 Generate cache (requires ELEVENLABS_API_KEY and network):
   cd ETE_v2 && python elevenlabs_tts_cache.py generate

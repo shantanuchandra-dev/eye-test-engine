@@ -3,22 +3,24 @@
 ## FSM Engine (FSMv3.1)
 
 ### Refraction Phases
-- **Coarse Sphere** (RE then LE) — Accommodation-driven fogging, step-down with chart progression
-- **JCC Axis Refinement** (RE then LE) — Flip-based axis search with configurable step sizes (5° → 3° → 1°) and convergence criteria
+- **Coarse Sphere** (RE then LE) — Starts from the third-smallest chart (`70_60_50`), shows only the active working line, asks the patient to read that line, adds minus on blur, and uses a clearer-vs-more-blurry confirmation loop before ending the phase
+- **JCC Axis Refinement** (RE then LE) — Adaptive lane-driven axis search with reversal-based step reduction
 - **JCC Power Refinement** (RE then LE) — Cylinder power optimization with flip reversal tracking
 - **Duochrome** (RE then LE) — Red/green balance test with configurable max flips and bias policies
+- **Distance VA Confirmation** (RE then LE) — After duochrome convergence, starts from `20_20_20`, steps to larger charts if needed, and records the last confirmed line read for each eye
 - **Binocular Balance** — Equalize both eyes with OU comparison
 - **Near Vision Workflow** — Monocular ADD (RE/LE) then binocular near refinement
+- **Final Rx Comparison** — When lensometry is available, shows achieved Rx as option 1 and PGP (previous glasses power) as option 2, gives the patient timed observe-only views of the `20_20_20` last line twice, and records whether the patient accepted the achieved Rx over the PGP
 - **Escalation** — Safety exit to optometrist review on anomaly detection
 
 ### Accommodation-Driven Fogging (v3.1)
-- Fogging amount based on age/accommodation level (child → strong, adult → standard, presbyope → none)
-- Configurable via calibration: `strong_fog_amount`, `standard_fog_amount`, `no_fog_amount`
-- Applied once at coarse sphere entry, cleared until target VA reached
+- Fogging amount based on age/accommodation level (child → strong, adult → standard, presbyope → low fog)
+- Configurable via calibration: `strong_fog_amount`, `standard_fog_amount`, `low_fog_amount`
+- Applied once at coarse sphere entry as an initial plus shift; the coarse loop then refines using last-line readability and clearer-vs-more-blurry confirmation
 
 ### Derived Variables Engine
-- 63 derived variables computed from patient intake data + calibration parameters
-- Covers: age bucket, risk levels, mismatch detection, start Rx policy, step sizes, fogging policy, tolerances, phase timeouts
+- Derived variables computed from patient intake data + calibration parameters
+- Covers: age bucket, risk levels, mismatch detection, start Rx policy, adaptive axis lane policy, fogging policy, step sizes, tolerances, and phase timeouts
 - Fully driven by `calibration.csv` — no hardcoded clinical values
 
 ### Safety Guardrails
@@ -90,7 +92,7 @@
 
 ## Calibration System
 
-### 115 Parameters Across 13 Sections
+### Calibration Categories
 - SYSTEM, PATIENT_TO_DV, MISMATCH_THRESHOLDS, START_POLICY
 - DISTANCE_TARGET, ENDPOINT_BIAS, STEP_POLICY, AXIS_POLICY
 - CYL_POLICY, FOGGING, DUOCHROME, BINOC_BALANCE
@@ -115,7 +117,7 @@
 ### Per-Session Files
 | File | Format | Content |
 |------|--------|---------|
-| `{id}.csv` | CSV (23 cols) | Step-by-step log: Rx values, input method, voice transcript, phase, chart |
+| `{id}.csv` | CSV | Step-by-step log: Rx values, input method, voice transcript, phase, chart, lane metadata, and VA confirmation state |
 | `{id}_metadata.json` | JSON | Full session metadata: patient input, derived variables, calibration snapshot, quality metrics |
 | `{id}_voice_utterances.csv` | CSV (16 cols) | Voice interactions for training (successful + failed) |
 | `{id}_failed_voice_attempts.csv` | CSV | Failed STT attempts with alternatives |
@@ -123,16 +125,17 @@
 ### Metadata JSON Contents
 - Session info: ID, phoropter, operator, customer, start/end times, duration
 - AR and lensometry input values
-- Final prescription (RE/LE with ADD)
+- Final prescription (RE/LE with ADD) plus final confirmed distance VA for each eye
+- Final achieved-vs-current acceptance result with both comparison-round choices
 - Phase completion and skip lists
 - Quality metrics: manual adjustments, QnA count, phase jumps, unable-to-read count, duration per phase
 - Full patient input (32 fields from intake form)
-- All 63 derived variables
-- Calibration snapshot (115 parameters with section, key, value, unit)
+- All derived variables
+- Calibration snapshot with section, key, value, unit
 
 ### Combined Logs
 - `combined_log.csv` — All sessions appended (step-level)
-- `combined_metadata.csv` — All sessions flattened (99 columns including patient input and DV fields)
+- `combined_metadata.csv` — All sessions flattened, including patient input, derived variables, final distance VA fields, and final achieved-vs-current acceptance fields
 
 ---
 
@@ -143,6 +146,7 @@
 - Option buttons with keyboard shortcut hints (1-9)
 - Real-time Rx table (SPH/CYL/AXIS/ADD for RE and LE)
 - Phase progress tracker with completion dots
+- Blink/time-left motivation prompt after major milestones
 - Fog active indicator
 - Conversation log panel
 - Voice status bar with STT feedback
@@ -157,8 +161,9 @@
 - Symptoms and visual complaints
 - Medical history flags (diabetes, keratoconus, amblyopia, prior surgery)
 - AR and lensometry values (with stepper inputs)
-- Screen time, driving hours, near work priority
-- Satisfaction with current Rx
+- Screen time, driving hours, comfort priority, near priority
+- Satisfaction with PGP
+- Axis-lane validation presets for live testing
 - iPad responsive (2-column grid, touch-friendly targets)
 
 ### Dashboard (`/dashboard`)
@@ -169,7 +174,7 @@
 ### Calibration Editor (`/cal`)
 - Dark instrument panel aesthetic
 - Password-gated (server-side validation)
-- Search across all 115 parameters
+- Search across calibration parameters
 - Collapsible section cards
 - Modified value highlighting (amber glow)
 - Discard and save controls

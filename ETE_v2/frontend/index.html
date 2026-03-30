@@ -161,8 +161,12 @@ body {
 }
 
 .options-grid {
-  display: flex; flex-wrap: wrap;
-  gap: 10px; justify-content: center;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+  gap: 10px;
+  justify-content: center;
+  max-width: 420px;
+  margin: 0 auto;
 }
 .option-btn {
   min-width: 130px;
@@ -789,7 +793,11 @@ body {
       <option value="whisper">Mic: Whisper</option>
       <option value="off">Mic: OFF</option>
     </select>
-    <select class="topbar-select" id="ttsVoiceSelect" onchange="setTTSVoice(this.value)" title="TTS voice" style="max-width:180px">
+    <select class="topbar-select" id="ttsCloudProviderSelect" onchange="setTtsCloudProvider(this.value)" title="Pre-rendered cloud voice cache" style="max-width:150px">
+      <option value="elevenlabs">Cloud: ElevenLabs</option>
+      <option value="sarvam">Cloud: Sarvam</option>
+    </select>
+    <select class="topbar-select" id="ttsVoiceSelect" onchange="setTTSVoice(this.value)" title="Browser TTS voice (fallback)" style="max-width:180px">
       <option value="Samantha">Samantha (US)</option>
     </select>
     <button class="topbar-btn" id="ttsBtn" onclick="toggleTTS()">TTS: ON</button>

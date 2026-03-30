@@ -62,6 +62,22 @@ class DerivedVariables:
     dv_jcc_axis_max_flips: int = 3
     dv_quick_axis_search_RE: bool = False
     dv_quick_axis_search_LE: bool = False
+    dv_axis_source_used_RE: str = ""
+    dv_axis_source_used_LE: str = ""
+    dv_axis_cyl_magnitude_for_lane_RE: float = 0.0
+    dv_axis_cyl_magnitude_for_lane_LE: float = 0.0
+    dv_axis_is_near_cardinal_RE: bool = False
+    dv_axis_is_near_cardinal_LE: bool = False
+    dv_axis_lane_id_RE: str = ""
+    dv_axis_lane_id_LE: str = ""
+    dv_axis_lane_name_RE: str = ""
+    dv_axis_lane_name_LE: str = ""
+    dv_axis_step_sequence_RE: str = ""
+    dv_axis_step_sequence_LE: str = ""
+    dv_axis_confidence_label_RE: str = ""
+    dv_axis_confidence_label_LE: str = ""
+    dv_axis_selection_reason_RE: str = ""
+    dv_axis_selection_reason_LE: str = ""
 
     dv_near_binoc_step_D: float = 0.25
     dv_near_binoc_max_plus_steps: int = 4

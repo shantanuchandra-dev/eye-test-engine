@@ -8,14 +8,41 @@
 const API = window.BACKEND_URL || '';
 const LOGS_PASSWORD = 'Shantanu';
 
-/** Same string for on-screen copy and ElevenLabs hash (must match fsm_tts_phrases APP_UI). */
+/** Same string for on-screen copy and cloud TTS cache hash (must match fsm_tts_phrases APP_UI). */
 const LANG_SELECT_SPOKEN_TEXT =
   'Please select your preferred language / कृपया अपनी भाषा चुनें';
 
-// ── TTS: pre-rendered ElevenLabs (GET /api/tts/<sha256>.mp3) + browser SpeechSynthesis fallback ──
+// ── TTS: pre-rendered cloud clips (ElevenLabs or Sarvam) + browser SpeechSynthesis fallback ──
 let ttsEnabled = true;
 let ttsSelectedVoiceName = null; // null = auto; string = pinned voice name
 let _ttsHtmlAudio = null;
+
+const TTS_CLOUD_PROVIDER_KEY = 'ete_tts_cloud_provider';
+/** Which cached MP3 folder to use: 'elevenlabs' → /api/tts/, 'sarvam' → /api/tts-sarvam/ */
+let ttsCloudProvider = 'elevenlabs';
+
+function ttsClipUrl(hash) {
+  if (ttsCloudProvider === 'sarvam') {
+    return `${API}/api/tts-sarvam/${hash}.mp3`;
+  }
+  return `${API}/api/tts/${hash}.mp3`;
+}
+
+function setTtsCloudProvider(value) {
+  ttsCloudProvider = value === 'sarvam' ? 'sarvam' : 'elevenlabs';
+  try {
+    localStorage.setItem(TTS_CLOUD_PROVIDER_KEY, ttsCloudProvider);
+  } catch (e) { /* ignore */ }
+}
+
+function initTtsCloudProviderSelect() {
+  try {
+    const saved = localStorage.getItem(TTS_CLOUD_PROVIDER_KEY);
+    if (saved === 'sarvam' || saved === 'elevenlabs') ttsCloudProvider = saved;
+  } catch (e) { /* ignore */ }
+  const sel = document.getElementById('ttsCloudProviderSelect');
+  if (sel) sel.value = ttsCloudProvider;
+}
 
 const TTS_RETRY_PREFIXES_EN = ['Let me repeat. ', 'I could not hear you. ', "I didn't catch that. "];
 const TTS_RETRY_PREFIXES_HI = ['फिर से सुनिए। ', 'सुनाई नहीं दिया। ', 'समझ नहीं आया। '];
@@ -23,18 +50,46 @@ const TTS_RETRY_PREFIXES_HI = ['फिर से सुनिए। ', 'सु�
 function stopHtmlTtsAudio() {
   if (_ttsHtmlAudio) {
     try {
+      _ttsHtmlAudio.onended = null;
+      _ttsHtmlAudio.onerror = null;
       _ttsHtmlAudio.pause();
+      _ttsHtmlAudio.currentTime = 0;
+      _ttsHtmlAudio.removeAttribute('src');
+      _ttsHtmlAudio.load();
     } catch (e) { /* ignore */ }
     _ttsHtmlAudio = null;
   }
 }
 
-/** True while browser or ElevenLabs HTMLAudio TTS is active (do not start mic / shortcuts). */
+/** True if this TTS request was invalidated by stopExamTtsAndTimers() (terminal / reset). */
+function _ttsStale(sinceGen) {
+  return sinceGen != null && sinceGen !== _ttsAbortGeneration;
+}
+
+/** True while browser or cloud (HTMLAudio) TTS is active (do not start mic / shortcuts). */
 function isTtsActive() {
   return (
     ('speechSynthesis' in window && speechSynthesis.speaking)
     || !!_ttsHtmlAudio
   );
+}
+
+/** Mic may commit a response only after the post-beep gate; JCC flip1 is observation-only (TTS says "first option", etc.). */
+function voiceSubmissionAllowed(state) {
+  if (state === 'LANG_SELECT') return !isTtsActive();
+  return _inputEnabled && _flipState !== 'flip1' && !isTtsActive();
+}
+
+/** Abort browser STT and stop Whisper recording so stale callbacks cannot submit after a new prompt. */
+function stopVoiceCaptureHard() {
+  voiceRecording = false;
+  if (recognition) {
+    try { recognition.abort(); } catch (e) { /* ignore */ }
+    recognition = null;
+  }
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    try { mediaRecorder.stop(); } catch (e) { /* ignore */ }
+  }
 }
 
 /** Invalidates in-flight speakQuestion callbacks when the exam hits a terminal state. */
@@ -54,6 +109,7 @@ function stopExamTtsAndTimers() {
   }
   stopHtmlTtsAudio();
   if ('speechSynthesis' in window) speechSynthesis.cancel();
+  stopVoiceCaptureHard();
   if (_autoFlipTimer) {
     clearTimeout(_autoFlipTimer);
     _autoFlipTimer = null;
@@ -76,6 +132,73 @@ function splitRetryPrefix(text) {
   for (const p of all) {
     if (text.startsWith(p)) return [p, text.slice(p.length)];
   }
+  return null;
+}
+
+/** Same strings as handleAutoFlip baseFlip1Text — used with transition preface compound cache. */
+const FLIP1_TTS_BODY_EN = 'Here is the first option. Take your time and look carefully.';
+const FLIP1_TTS_BODY_HI = 'यह पहला विकल्प है। आराम से ध्यान से देखिए।';
+const FLIP2_PREFIX_EN = 'And now the second option.';
+const FLIP2_PREFIX_HI = 'अब दूसरा विकल्प है।';
+
+function _escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Split session_orchestrator transition preface (no patient name) + JCC flip 1 body for two-part cloud TTS play. */
+function splitTransitionPrefaceFlipBody(text) {
+  const t = (text || '').replace(/\s+/g, ' ').trim();
+  const enRe = new RegExp(
+    `^(You are doing great\\. Please blink a few times\\. About \\d+ (?:minute|minutes) left\\.)\\s+${_escapeRegExp(FLIP1_TTS_BODY_EN)}$`,
+  );
+  let m = t.match(enRe);
+  if (m) return [m[1].trim(), FLIP1_TTS_BODY_EN];
+  const hiRe = new RegExp(
+    `^(आप बहुत अच्छा कर रहे हैं। कृपया कुछ बार पलक झपकाइए। लगभग \\d+ मिनट बाकी हैं।)\\s+${_escapeRegExp(FLIP1_TTS_BODY_HI)}$`,
+    'u',
+  );
+  m = t.match(hiRe);
+  if (m) return [m[1].trim(), FLIP1_TTS_BODY_HI];
+  return null;
+}
+
+/**
+ * Transition preface may include a patient name (uncached). Split into generic preface + body
+ * so we play two cached clips (same strings as fsm_tts_phrases preface-only + question).
+ */
+function splitGenericTransitionPrefaceAndBody(text) {
+  const t = (text || '').replace(/\s+/g, ' ').trim();
+  const enNamed =
+    /^You are doing great .+?\. Please blink a few times\. About (\d+) (?:minute|minutes) left\.\s+([\s\S]+)$/;
+  let m = t.match(enNamed);
+  if (m) {
+    const n = parseInt(m[1], 10);
+    const body = m[2].trim();
+    const lab = n === 1 ? 'minute' : 'minutes';
+    const genericPreface = `You are doing great. Please blink a few times. About ${n} ${lab} left.`;
+    return [genericPreface, body];
+  }
+  const hiNamed =
+    /^आप बहुत अच्छा कर रहे हैं .+?। कृपया कुछ बार पलक झपकाइए। लगभग (\d+) मिनट बाकी हैं।\s+([\s\S]+)$/u;
+  m = t.match(hiNamed);
+  if (m) {
+    const n = parseInt(m[1], 10);
+    const body = m[2].trim();
+    const genericPreface = `आप बहुत अच्छा कर रहे हैं। कृपया कुछ बार पलक झपकाइए। लगभग ${n} मिनट बाकी हैं।`;
+    return [genericPreface, body];
+  }
+  return null;
+}
+
+/** JCC flip 2: prefix + question (DOM often shows short "First option…" while cache uses normalized EN). */
+function splitFlip2PrefixAndBody(text) {
+  const t = (text || '').replace(/\s+/g, ' ').trim();
+  const enRe = new RegExp(`^${_escapeRegExp(FLIP2_PREFIX_EN)}\\s+([\\s\\S]+)$`);
+  let m = t.match(enRe);
+  if (m) return [FLIP2_PREFIX_EN, m[1].trim()];
+  const hiRe = new RegExp(`^${_escapeRegExp(FLIP2_PREFIX_HI)}\\s+([\\s\\S]+)$`, 'u');
+  m = t.match(hiRe);
+  if (m) return [FLIP2_PREFIX_HI, m[1].trim()];
   return null;
 }
 
@@ -141,11 +264,12 @@ function playBlobAudio(blob, onEnd) {
   });
 }
 
-async function tryPlayCachedElevenLabsTTS(text, onEnd) {
-  // API may be '' for same-origin relative URLs (/api/tts/...) — do not treat as disabled.
+async function tryPlayCachedCloudExactTTS(text, onEnd, sinceGen = null) {
+  if (_ttsStale(sinceGen)) return false;
   const hash = await sha256Hex(text);
   if (!hash) return false;
-  const url = `${API}/api/tts/${hash}.mp3`;
+  if (_ttsStale(sinceGen)) return false;
+  const url = ttsClipUrl(hash);
   let r;
   try {
     r = await fetch(url);
@@ -153,10 +277,12 @@ async function tryPlayCachedElevenLabsTTS(text, onEnd) {
     return false;
   }
   if (!r.ok) return false;
+  if (_ttsStale(sinceGen)) return false;
   const blob = await r.blob();
+  if (_ttsStale(sinceGen)) return false;
   try {
     await playBlobAudio(blob, onEnd);
-    console.log('[TTS] ElevenLabs cache (exact)');
+    console.log(`[TTS] Cloud cache ${ttsCloudProvider} (exact)`);
     return true;
   } catch (e) {
     console.warn('[TTS] Cached clip failed:', e);
@@ -164,16 +290,23 @@ async function tryPlayCachedElevenLabsTTS(text, onEnd) {
   }
 }
 
-async function tryPlayCachedCompoundTTS(text, onEnd) {
+async function tryPlayCachedCompoundTTS(text, onEnd, sinceGen = null) {
+  if (_ttsStale(sinceGen)) return false;
   const sp = splitRetryPrefix(text);
   if (!sp) return false;
-  const [prefix, body] = sp;
-  if (!body.trim()) return false;
+  const [prefix, rawBody] = sp;
+  let body = rawBody.trim();
+  if (!body) return false;
+  // DOM question is often the short FSM line; cloud cache uses buildSpokenQuestionText() normalization.
+  if ((sessionLanguage || 'en') !== 'hi') {
+    body = buildSpokenQuestionText(currentState || {}, body, '');
+  }
   const hp = await sha256Hex(prefix);
   const hb = await sha256Hex(body);
   if (!hp || !hb) return false;
-  const u1 = `${API}/api/tts/${hp}.mp3`;
-  const u2 = `${API}/api/tts/${hb}.mp3`;
+  if (_ttsStale(sinceGen)) return false;
+  const u1 = ttsClipUrl(hp);
+  const u2 = ttsClipUrl(hb);
   let r1;
   let r2;
   try {
@@ -183,12 +316,15 @@ async function tryPlayCachedCompoundTTS(text, onEnd) {
     return false;
   }
   if (!r1.ok || !r2.ok) return false;
+  if (_ttsStale(sinceGen)) return false;
   const b1 = await r1.blob();
   const b2 = await r2.blob();
+  if (_ttsStale(sinceGen)) return false;
   try {
     await playBlobAudio(b1, null);
+    if (_ttsStale(sinceGen)) return false;
     await playBlobAudio(b2, onEnd);
-    console.log('[TTS] ElevenLabs cache (retry prefix + question)');
+    console.log(`[TTS] Cloud cache ${ttsCloudProvider} (retry prefix + question)`);
     return true;
   } catch (e) {
     console.warn('[TTS] Compound cache failed:', e);
@@ -196,9 +332,130 @@ async function tryPlayCachedCompoundTTS(text, onEnd) {
   }
 }
 
-async function tryPlayCachedTTS(text, onEnd) {
-  if (await tryPlayCachedElevenLabsTTS(text, onEnd)) return true;
-  if (await tryPlayCachedCompoundTTS(text, onEnd)) return true;
+async function tryPlayCachedTransitionFlipTTS(text, onEnd, sinceGen = null) {
+  if (_ttsStale(sinceGen)) return false;
+  const sp = splitTransitionPrefaceFlipBody(text);
+  if (!sp) return false;
+  const [preface, body] = sp;
+  const hp = await sha256Hex(preface);
+  const hb = await sha256Hex(body);
+  if (!hp || !hb) return false;
+  if (_ttsStale(sinceGen)) return false;
+  const u1 = ttsClipUrl(hp);
+  const u2 = ttsClipUrl(hb);
+  let r1;
+  let r2;
+  try {
+    r1 = await fetch(u1);
+    r2 = await fetch(u2);
+  } catch {
+    return false;
+  }
+  if (!r1.ok || !r2.ok) return false;
+  if (_ttsStale(sinceGen)) return false;
+  const b1 = await r1.blob();
+  const b2 = await r2.blob();
+  if (_ttsStale(sinceGen)) return false;
+  try {
+    await playBlobAudio(b1, null);
+    if (_ttsStale(sinceGen)) return false;
+    await playBlobAudio(b2, onEnd);
+    console.log(`[TTS] Cloud cache ${ttsCloudProvider} (transition preface + flip 1)`);
+    return true;
+  } catch (e) {
+    console.warn('[TTS] Transition+flip compound cache failed:', e);
+    return false;
+  }
+}
+
+async function tryPlayCachedGenericTransitionCompoundTTS(text, onEnd, sinceGen = null) {
+  if (_ttsStale(sinceGen)) return false;
+  const sp = splitGenericTransitionPrefaceAndBody(text);
+  if (!sp) return false;
+  const [preface, rawBody] = sp;
+  let body = rawBody.trim();
+  if (!body) return false;
+  if ((sessionLanguage || 'en') !== 'hi') {
+    body = buildSpokenQuestionText(currentState || {}, body, '');
+  }
+  const hp = await sha256Hex(preface);
+  const hb = await sha256Hex(body);
+  if (!hp || !hb) return false;
+  if (_ttsStale(sinceGen)) return false;
+  const u1 = ttsClipUrl(hp);
+  const u2 = ttsClipUrl(hb);
+  let r1;
+  let r2;
+  try {
+    r1 = await fetch(u1);
+    r2 = await fetch(u2);
+  } catch {
+    return false;
+  }
+  if (!r1.ok || !r2.ok) return false;
+  if (_ttsStale(sinceGen)) return false;
+  const b1 = await r1.blob();
+  const b2 = await r2.blob();
+  if (_ttsStale(sinceGen)) return false;
+  try {
+    await playBlobAudio(b1, null);
+    if (_ttsStale(sinceGen)) return false;
+    await playBlobAudio(b2, onEnd);
+    console.log(`[TTS] Cloud cache ${ttsCloudProvider} (generic transition preface + question)`);
+    return true;
+  } catch (e) {
+    console.warn('[TTS] Generic transition compound failed:', e);
+    return false;
+  }
+}
+
+async function tryPlayCachedFlip2CompoundTTS(text, onEnd, sinceGen = null) {
+  if (_ttsStale(sinceGen)) return false;
+  const sp = splitFlip2PrefixAndBody(text);
+  if (!sp) return false;
+  const [prefix, rawBody] = sp;
+  let body = rawBody.trim();
+  if (!body) return false;
+  if ((sessionLanguage || 'en') !== 'hi') {
+    body = buildSpokenQuestionText(currentState || {}, body, '');
+  }
+  const hp = await sha256Hex(prefix);
+  const hb = await sha256Hex(body);
+  if (!hp || !hb) return false;
+  if (_ttsStale(sinceGen)) return false;
+  const u1 = ttsClipUrl(hp);
+  const u2 = ttsClipUrl(hb);
+  let r1;
+  let r2;
+  try {
+    r1 = await fetch(u1);
+    r2 = await fetch(u2);
+  } catch {
+    return false;
+  }
+  if (!r1.ok || !r2.ok) return false;
+  if (_ttsStale(sinceGen)) return false;
+  const b1 = await r1.blob();
+  const b2 = await r2.blob();
+  if (_ttsStale(sinceGen)) return false;
+  try {
+    await playBlobAudio(b1, null);
+    if (_ttsStale(sinceGen)) return false;
+    await playBlobAudio(b2, onEnd);
+    console.log(`[TTS] Cloud cache ${ttsCloudProvider} (flip 2 prefix + question)`);
+    return true;
+  } catch (e) {
+    console.warn('[TTS] Flip2 compound failed:', e);
+    return false;
+  }
+}
+
+async function tryPlayCachedTTS(text, onEnd, sinceGen = null) {
+  if (await tryPlayCachedCloudExactTTS(text, onEnd, sinceGen)) return true;
+  if (await tryPlayCachedCompoundTTS(text, onEnd, sinceGen)) return true;
+  if (await tryPlayCachedTransitionFlipTTS(text, onEnd, sinceGen)) return true;
+  if (await tryPlayCachedFlip2CompoundTTS(text, onEnd, sinceGen)) return true;
+  if (await tryPlayCachedGenericTransitionCompoundTTS(text, onEnd, sinceGen)) return true;
   return false;
 }
 
@@ -220,6 +477,160 @@ const COMING_SOON_VOICES = [
   { label: 'Google Malayalam', group: '🇮🇳 Indian' },
   { label: 'Google Marathi',   group: '🇮🇳 Indian' },
 ];
+
+const ENGLISH_VOICE_PREFERENCE_ORDER = [
+  'Samantha',
+  'Ava',
+  'Allison',
+  'Karen',
+  'Moira',
+  'Tessa',
+  'Veena',
+  'Rishi',
+  'Daniel',
+  'Alex',
+  'Google UK English Female',
+  'Google US English',
+];
+
+const HINDI_VOICE_PREFERENCE_ORDER = [
+  'Google हिन्दी',
+];
+
+function scoreVoiceForTTS(voice, lang = 'en') {
+  if (!voice) return Number.NEGATIVE_INFINITY;
+
+  const name = (voice.name || '').toLowerCase();
+  const voiceLang = (voice.lang || '').toLowerCase();
+  let score = 0;
+
+  if (lang === 'hi') {
+    const idx = HINDI_VOICE_PREFERENCE_ORDER.findIndex(pref => pref.toLowerCase() === name);
+    if (idx >= 0) score += 500 - idx * 25;
+    if (voiceLang === 'hi-in') score += 120;
+    else if (voiceLang.startsWith('hi')) score += 90;
+    if (voice.default) score += 15;
+    if (voice.localService) score += 10;
+    return score;
+  }
+
+  const idx = ENGLISH_VOICE_PREFERENCE_ORDER.findIndex(pref => pref.toLowerCase() === name);
+  if (idx >= 0) score += 600 - idx * 20;
+  if (voiceLang === 'en-in') score += 120;
+  else if (voiceLang === 'en-us') score += 110;
+  else if (voiceLang === 'en-gb') score += 100;
+  else if (voiceLang.startsWith('en')) score += 80;
+  if (voice.default) score += 15;
+  if (voice.localService) score += 10;
+  if (name.includes('google us english')) score -= 30;
+  return score;
+}
+
+function getBestAvailableVoice(voices, lang = 'en') {
+  const pool = (voices || []).filter(v => (v.lang || '').toLowerCase().startsWith(lang === 'hi' ? 'hi' : 'en'));
+  if (!pool.length) return null;
+
+  let best = null;
+  let bestScore = Number.NEGATIVE_INFINITY;
+  for (const voice of pool) {
+    const score = scoreVoiceForTTS(voice, lang);
+    if (score > bestScore) {
+      best = voice;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+function getTTSProfile(profileKey = 'default', lang = 'en') {
+  const englishProfiles = {
+    default: { rate: 0.86, pitch: 1.02, volume: 0.95 },
+    guide: { rate: 0.85, pitch: 1.03, volume: 0.96 },
+    reading: { rate: 0.84, pitch: 1.01, volume: 0.95 },
+    comparison: { rate: 0.87, pitch: 1.0, volume: 0.95 },
+    retry: { rate: 0.83, pitch: 1.0, volume: 0.95 },
+    flip1: { rate: 0.82, pitch: 0.99, volume: 0.95 },
+    flip2: { rate: 0.86, pitch: 1.0, volume: 0.95 },
+    terminal: { rate: 0.88, pitch: 1.05, volume: 0.97 },
+  };
+  const hindiProfiles = {
+    default: { rate: 0.9, pitch: 1.0, volume: 0.97 },
+    guide: { rate: 0.89, pitch: 1.01, volume: 0.97 },
+    reading: { rate: 0.88, pitch: 1.0, volume: 0.97 },
+    comparison: { rate: 0.91, pitch: 1.0, volume: 0.97 },
+    retry: { rate: 0.88, pitch: 1.0, volume: 0.97 },
+    flip1: { rate: 0.87, pitch: 0.99, volume: 0.97 },
+    flip2: { rate: 0.9, pitch: 1.0, volume: 0.97 },
+    terminal: { rate: 0.92, pitch: 1.03, volume: 0.98 },
+  };
+  const profiles = lang === 'hi' ? hindiProfiles : englishProfiles;
+  return profiles[profileKey] || profiles.default;
+}
+
+function ensureSpeechEnding(text) {
+  const trimmed = (text || '').replace(/\s+/g, ' ').trim();
+  if (!trimmed) return '';
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+
+function joinSpeechParts(...parts) {
+  const cleaned = parts
+    .map((part, index) => {
+      const normalized = (part || '').replace(/\s+/g, ' ').trim();
+      if (!normalized) return '';
+      return index < parts.length - 1 ? ensureSpeechEnding(normalized) : normalized;
+    })
+    .filter(Boolean);
+  return cleaned.join(' ').replace(/\s+/g, ' ').trim();
+}
+
+function getQuestionTTSProfile(data) {
+  if (!data) return 'default';
+  if (['B', 'C', 'D', 'L'].includes(data.state)) return 'reading';
+  if (['E', 'F', 'G', 'H', 'I', 'J', 'K'].includes(data.state)) return 'comparison';
+  return 'default';
+}
+
+function buildSpokenQuestionText(data, localizedQuestion, prefacePrompt = '') {
+  let spoken = (localizedQuestion || '').replace(/\s+/g, ' ').trim();
+  const lang = sessionLanguage || 'en';
+
+  if (lang !== 'hi') {
+    if (/^(please )?read the line\.$/i.test(spoken) || /^last line only\.$/i.test(spoken)) {
+      spoken = 'Please read the line.';
+    } else if (/^can you read the line now, or is it still blurry\?$/i.test(spoken)) {
+      spoken = 'Can you read the line now, or is it still blurry?';
+    } else if (
+      /^can you read all the letters in this line, or are they blurry\?$/i.test(spoken)
+    ) {
+      spoken = 'Can you read all the letters in this line, or are they blurry?';
+    } else if (/^read the line, or say blurry\.$/i.test(spoken)) {
+      spoken = 'Read the line, or say blurry.';
+    } else if (/^read it now, or is it still blurry\?$/i.test(spoken)) {
+      spoken = 'Read it now, or is it still blurry?';
+    } else if (/^did it get better now\? say yes or no\.$/i.test(spoken)) {
+      spoken = 'Did that look better now? Say yes or no.';
+    } else if (/^better now, yes or no\?$/i.test(spoken)) {
+      spoken = 'Better now? Say yes or no.';
+    } else if (/^first, second, or both same\?$/i.test(spoken) || /^first option, second option, or both same\?$/i.test(spoken) || /^first option, second option, both same, or repeat\?$/i.test(spoken)) {
+      spoken = 'Which looks clearer: first option, second option, both same, or repeat?';
+    } else if (/^say first option, second option, both same, or repeat\.?$/i.test(spoken)) {
+      spoken = 'Which looks clearer: first option, second option, both same, or repeat?';
+    } else if (/^green side, red side, or both same\?$/i.test(spoken)) {
+      spoken = 'Green side, red side, or both same?';
+    } else if (/^bottom line, top line, or both same\?$/i.test(spoken)) {
+      spoken = 'Bottom line, top line, or both same?';
+    } else if (/^clear or blurry\?$/i.test(spoken)) {
+      spoken = 'Do the letters look clear, or blurry?';
+    } else if (/^please compare the two choices\./i.test(spoken)) {
+      spoken = spoken.replace('Which one is clearer or sharper?', 'Which one looks clearer or sharper?');
+    } else if (/^please compare the green and red sides\./i.test(spoken)) {
+      spoken = spoken.replace('Letters on which side look sharper and darker?', 'Which side looks sharper and darker?');
+    }
+  }
+
+  return joinSpeechParts(prefacePrompt, spoken);
+}
 
 function populateTTSVoiceDropdown() {
   const sel = document.getElementById('ttsVoiceSelect');
@@ -266,8 +677,8 @@ function populateTTSVoiceDropdown() {
 
   // Default: Samantha
   if (!ttsSelectedVoiceName) {
-    const samantha = voices.find(v => v.name === 'Samantha');
-    ttsSelectedVoiceName = samantha ? samantha.name : null;
+    const preferred = getBestAvailableVoice(voices, 'en');
+    ttsSelectedVoiceName = preferred ? preferred.name : null;
     if (ttsSelectedVoiceName) sel.value = ttsSelectedVoiceName;
   }
 
@@ -303,31 +714,37 @@ function showComingSoonToast() {
   setTimeout(() => toast.remove(), 2200);
 }
 
-function speakQuestionBrowserFallback(text, langOverride, onEnd) {
-  if (!('speechSynthesis' in window)) {
+function speakQuestionBrowserFallback(text, langOverride, onEnd, profileKey = 'default', sinceGen = null) {
+  if (!ttsEnabled || !('speechSynthesis' in window)) {
+    console.log('[TTS] Disabled or unavailable');
     if (onEnd) onEnd();
     return;
   }
 
   stopHtmlTtsAudio();
-  // Chrome fix: cancel + resume to clear any stuck state
-  speechSynthesis.cancel();
+  if (speechSynthesis.speaking || speechSynthesis.pending) {
+    speechSynthesis.cancel();
+  }
   speechSynthesis.resume();
 
   const doSpeak = () => {
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 0.9;
-    utterance.pitch = 1.0;
-    utterance.volume = 1.0;
-
+    if (_ttsStale(sinceGen)) {
+      if (onEnd) onEnd();
+      return;
+    }
     const lang = langOverride || sessionLanguage || 'en';
+    const speechText = (text || '').replace(/\s+/g, ' ').trim();
+    const utterance = new SpeechSynthesisUtterance(speechText);
+    const profile = getTTSProfile(profileKey, lang);
+    utterance.rate = profile.rate;
+    utterance.pitch = profile.pitch;
+    utterance.volume = profile.volume;
     const voices = speechSynthesis.getVoices();
-    console.log(`[TTS] Browser fallback (${lang}): "${text.substring(0, 50)}..." [${voices.length} voices]`);
+    console.log(`[TTS] Speaking (${lang}, ${profileKey}): "${speechText.substring(0, 50)}..." [${voices.length} voices available]`);
 
     if (lang === 'hi') {
       utterance.lang = 'hi-IN';
-      const hiVoice = voices.find(v => v.lang === 'hi-IN')
-        || voices.find(v => v.lang.startsWith('hi'));
+      const hiVoice = getBestAvailableVoice(voices, 'hi');
       if (hiVoice) { utterance.voice = hiVoice; console.log(`[TTS] Hindi voice: ${hiVoice.name}`); }
     } else {
       const pinned = ttsSelectedVoiceName
@@ -338,8 +755,7 @@ function speakQuestionBrowserFallback(text, langOverride, onEnd) {
         utterance.lang = pinned.lang;
         console.log(`[TTS] Using pinned voice: ${pinned.name} (${pinned.lang})`);
       } else {
-        const fallback = voices.find(v => v.lang === 'en-US')
-          || voices.find(v => v.lang.startsWith('en'));
+        const fallback = getBestAvailableVoice(voices, 'en');
         if (fallback) { utterance.voice = fallback; utterance.lang = fallback.lang; }
         console.log(`[TTS] Fallback voice: ${fallback ? fallback.name : 'browser default'}`);
       }
@@ -393,7 +809,7 @@ function speakQuestionBrowserFallback(text, langOverride, onEnd) {
   }
 }
 
-function speakQuestion(text, langOverride, onEnd) {
+function speakQuestion(text, langOverride, onEnd, profileKey = 'default') {
   if (!ttsEnabled) {
     if (onEnd) onEnd();
     return;
@@ -409,10 +825,10 @@ function speakQuestion(text, langOverride, onEnd) {
 
   (async () => {
     if (gen !== _ttsAbortGeneration) return;
-    const played = await tryPlayCachedTTS(text, wrappedOnEnd);
+    const played = await tryPlayCachedTTS(text, wrappedOnEnd, gen);
     if (played) return;
     if (gen !== _ttsAbortGeneration) return;
-    speakQuestionBrowserFallback(text, langOverride, wrappedOnEnd);
+    speakQuestionBrowserFallback(text, langOverride, wrappedOnEnd, profileKey, gen);
   })();
 }
 
@@ -443,9 +859,32 @@ const DISTANCE_CHART_STIMULI = {
   '252015':      [['D','F','N','P','T'], ['P','H','U','N','T'], ['F','D','S','L','N']],
 };
 
+function getDisplayedDistanceChartLines(state, chartParam) {
+  const normalized = (chartParam || '').replace(/[-\/]/g, '_').replace(/_+/g, '_');
+  const letters = DISTANCE_CHART_STIMULI[normalized] || DISTANCE_CHART_STIMULI[normalized.replace(/_/g, '')];
+  if (!letters) return null;
+  if (['B', 'C', 'D', 'L'].includes(state)) {
+    return [letters[letters.length - 1]];
+  }
+  return letters;
+}
+
+function getDisplayedDistanceChartSizes(state, chartParam) {
+  const normalized = (chartParam || '').replace(/[-\/]/g, '_').replace(/_+/g, '_');
+  if (!normalized) return null;
+  const parts = normalized.split('_').filter(Boolean);
+  if (!parts.length) return null;
+  const labels = parts.map(part => `20/${part}`);
+  if (['B', 'C', 'D', 'L', 'S', 'T'].includes(state)) {
+    return [labels[labels.length - 1]];
+  }
+  return labels;
+}
+
 // ── Stimulus descriptions per state ──
 const STIMULUS_DESCRIPTIONS = {
   'B': 'Distance letter chart',
+  'C': 'Distance vision confirmation',
   'D': 'Distance letter chart',
   'E': 'Dot chart for axis comparison',
   'F': 'Dot chart for power comparison',
@@ -453,11 +892,55 @@ const STIMULUS_DESCRIPTIONS = {
   'H': 'Dot chart for axis comparison',
   'I': 'Dot chart for power comparison',
   'J': 'Red-green chart',
+  'L': 'Distance vision confirmation',
   'K': 'Top-bottom balance chart',
   'P': 'Near text chart',
   'Q': 'Near text chart',
   'R': 'Near text with both eyes',
+  'S': 'Final prescription comparison option 1 achieved Rx',
+  'T': 'Final prescription comparison option 2 PGP',
+  'U': 'Final prescription comparison',
 };
+
+const STIMULUS_DESCRIPTIONS_HI = {
+  'B': 'दूरी का अक्षर चार्ट',
+  'C': 'दूरी की दृष्टि की पुष्टि',
+  'D': 'दूरी का अक्षर चार्ट',
+  'E': 'अक्ष तुलना के लिए डॉट चार्ट',
+  'F': 'पावर तुलना के लिए डॉट चार्ट',
+  'G': 'लाल-हरा चार्ट',
+  'H': 'अक्ष तुलना के लिए डॉट चार्ट',
+  'I': 'पावर तुलना के लिए डॉट चार्ट',
+  'J': 'लाल-हरा चार्ट',
+  'L': 'दूरी की दृष्टि की पुष्टि',
+  'K': 'ऊपर-नीचे बैलेंस चार्ट',
+  'P': 'पास का टेक्स्ट चार्ट',
+  'Q': 'पास का टेक्स्ट चार्ट',
+  'R': 'दोनों आँखों से पास का टेक्स्ट',
+  'S': 'अंतिम प्रिस्क्रिप्शन तुलना विकल्प 1 प्राप्त Rx',
+  'T': 'अंतिम प्रिस्क्रिप्शन तुलना विकल्प 2 PGP',
+  'U': 'अंतिम प्रिस्क्रिप्शन तुलना',
+};
+
+function localizeStimulusDescription(state, description, lang) {
+  const activeLang = lang || sessionLanguage || 'en';
+  if (activeLang === 'hi') return STIMULUS_DESCRIPTIONS_HI[state] || description || '';
+  return description || '';
+}
+
+function localizePrefacePrompt(prefacePrompt, lang) {
+  const activeLang = lang || sessionLanguage || 'en';
+  const text = (prefacePrompt || '').trim();
+  if (!text || activeLang !== 'hi') return text;
+
+  const match = text.match(/^You are doing great(?:\s+(.+?))?\. Please blink a few times\. About (\d+) (minute|minutes) left\.$/i);
+  if (match) {
+    const name = (match[1] || '').trim();
+    const minutes = match[2];
+    return `आप बहुत अच्छा कर रहे हैं${name ? ` ${name}` : ''}। कृपया कुछ बार पलक झपकाइए। लगभग ${minutes} मिनट बाकी हैं।`;
+  }
+  return text;
+}
 
 // ── Voice input state ──
 let voiceEnabled = true; // ON by default, like FSMv3.1_R2
@@ -468,6 +951,7 @@ let voiceAttemptCount = 0; // Per-question attempt counter
 const VOICE_REPROMPT_LIMIT = 2; // After this many failed attempts, show keyboard fallback msg
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let failedVoiceAttempts = []; // Structured log of failed voice attempts
+let _observeAdvanceTimer = null;
 
 // ── Faster-whisper backend state ──
 let whisperAvailable = false; // Set true if backend has faster-whisper loaded
@@ -515,14 +999,19 @@ const ALL_PHASES = [
   { state: 'E', name: 'JCC Axis RE', eye: 'RE' },
   { state: 'F', name: 'JCC Power RE', eye: 'RE' },
   { state: 'G', name: 'Duochrome RE', eye: 'RE' },
+  { state: 'C', name: 'Distance VA Confirm RE', eye: 'RE' },
   { state: 'D', name: 'Coarse Sphere LE', eye: 'LE' },
   { state: 'H', name: 'JCC Axis LE', eye: 'LE' },
   { state: 'I', name: 'JCC Power LE', eye: 'LE' },
   { state: 'J', name: 'Duochrome LE', eye: 'LE' },
+  { state: 'L', name: 'Distance VA Confirm LE', eye: 'LE' },
   { state: 'K', name: 'Binocular Balance', eye: 'BIN' },
   { state: 'P', name: 'Near Add RE', eye: 'RE' },
   { state: 'Q', name: 'Near Add LE', eye: 'LE' },
   { state: 'R', name: 'Near Binocular', eye: 'BIN' },
+  { state: 'S', name: 'Final Compare Option 1 Achieved Rx', eye: 'BIN' },
+  { state: 'T', name: 'Final Compare Option 2 PGP', eye: 'BIN' },
+  { state: 'U', name: 'Final Compare Decision', eye: 'BIN' },
 ];
 
 // ── Option styling map ──
@@ -535,9 +1024,102 @@ const OPTION_STYLES = {
   'RED': 'red', 'RED_CLEARER': 'red',
   'GREEN': 'green', 'GREEN_CLEARER': 'green',
   'EQUAL': 'same',
-  'TOP_CLEARER': '', 'BOTTOM_CLEARER': '',
+  'TOP': '', 'BOTTOM': '', 'TOP_CLEARER': '', 'BOTTOM_CLEARER': '',
   'TARGET_OK': 'clear', 'NOT_CLEAR': 'blurry',
 };
+
+const SEMANTIC_SLOT_LAYOUT = Object.freeze({
+  1: { column: '1', row: '1' },
+  2: { column: '2', row: '1' },
+  3: { column: '1', row: '2' },
+  4: { column: '2', row: '2' },
+});
+
+const STATE_OPTION_SLOT_PREFERENCE = Object.freeze({
+  B: ['CLEAR', 'BLURRY', null, 'REPEAT'],
+  C: ['CLEAR', 'BLURRY', null, 'REPEAT'],
+  D: ['CLEAR', 'BLURRY', null, 'REPEAT'],
+  E: ['ONE', 'TWO', 'SAME', 'REPEAT'],
+  F: ['ONE', 'TWO', 'SAME', 'REPEAT'],
+  G: ['GREEN', 'RED', 'SAME', 'REPEAT'],
+  H: ['ONE', 'TWO', 'SAME', 'REPEAT'],
+  I: ['ONE', 'TWO', 'SAME', 'REPEAT'],
+  J: ['GREEN', 'RED', 'SAME', 'REPEAT'],
+  K: ['BOTTOM', 'TOP', 'SAME', 'REPEAT'],
+  L: ['CLEAR', 'BLURRY', null, 'REPEAT'],
+  P: ['CLEAR', 'BLURRY', null, 'REPEAT'],
+  Q: ['CLEAR', 'BLURRY', null, 'REPEAT'],
+  R: ['CLEAR', 'BLURRY', null, 'REPEAT'],
+  U: ['ONE', 'TWO', null, 'REPEAT'],
+});
+
+// Change these four values later if you want a different physical controller
+// button to act as semantic button 1/2/3/4.
+// Current Chrome/Xbox indices are A=0, B=1, X=2, Y=3.
+const GAMEPAD_SLOT_BINDINGS = Object.freeze({
+  1: 1,
+  2: 0,
+  3: 2,
+  4: 3,
+});
+
+function positionButtonInSemanticGrid(btn, slot) {
+  const layout = SEMANTIC_SLOT_LAYOUT[slot];
+  if (!layout) return;
+  btn.dataset.slot = String(slot);
+  btn.style.gridColumn = layout.column;
+  btn.style.gridRow = layout.row;
+}
+
+function buildSemanticOptionSlots(state, options = []) {
+  const preferred = STATE_OPTION_SLOT_PREFERENCE[state] || [];
+  const slots = [null, null, null, null];
+  const available = new Set(options || []);
+  const used = new Set();
+
+  preferred.forEach((option, index) => {
+    if (option && available.has(option)) {
+      slots[index] = option;
+      used.add(option);
+    }
+  });
+
+  for (const option of options || []) {
+    if (used.has(option)) continue;
+    const emptyIndex = slots.findIndex(slot => slot === null);
+    if (emptyIndex === -1) break;
+    slots[emptyIndex] = option;
+    used.add(option);
+  }
+
+  return slots;
+}
+
+function renderSemanticOptionButtons({ state, options, localizedLabels, onSelect }) {
+  const grid = document.getElementById('optionsGrid');
+  grid.innerHTML = '';
+
+  const localizedByInternal = new Map();
+  (localizedLabels || []).forEach(label => localizedByInternal.set(label.internal, label));
+
+  buildSemanticOptionSlots(state, options).forEach((internalOption, slotIndex) => {
+    if (!internalOption) return;
+
+    const slot = slotIndex + 1;
+    const localized = localizedByInternal.get(internalOption);
+    const displayText = localized?.localized || localized?.display || internalOption;
+    const internalHint = localized && localized.internal !== displayText ? localized.internal : '';
+
+    const btn = document.createElement('button');
+    btn.className = 'option-btn';
+    const style = OPTION_STYLES[internalOption] || '';
+    if (style) btn.classList.add(style);
+    btn.innerHTML = `${displayText}${internalHint ? '<span class="opt-internal">[' + internalHint + ']</span>' : ''}<span class="key-hint">${slot}</span>`;
+    positionButtonInSemanticGrid(btn, slot);
+    btn.onclick = () => onSelect(internalOption);
+    grid.appendChild(btn);
+  });
+}
 
 // ── State ──
 let sessionId = null;
@@ -553,12 +1135,14 @@ let _langSelectPendingData = null; // Stores first-question data during language
 let _autoFlipTimer = null; // Timer for JCC auto-flip
 let _flipState = null; // 'flip1', 'flip2', or null
 let _inputEnabled = false; // Global gate: voice, gamepad, keyboard only after beep
+/** Bumped on each new question so in-flight STT/Whisper callbacks cannot submit after navigation. */
+let _voicePromptGeneration = 0;
 
 // ── Gamepad ──
 let gamepadEnabled = true;
 let gamepadConnected = false;
 let gamepadIndex = null;
-let _gamepadPrevButtons = [false, false, false, false];
+let _gamepadPrevButtons = [false, false, false, false, false];
 let _gamepadPollId = null;
 
 // ── Initialization ──
@@ -575,6 +1159,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Keyboard shortcuts
   document.addEventListener('keydown', handleKeyboard);
+
+  initTtsCloudProviderSelect();
 
   // Initialize voice mode select
   setVoiceMode('browser'); // Default to browser STT
@@ -620,6 +1206,7 @@ async function restoreSession() {
 
       // Auto-resume: start immediately, enable TTS via a one-time user interaction listener
       await handleSessionUpdate(data);
+      schedulePipRefreshSequence({ forceFresh: true, reason: 'Syncing phoropter...' });
       document.getElementById('endBtn').style.display = '';
       updatePhoropBtn();
       startHeartbeat();
@@ -658,6 +1245,7 @@ function showLanguageSelection(pendingData) {
   const enBtn = document.createElement('button');
   enBtn.className = 'option-btn clear';
   enBtn.innerHTML = 'English<span class="key-hint">1</span>';
+  positionButtonInSemanticGrid(enBtn, 1);
   enBtn.onclick = () => selectLanguage('en', _langSelectPendingData);
   grid.appendChild(enBtn);
 
@@ -667,6 +1255,7 @@ function showLanguageSelection(pendingData) {
   hiBtn.style.background = '#fff7ed';
   hiBtn.style.color = '#9a3412';
   hiBtn.innerHTML = 'हिन्दी (Hindi)<span class="key-hint">2</span>';
+  positionButtonInSemanticGrid(hiBtn, 2);
   hiBtn.onclick = () => selectLanguage('hi', _langSelectPendingData);
   grid.appendChild(hiBtn);
 
@@ -690,6 +1279,7 @@ function selectLanguage(lang, pendingData) {
 
   // Now show the actual first question
   handleSessionUpdate(pendingData);
+  schedulePipRefreshSequence({ forceFresh: true, reason: 'Syncing phoropter...' });
   document.getElementById('endBtn').style.display = '';
   updatePhoropBtn();
   startHeartbeat();
@@ -776,6 +1366,11 @@ async function handleSessionUpdate(data) {
     return;
   }
 
+  if (_observeAdvanceTimer) {
+    clearTimeout(_observeAdvanceTimer);
+    _observeAdvanceTimer = null;
+  }
+
   currentState = data;
   syncExamClockFromSessionData(data);
 
@@ -845,19 +1440,22 @@ async function showQuestion(data) {
 
   // Display stimulus description
   const stimDesc = STIMULUS_DESCRIPTIONS[data.state] || '';
+  const prefacePrompt = localizePrefacePrompt(data.preface_prompt || '');
   const stimEl = document.getElementById('stimulusDescription');
-  if (stimEl) stimEl.textContent = stimDesc;
+  const localizedStimDesc = localizeStimulusDescription(data.state, stimDesc);
+  if (stimEl) stimEl.textContent = prefacePrompt ? `${prefacePrompt} ${localizedStimDesc}`.trim() : localizedStimDesc;
 
   // Display letter chart for coarse sphere states (B, D)
   const chartEl = document.getElementById('letterChart');
   if (chartEl) {
-    const chartParam = (data.chart_param || '').replace(/[-\/]/g, '_').replace(/_+/g, '_');
-    const letters = DISTANCE_CHART_STIMULI[chartParam] || DISTANCE_CHART_STIMULI[chartParam.replace(/_/g, '')];
-    if ((data.state === 'B' || data.state === 'D') && letters) {
+    const letters = getDisplayedDistanceChartLines(data.state, data.chart_param);
+    const sizes = getDisplayedDistanceChartSizes(data.state, data.chart_param);
+    if ((data.state === 'B' || data.state === 'C' || data.state === 'D' || data.state === 'L') && letters) {
       chartEl.style.display = '';
       chartEl.innerHTML = letters.map((line, i) => {
         const fontSize = Math.max(1.0, 2.4 - i * 0.4);
-        return `<div class="chart-line" style="font-size:${fontSize}rem;letter-spacing:${fontSize * 0.4}rem">${line.join(' ')}</div>`;
+        const sizeLabel = sizes && sizes[i] ? `<span style="display:inline-block;min-width:70px;margin-right:14px;font-size:0.95rem;letter-spacing:normal;color:var(--ink-secondary);font-weight:700;">${sizes[i]}</span>` : '';
+        return `<div class="chart-line" style="font-size:${fontSize}rem;letter-spacing:${fontSize * 0.4}rem">${sizeLabel}${line.join(' ')}</div>`;
       }).join('');
     } else {
       chartEl.style.display = 'none';
@@ -867,6 +1465,8 @@ async function showQuestion(data) {
 
   // Reset voice attempt counter for new question
   voiceAttemptCount = 0;
+  _voicePromptGeneration += 1;
+  stopVoiceCaptureHard();
   // Disable all input until beep (voice, gamepad, keyboard)
   _inputEnabled = false;
 
@@ -877,7 +1477,7 @@ async function showQuestion(data) {
     const resp = await fetch(`${API}/api/voice/labels`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ state: data.state, language: sessionLanguage, question: data.question }),
+      body: JSON.stringify({ state: data.state, language: sessionLanguage, question: data.question, options: data.options || [] }),
     });
     if (resp.ok) {
       const locData = await resp.json();
@@ -892,45 +1492,48 @@ async function showQuestion(data) {
   document.getElementById('questionText').textContent = localizedQuestion;
 
   // 3. Render option buttons (localized if available)
-  const grid = document.getElementById('optionsGrid');
-  grid.innerHTML = '';
-  if (localizedLabels) {
-    localizedLabels.forEach((label, i) => {
-      const btn = document.createElement('button');
-      btn.className = 'option-btn';
-      const styleKey = (data.options || []).find(o => o === label.internal) || label.internal;
-      const style = OPTION_STYLES[styleKey] || '';
-      if (style) btn.classList.add(style);
-      const displayText = label.localized || label.display || label.internal;
-      const internalHint = label.internal !== displayText ? label.internal : '';
-      btn.innerHTML = `${displayText}${internalHint ? '<span class="opt-internal">[' + internalHint + ']</span>' : ''}<span class="key-hint">${i + 1}</span>`;
-      btn.onclick = () => submitResponse(label.internal);
-      grid.appendChild(btn);
-    });
-  } else {
-    (data.options || []).forEach((opt, i) => {
-      const btn = document.createElement('button');
-      btn.className = 'option-btn';
-      const style = OPTION_STYLES[opt] || '';
-      if (style) btn.classList.add(style);
-      btn.innerHTML = `${opt}<span class="key-hint">${i + 1}</span>`;
-      btn.onclick = () => submitResponse(opt);
-      grid.appendChild(btn);
-    });
-  }
+  renderSemanticOptionButtons({
+    state: data.state,
+    options: data.options || [],
+    localizedLabels,
+    onSelect: submitResponse,
+  });
 
   // 4. Speak the LOCALIZED question, then beep, then listen
   //    For JCC states with auto_flip: ALL TTS is handled by handleAutoFlip (Flip 1 → Flip 2)
   //    For all other states: TTS → beep → listen immediately
   const canListen = voiceEnabled && (voiceMode === 'whisper' || SpeechRecognition);
   const isAutoFlip = data.auto_flip;
+  const isObserveOnly = Number(data.auto_advance_seconds || 0) > 0;
+  const spokenPrompt = buildSpokenQuestionText(data, localizedQuestion, prefacePrompt);
+  const startObserveAdvance = () => {
+    const delayMs = Math.max(0, Number(data.auto_advance_seconds || 0)) * 1000;
+    updateVoiceStatus(sessionLanguage === 'hi' ? 'ध्यान से देखिए...' : 'Observe carefully...');
+    _observeAdvanceTimer = setTimeout(() => {
+      _observeAdvanceTimer = null;
+      submitResponse(
+        data.auto_advance_response || 'AUTO_ADVANCE',
+        null,
+        { skipConversationLog: true, inputMethodOverride: 'System_Auto' },
+      );
+    }, delayMs);
+  };
+
+  if (isObserveOnly) {
+    if (ttsEnabled && !isAutoFlip) {
+      speakQuestion(spokenPrompt, null, startObserveAdvance, getQuestionTTSProfile(data));
+    } else {
+      startObserveAdvance();
+    }
+    return;
+  }
 
   if (ttsEnabled && !isAutoFlip) {
-    speakQuestion(localizedQuestion, null, async () => {
+    speakQuestion(spokenPrompt, null, async () => {
       await playBeep();
       _inputEnabled = true; // Enable ALL input (voice, gamepad, keyboard) after beep
       if (canListen) startVoiceCapture(data.state, data.options || [], data.step);
-    });
+    }, getQuestionTTSProfile(data));
   } else if (!isAutoFlip) {
     playBeep().then(() => {
       _inputEnabled = true;
@@ -962,7 +1565,7 @@ function setVoiceMode(mode) {
   updateVoiceStatus(voiceEnabled ? `Ready (${mode})` : '—');
 
   // If turning on and we have an active question, start listening
-  if (voiceEnabled && currentState && !currentState.is_terminal) {
+  if (voiceEnabled && currentState && !currentState.is_terminal && _flipState !== 'flip1') {
     playBeep();
     setTimeout(() => startVoiceCapture(currentState.state, currentState.options || [], currentState.step), 200);
   }
@@ -980,9 +1583,15 @@ function updateVoiceButton() { updateVoiceModeSelect(); }
 function startVoiceCapture(state, options, step) {
   if (!voiceEnabled) return;
   if (voiceSubmitting) return;
+  if (state !== 'LANG_SELECT' && (!_inputEnabled || _flipState === 'flip1')) {
+    console.log('[Voice] Not starting — input disabled or JCC flip1 observation');
+    return;
+  }
   // Don't start listening while TTS is speaking
   if (isTtsActive()) {
+    const waitGen = _voicePromptGeneration;
     const waitForTTS = () => {
+      if (waitGen !== _voicePromptGeneration) return;
       if (isTtsActive()) { setTimeout(waitForTTS, 100); return; }
       startVoiceCapture(state, options, step);
     };
@@ -1010,6 +1619,7 @@ function startVoiceCapture(state, options, step) {
   // Small delay to let previous recognition clean up
   setTimeout(() => {
     if (!voiceEnabled || voiceSubmitting) return;
+    const voiceGen = _voicePromptGeneration;
 
     recognition = new SpeechRecognition();
     // Fix 4: en-US better for short words than en-IN
@@ -1023,7 +1633,7 @@ function startVoiceCapture(state, options, step) {
     try {
       const SpeechGrammarList = window.SpeechGrammarList || window.webkitSpeechGrammarList;
       if (SpeechGrammarList) {
-        const grammar = '#JSGF V1.0; grammar r; public <r> = clear | blurry | repeat | one | two | same | red | green | top | bottom | first | second ;';
+        const grammar = '#JSGF V1.0; grammar r; public <r> = clear | blurry | repeat | first option | second option | both same | red side | green side | top line | bottom line | clearer | more blurry ;';
         const list = new SpeechGrammarList();
         list.addFromString(grammar, 1);
         recognition.grammars = list;
@@ -1054,6 +1664,7 @@ function startVoiceCapture(state, options, step) {
     }
 
     function forceProcessInterim() {
+      if (voiceGen !== _voicePromptGeneration) return;
       if (alreadyProcessed || !lastInterimTranscript) return;
       alreadyProcessed = true;
       try { recognition.stop(); } catch(e) {}
@@ -1067,6 +1678,7 @@ function startVoiceCapture(state, options, step) {
     }
 
     recognition.onresult = (event) => {
+      if (voiceGen !== _voicePromptGeneration) return;
       if (alreadyProcessed) return;
 
       let finalTranscript = '';
@@ -1101,7 +1713,11 @@ function startVoiceCapture(state, options, step) {
             if (delay === 0) {
               forceProcessInterim();
             } else {
-              quickMatchTimer = setTimeout(forceProcessInterim, delay);
+              quickMatchTimer = setTimeout(() => {
+                quickMatchTimer = null;
+                if (voiceGen !== _voicePromptGeneration) return;
+                forceProcessInterim();
+              }, delay);
             }
           }
         } else {
@@ -1125,13 +1741,14 @@ function startVoiceCapture(state, options, step) {
     };
 
     recognition.onerror = (event) => {
+      if (voiceGen !== _voicePromptGeneration) return;
       if (quickMatchTimer) { clearTimeout(quickMatchTimer); quickMatchTimer = null; }
       voiceRecording = false;
       console.log(`[Voice] Error: ${event.error}`);
       if (event.error === 'no-speech') {
         updateVoiceStatus('No speech detected. Repeating question...');
         // Re-speak the question (like FSMv3.1_R2 retry=True reprompt)
-        if (voiceEnabled && !voiceSubmitting) {
+        if (voiceEnabled && !voiceSubmitting && voiceSubmissionAllowed(capturedState)) {
           const questionEl = document.getElementById('questionText');
           const questionText = questionEl ? questionEl.textContent : '';
           const retryPrompt = sessionLanguage === 'hi'
@@ -1139,7 +1756,7 @@ function startVoiceCapture(state, options, step) {
             : `Let me repeat. ${questionText}`;
           speakQuestion(retryPrompt, null, () => {
             playBeep().then(() => setTimeout(() => startVoiceCapture(capturedState, capturedOptions, capturedStep), 200));
-          });
+          }, 'retry');
         }
       } else if (event.error === 'aborted') {
         // Intentional abort — don't restart
@@ -1167,6 +1784,7 @@ function startVoiceCapture(state, options, step) {
     };
 
     recognition.onend = () => {
+      if (voiceGen !== _voicePromptGeneration) return;
       if (quickMatchTimer) { clearTimeout(quickMatchTimer); quickMatchTimer = null; }
       voiceRecording = false;
 
@@ -1185,7 +1803,7 @@ function startVoiceCapture(state, options, step) {
       console.log('[Voice] Recognition ended without result — repeating question');
       updateVoiceStatus('Could not hear clearly. Repeating...');
 
-      if (voiceEnabled && !voiceSubmitting) {
+      if (voiceEnabled && !voiceSubmitting && voiceSubmissionAllowed(capturedState)) {
         const questionEl = document.getElementById('questionText');
         const questionText = questionEl ? questionEl.textContent : '';
         const retryPrompt = sessionLanguage === 'hi'
@@ -1193,7 +1811,7 @@ function startVoiceCapture(state, options, step) {
           : `I could not hear you. ${questionText}`;
         speakQuestion(retryPrompt, null, () => {
           playBeep().then(() => setTimeout(() => startVoiceCapture(capturedState, capturedOptions, capturedStep), 200));
-        });
+        }, 'retry');
       }
     };
 
@@ -1209,6 +1827,12 @@ function startVoiceCapture(state, options, step) {
 // ── Faster-whisper recording pipeline ──
 async function startWhisperCapture(state, options, step) {
   if (!voiceEnabled || voiceSubmitting) return;
+  if (state !== 'LANG_SELECT' && (!_inputEnabled || _flipState === 'flip1')) {
+    console.log('[Whisper] Not starting — input disabled or JCC flip1 observation');
+    return;
+  }
+
+  const voiceGen = _voicePromptGeneration;
 
   // Request mic access
   try {
@@ -1227,10 +1851,11 @@ async function startWhisperCapture(state, options, step) {
 
   // ── VAD parameters (matching FSMv3.1_R2 record_audio_until_silence) ──
   const VAD_SILENCE_THRESHOLD = 0.015;  // RMS level to consider as speech
-  const VAD_START_TIMEOUT = (state === 'B' || state === 'D') ? 5.0 : 2.5; // seconds to wait for first speech
-  const VAD_END_SILENCE = (state === 'B' || state === 'D') ? 2.0 : 0.8;   // trailing silence to stop
+  const isDistanceReadingState = ['B', 'C', 'D', 'L'].includes(state);
+  const VAD_START_TIMEOUT = isDistanceReadingState ? 5.0 : 2.5; // seconds to wait for first speech
+  const VAD_END_SILENCE = isDistanceReadingState ? 2.0 : 0.8;   // trailing silence to stop
   const VAD_MIN_SPEECH = 0.25;  // minimum speech duration before silence can end
-  const VAD_MAX_DURATION = (state === 'B' || state === 'D') ? 15 : 5;     // hard max
+  const VAD_MAX_DURATION = isDistanceReadingState ? 15 : 5;     // hard max
 
   // Use MediaRecorder to capture audio
   const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
@@ -1321,6 +1946,14 @@ async function startWhisperCapture(state, options, step) {
   }, FRAME_MS);
 
   mediaRecorder.onstop = async () => {
+    if (voiceGen !== _voicePromptGeneration) {
+      clearInterval(vadInterval);
+      vadCtx.close().catch(() => {});
+      voiceRecording = false;
+      voiceSubmitting = false;
+      if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+      return;
+    }
     clearInterval(vadInterval);
     vadCtx.close().catch(() => {});
     voiceRecording = false;
@@ -1365,6 +1998,11 @@ async function startWhisperCapture(state, options, step) {
 
       // Case 1: Matched — submit response (like FSMv3.1_R2 accepted path)
       if (result.accepted && result.response_value) {
+        if (!voiceSubmissionAllowed(state)) {
+          voiceSubmitting = false;
+          console.log('[Whisper] Discarding match — submission not allowed');
+          return;
+        }
         updateVoiceStatus(`✓ "${result.transcript}" → ${result.response_value} (${(result.confidence * 100).toFixed(0)}%, ${result.backend})`);
         addVoiceToConversation(result.transcript, result.response_value, result.confidence);
         const voiceMeta = {
@@ -1435,6 +2073,7 @@ async function startWhisperCapture(state, options, step) {
 
 function repeatAndListen(state, options, step) {
   if (!voiceEnabled) return;
+  if (!voiceSubmissionAllowed(state)) return;
   const questionEl = document.getElementById('questionText');
   const questionText = questionEl ? questionEl.textContent : '';
   const retryPrompt = sessionLanguage === 'hi'
@@ -1442,16 +2081,15 @@ function repeatAndListen(state, options, step) {
     : `I didn't catch that. ${questionText}`;
   speakQuestion(retryPrompt, null, () => {
     playBeep().then(() => setTimeout(() => startVoiceCapture(state, options, step), 200));
-  });
+  }, 'retry');
 }
 
 function getCurrentStimulusLetters() {
   // Get the displayed chart letters for the current coarse sphere state
   if (!currentState) return null;
   const state = currentState.state;
-  if (state !== 'B' && state !== 'D') return null;
-  const chartParam = (currentState.chart_param || '').replace(/[-\/]/g, '_').replace(/_+/g, '_');
-  const letters = DISTANCE_CHART_STIMULI[chartParam] || DISTANCE_CHART_STIMULI[chartParam.replace(/_/g, '')];
+  if (!['B', 'C', 'D', 'L'].includes(state)) return null;
+  const letters = getDisplayedDistanceChartLines(state, currentState.chart_param);
   if (!letters) return null;
   // Format as space-separated letters per line (matching FSMv3.1_R2 format)
   return letters.map(line => line.join(' ')).join('\n');
@@ -1487,12 +2125,21 @@ async function matchVoiceResponseWithAlternatives(primary, alternatives, state, 
     return;
   }
 
+  if (!voiceSubmissionAllowed(state)) {
+    console.log('[Voice] Ignoring transcript — submission not allowed (flip1, TTS, or input lock)');
+    voiceSubmitting = false;
+    if (recognition) { try { recognition.abort(); } catch (e) { /* ignore */ } }
+    return;
+  }
+
   // Try the primary transcript first, then each alternative
   const transcriptsToTry = [primary, ...alternatives.filter(a => a !== primary)];
+  let lastFailure = null;
 
   for (const transcript of transcriptsToTry) {
     const result = await matchVoiceResponse(transcript, state, options);
-    if (result) return; // Matched and submitted
+    if (result && result.matched) return; // Matched and submitted
+    if (result && !result.matched) lastFailure = result;
   }
 
   // None matched — track failed attempt
@@ -1511,6 +2158,11 @@ async function matchVoiceResponseWithAlternatives(primary, alternatives, state, 
     available_options: options,
     attempt_number: voiceAttemptCount,
     language: sessionLanguage,
+    match_confidence: lastFailure ? (lastFailure.confidence ?? '') : '',
+    match_method: lastFailure ? (lastFailure.method || '') : '',
+    canonical_label: lastFailure ? (lastFailure.canonical_label || '') : '',
+    reason: lastFailure ? (lastFailure.reason || '') : '',
+    stimulus_letters: getCurrentStimulusLetters(),
   });
 
   addVoiceToConversation(primary, null, 0, `no match (attempt ${voiceAttemptCount}/${VOICE_REPROMPT_LIMIT})`);
@@ -1524,7 +2176,7 @@ async function matchVoiceResponseWithAlternatives(primary, alternatives, state, 
   } else {
     // Retry with voice — re-speak the question (like FSMv3.1_R2 reprompt with retry=True)
     updateVoiceStatus(`✗ "${primary}" (${voiceAttemptCount}/${VOICE_REPROMPT_LIMIT}) — repeating...`);
-    if (voiceEnabled) {
+    if (voiceEnabled && voiceSubmissionAllowed(state)) {
       const questionEl = document.getElementById('questionText');
       const questionText = questionEl ? questionEl.textContent : '';
       const retryPrompt = sessionLanguage === 'hi'
@@ -1532,7 +2184,7 @@ async function matchVoiceResponseWithAlternatives(primary, alternatives, state, 
         : `I didn't catch that. ${questionText}`;
       speakQuestion(retryPrompt, null, () => {
         playBeep().then(() => setTimeout(() => startVoiceCapture(state, options, 0), 200));
-      });
+      }, 'retry');
     }
   }
 }
@@ -1551,6 +2203,13 @@ async function matchVoiceResponse(transcript, state, options) {
   // Try server-side matching first (uses fsm/audio/response_matching.py)
   let matched = null;
   let voiceMeta = null;
+  let lastFailure = {
+    matched: false,
+    confidence: 0,
+    method: '',
+    canonical_label: '',
+    reason: 'no_match',
+  };
   try {
     const resp = await fetch(`${API}/api/voice/match`, {
       method: 'POST',
@@ -1583,10 +2242,24 @@ async function matchVoiceResponse(transcript, state, options) {
         addVoiceToConversation(transcript, matched, result.confidence);
       } else {
         console.log(`[Voice] Server no match: ${result.reason}`);
+        lastFailure = {
+          matched: false,
+          confidence: result.confidence || 0,
+          method: result.method || 'server_side',
+          canonical_label: result.canonical_label || '',
+          reason: result.reason || 'server_no_match',
+        };
       }
     }
   } catch (e) {
     console.log('[Voice] Server match unavailable, using client-side fallback');
+    lastFailure = {
+      matched: false,
+      confidence: 0,
+      method: 'server_error',
+      canonical_label: '',
+      reason: 'server_match_unavailable',
+    };
   }
 
   // Client-side fallback if server didn't match
@@ -1609,13 +2282,18 @@ async function matchVoiceResponse(transcript, state, options) {
   }
 
   if (matched) {
+    if (!voiceSubmissionAllowed(state)) {
+      console.log('[Voice] Discarding match — submission not allowed');
+      voiceSubmitting = false;
+      return { matched: false, reason: 'submission_gated' };
+    }
     await submitResponse(matched, voiceMeta);
     voiceSubmitting = false;
-    return true; // Successfully matched
+    return { matched: true }; // Successfully matched
   }
 
   voiceSubmitting = false;
-  return false; // Not matched — caller will try alternatives
+  return lastFailure; // Not matched — caller will try alternatives
 }
 
 function clientSideMatch(transcript, options) {
@@ -1625,30 +2303,34 @@ function clientSideMatch(transcript, options) {
   const KEYWORD_MAP = {
     // Clarity + misrecognitions
     'clear': 'CLEAR', 'clearly': 'CLEAR', 'yes': 'CLEAR', 'readable': 'CLEAR',
+    'clearer': 'CLEAR', 'got clearer': 'CLEAR', 'letters clear': 'CLEAR', 'read line': 'CLEAR', 'read last line': 'CLEAR',
+    'better now': 'CLEAR', 'got better': 'CLEAR', 'it got better': 'CLEAR',
     'here': 'CLEAR', 'beer': 'CLEAR', 'cheer': 'CLEAR', 'dear': 'CLEAR', 'near': 'CLEAR',
     'saaf': 'CLEAR', 'saaf hai': 'CLEAR', 'haan': 'CLEAR',
     'blurry': 'BLURRY', 'blurred': 'BLURRY', 'blur': 'BLURRY', 'not clear': 'BLURRY',
+    'more blurry': 'BLURRY', 'got more blurry': 'BLURRY', 'letters blurry': 'BLURRY',
+    'no': 'BLURRY', 'not better': 'BLURRY', 'did not get better': 'BLURRY', "didn't get better": 'BLURRY',
     'blare': 'BLURRY', 'blaring': 'BLURRY', 'glory': 'BLURRY',
     'dhundhla': 'BLURRY', 'nahi dikh raha': 'BLURRY',
     'repeat': 'REPEAT', 'again': 'REPEAT', 'dobara': 'REPEAT', 'phir se': 'REPEAT',
     // Comparison + misrecognitions
-    'one': 'ONE', 'first': 'ONE', 'option 1': 'ONE', 'ek': 'ONE', 'pehla': 'ONE', '1': 'ONE',
+    'one': 'ONE', 'first': 'ONE', 'first option': 'ONE', 'option 1': 'ONE', 'ek': 'ONE', 'pehla': 'ONE', '1': 'ONE',
     'won': 'ONE', 'want': 'ONE', 'on': 'ONE', 'wan': 'ONE', 'wand': 'ONE',
-    'two': 'TWO', 'second': 'TWO', 'option 2': 'TWO', 'do': 'TWO', 'doosra': 'TWO', '2': 'TWO',
+    'two': 'TWO', 'second': 'TWO', 'second option': 'TWO', 'option 2': 'TWO', 'do': 'TWO', 'doosra': 'TWO', '2': 'TWO',
     'to': 'TWO', 'too': 'TWO', 'tu': 'TWO', 'who': 'TWO', 'through': 'TWO',
-    'same': 'SAME', 'both same': 'SAME', 'equal': 'SAME', 'barabar': 'SAME', 'dono same': 'SAME',
+    'same': 'SAME', 'both same': 'SAME', 'both are same': 'SAME', 'equal': 'SAME', 'barabar': 'SAME', 'dono same': 'SAME',
     "can't tell": 'SAME', 'cant tell': 'SAME',
     'sane': 'SAME', 'saint': 'SAME', 'shame': 'SAME', 'came': 'SAME',
     // Duochrome + misrecognitions
-    'red': 'RED', 'red one': 'RED', 'laal': 'RED',
+    'red': 'RED', 'red one': 'RED', 'red side': 'RED', 'laal': 'RED',
     'read': 'RED', 'bread': 'RED', 'wed': 'RED', 'said': 'RED', 'bed': 'RED', 'dead': 'RED',
-    'green': 'GREEN', 'green one': 'GREEN', 'hara': 'GREEN',
+    'green': 'GREEN', 'green one': 'GREEN', 'green side': 'GREEN', 'hara': 'GREEN',
     'queen': 'GREEN', 'cream': 'GREEN', 'gene': 'GREEN', 'lean': 'GREEN', 'mean': 'GREEN',
     // Binocular + misrecognitions
-    'top': 'TOP_CLEARER', 'top one': 'TOP_CLEARER', 'upar': 'TOP_CLEARER',
-    'talk': 'TOP_CLEARER', 'tall': 'TOP_CLEARER', 'stop': 'TOP_CLEARER',
-    'bottom': 'BOTTOM_CLEARER', 'bottom one': 'BOTTOM_CLEARER', 'neeche': 'BOTTOM_CLEARER',
-    'button': 'BOTTOM_CLEARER', 'bought him': 'BOTTOM_CLEARER',
+    'top': 'TOP', 'top one': 'TOP', 'top line': 'TOP', 'upar': 'TOP',
+    'talk': 'TOP', 'tall': 'TOP', 'stop': 'TOP',
+    'bottom': 'BOTTOM', 'bottom one': 'BOTTOM', 'bottom line': 'BOTTOM', 'neeche': 'BOTTOM',
+    'button': 'BOTTOM', 'bought him': 'BOTTOM',
     // Near
     'target ok': 'TARGET_OK', 'ok': 'TARGET_OK', 'fine': 'TARGET_OK',
     'not clear': 'NOT_CLEAR',
@@ -1689,6 +2371,13 @@ function updateVoiceStatus(status) {
   console.log(`[Voice] ${status}`);
 }
 
+function fmtAxisDisplay(axis) {
+  if (axis == null) return '—';
+  const rounded = Math.round(Number(axis) / 5) * 5;
+  const wrapped = ((rounded % 180) + 180) % 180;
+  return String(wrapped === 0 ? 180 : wrapped);
+}
+
 // ── Terminal display ──
 function showTerminal(data) {
   // Cancel in-flight question TTS / JCC flip audio so nothing keeps talking after the test ends.
@@ -1702,32 +2391,69 @@ function showTerminal(data) {
 
   if (data.state === 'END') {
     const rx = data.prescription || {};
+    const achievedRx = data.achieved_prescription || {};
+    const currentRx = data.pgp_rx || data.current_rx || {};
+    const finalCompare = data.final_compare || {};
+    const va = data.distance_va || {};
     const r = rx.right || {};
     const l = rx.left || {};
+    const rVa = (va.right || {}).line || '—';
+    const lVa = (va.left || {}).line || '—';
     const fmt = (v) => v != null ? (v >= 0 ? '+' : '') + parseFloat(v).toFixed(2) : '—';
-    const fmtRx = (eye) => `${fmt(eye.sph)} / ${fmt(eye.cyl)} x ${Math.round(eye.axis||180)}${eye.add ? ` ADD ${fmt(eye.add)}` : ''}`;
+    const fmtRx = (eye) => `${fmt(eye.sph)} / ${fmt(eye.cyl)} x ${fmtAxisDisplay(eye.axis ?? 180)}${eye.add ? ` ADD ${fmt(eye.add)}` : ''}`;
+    const acceptedAchieved = finalCompare.accepted_achieved_over_current_rx === 'Yes';
+    const compareRan = !!finalCompare.enabled;
+    const compareMessage = compareRan
+      ? acceptedAchieved
+        ? 'Patient accepted the achieved Rx over the PGP.'
+        : 'Patient accepted the PGP over the achieved Rx.'
+      : 'Here is your final prescription:';
+    const secondaryBlock = compareRan
+      ? acceptedAchieved
+        ? `<div style="margin-top:12px;font-size:0.84rem;color:var(--ink-secondary)">PGP kept for comparison</div>` +
+          `<div style="display:flex;gap:24px;justify-content:center;margin-top:8px;">` +
+            `<div style="text-align:center"><div style="font-size:0.72rem;color:var(--re-color);font-weight:700;margin-bottom:4px;">PGP RE</div><div style="font:500 0.98rem var(--font-mono)">${fmtRx((currentRx || {}).right || {})}</div></div>` +
+            `<div style="text-align:center"><div style="font-size:0.72rem;color:var(--le-color);font-weight:700;margin-bottom:4px;">PGP LE</div><div style="font:500 0.98rem var(--font-mono)">${fmtRx((currentRx || {}).left || {})}</div></div>` +
+          `</div>`
+        : `<div style="margin-top:12px;font-size:0.84rem;color:var(--ink-secondary)">Achieved Rx during the eye test</div>` +
+          `<div style="display:flex;gap:24px;justify-content:center;margin-top:8px;">` +
+            `<div style="text-align:center"><div style="font-size:0.72rem;color:var(--re-color);font-weight:700;margin-bottom:4px;">ACHIEVED RE</div><div style="font:500 0.98rem var(--font-mono)">${fmtRx((achievedRx || {}).right || {})}</div></div>` +
+            `<div style="text-align:center"><div style="font-size:0.72rem;color:var(--le-color);font-weight:700;margin-bottom:4px;">ACHIEVED LE</div><div style="font:500 0.98rem var(--font-mono)">${fmtRx((achievedRx || {}).left || {})}</div></div>` +
+          `</div>`
+      : '';
 
     document.getElementById('terminalIcon').textContent = '✅';
     document.getElementById('terminalTitle').textContent = 'Congratulations! Your eye test is complete.';
     document.getElementById('terminalSubtitle').innerHTML =
-      `<div style="margin-bottom:12px">Here is your final prescription:</div>` +
+      `<div style="margin-bottom:12px">${compareMessage}</div>` +
       `<div style="display:flex;gap:24px;justify-content:center;margin-bottom:16px;">` +
-        `<div style="text-align:center"><div style="font-size:0.75rem;color:var(--re-color);font-weight:700;margin-bottom:4px;">RIGHT EYE (RE)</div><div style="font:600 1.1rem var(--font-mono)">${fmtRx(r)}</div></div>` +
-        `<div style="text-align:center"><div style="font-size:0.75rem;color:var(--le-color);font-weight:700;margin-bottom:4px;">LEFT EYE (LE)</div><div style="font:600 1.1rem var(--font-mono)">${fmtRx(l)}</div></div>` +
+        `<div style="text-align:center"><div style="font-size:0.75rem;color:var(--re-color);font-weight:700;margin-bottom:4px;">RIGHT EYE (RE)</div><div style="font:600 1.1rem var(--font-mono)">${fmtRx(r)}</div><div style="margin-top:6px;font-size:0.84rem;color:var(--ink-secondary)">Distance VA: ${rVa}</div></div>` +
+        `<div style="text-align:center"><div style="font-size:0.75rem;color:var(--le-color);font-weight:700;margin-bottom:4px;">LEFT EYE (LE)</div><div style="font:600 1.1rem var(--font-mono)">${fmtRx(l)}</div><div style="margin-top:6px;font-size:0.84rem;color:var(--ink-secondary)">Distance VA: ${lVa}</div></div>` +
       `</div>` +
+      secondaryBlock +
+      `<div style="height:12px"></div>` +
       `<div style="font-size:0.85rem;color:var(--ink-secondary)">Please review and sign off below.</div>`;
 
-    // Speak congratulations (no power details)
-    speakQuestion(sessionLanguage === 'hi'
-      ? 'बधाई हो! आपका आई टेस्ट पूरा हो गया है। धन्यवाद।'
-      : 'Congratulations! Your eye test is complete. Thank you.');
+    // After stopping exam TTS above, speak a short closing line (matches fsm_tts_phrases APP_UI for cloud cache).
+    const terminalSpeech = compareRan
+      ? acceptedAchieved
+        ? (sessionLanguage === 'hi'
+            ? 'बधाई हो। आपका आई टेस्ट पूरा हो गया है। आपने पी जी पी की तुलना में प्राप्त आर एक्स को पसंद किया। धन्यवाद।'
+            : 'Congratulations! Your eye test is complete. You preferred the achieved prescription over the PGP. Thank you.')
+        : (sessionLanguage === 'hi'
+            ? 'बधाई हो। आपका आई टेस्ट पूरा हो गया है। आपने पी जी पी को पसंद किया। धन्यवाद।'
+            : 'Congratulations! Your eye test is complete. You preferred the PGP. Thank you.')
+      : (sessionLanguage === 'hi'
+          ? 'बधाई हो! आपका आई टेस्ट पूरा हो गया है। धन्यवाद।'
+          : 'Congratulations! Your eye test is complete. Thank you.');
+    speakQuestion(terminalSpeech, null, null, 'terminal');
   } else {
     document.getElementById('terminalIcon').textContent = '⚠️';
     document.getElementById('terminalTitle').textContent = 'Escalation Required';
     document.getElementById('terminalSubtitle').textContent = 'This test requires optometrist review. Please consult with a qualified optometrist.';
     speakQuestion(sessionLanguage === 'hi'
       ? 'इस टेस्ट को ऑप्टोमेट्रिस्ट की समीक्षा की आवश्यकता है।'
-      : 'This test requires optometrist review.');
+      : 'This test requires optometrist review.', null, null, 'terminal');
   }
 }
 
@@ -1738,11 +2464,11 @@ function updateRxTable(rx) {
   const l = rx.left || {};
   document.getElementById('rxReSph').textContent = fmtD(r.sph);
   document.getElementById('rxReCyl').textContent = fmtD(r.cyl);
-  document.getElementById('rxReAxis').textContent = r.axis != null ? Math.round(r.axis) : '—';
+  document.getElementById('rxReAxis').textContent = fmtAxisDisplay(r.axis);
   document.getElementById('rxReAdd').textContent = r.add ? fmtD(r.add) : '—';
   document.getElementById('rxLeSph').textContent = fmtD(l.sph);
   document.getElementById('rxLeCyl').textContent = fmtD(l.cyl);
-  document.getElementById('rxLeAxis').textContent = l.axis != null ? Math.round(l.axis) : '—';
+  document.getElementById('rxLeAxis').textContent = fmtAxisDisplay(l.axis);
   document.getElementById('rxLeAdd').textContent = l.add ? fmtD(l.add) : '—';
 }
 
@@ -1800,10 +2526,16 @@ function updatePhaseProgress(activeState) {
 // ── Input method tracking ──
 let _lastInputMethod = 'Button'; // Default; overridden by keyboard/gamepad/voice paths
 
-// ── Submit response ──
-async function submitResponse(responseValue, voiceMeta) {
-  if (!sessionId) return;
+function prescriptionsEqual(a, b) {
+  return JSON.stringify(a || null) === JSON.stringify(b || null);
+}
 
+// ── Submit response ──
+async function submitResponse(responseValue, voiceMeta, overrides = {}) {
+  if (!sessionId) return;
+  const prevStateId = currentState ? currentState.state : '';
+  const prevPrescription = currentState ? currentState.prescription : null;
+	
   // Track completed phase before it potentially changes
   if (currentState && currentState.state) {
     const prevState = currentState.state;
@@ -1816,7 +2548,7 @@ async function submitResponse(responseValue, voiceMeta) {
   }
 
   // Log the response to conversation (skip if voice already logged it via addVoiceToConversation)
-  if (!voiceMeta) {
+  if (!voiceMeta && !overrides.skipConversationLog) {
     addToConversation('patient', responseValue, responseValue,
       currentState ? `${currentState.state}:${currentState.step}` : '');
   }
@@ -1828,7 +2560,7 @@ async function submitResponse(responseValue, voiceMeta) {
       body: JSON.stringify({
         response: responseValue,
         voice_meta: voiceMeta || null,
-        input_method: voiceMeta ? (voiceMeta.input_mode === 'voice_browser_speech_recognition' ? 'Voice_Browser' : 'Voice_Whisper') : _lastInputMethod,
+        input_method: overrides.inputMethodOverride || (voiceMeta ? (voiceMeta.input_mode === 'voice_browser_speech_recognition' ? 'Voice_Browser' : 'Voice_Whisper') : _lastInputMethod),
         language: sessionLanguage,
       }),
     });
@@ -1855,7 +2587,10 @@ async function submitResponse(responseValue, voiceMeta) {
     }
 
     // Auto-update screenshot PIP
-    autoUpdatePip();
+    autoUpdatePip({
+      powerChanged: !prescriptionsEqual(prevPrescription, data.prescription),
+      phaseChanged: !!prevStateId && data.state !== prevStateId,
+    });
   } catch (e) {
     alert('Error: ' + e.message);
   } finally {
@@ -1866,30 +2601,26 @@ async function submitResponse(responseValue, voiceMeta) {
 // ── Keyboard shortcuts ──
 function handleKeyboard(e) {
   if (!_inputEnabled || isTtsActive()) return;
-  // Number keys 1-9 for options
-  if (e.key >= '1' && e.key <= '9') {
-    const idx = parseInt(e.key) - 1;
-    const btns = document.querySelectorAll('#optionsGrid .option-btn');
-    if (btns[idx]) {
+  if (e.key >= '1' && e.key <= '4') {
+    const slot = parseInt(e.key, 10);
+    const btn = document.querySelector(`#optionsGrid .option-btn[data-slot="${slot}"]`);
+    if (btn) {
       e.preventDefault();
       _lastInputMethod = 'Keyboard';
-      btns[idx].click();
+      btn.click();
     }
   }
 }
 
 // ── Gamepad input (Xbox controller via Chrome Gamepad API) ──
-// B=option1, A=option2, X=option3, Y=REPEAT (always)
-// Standard indices: A=0, B=1, X=2, Y=3
-
-const GAMEPAD_FACE_BUTTONS = [1, 0, 2]; // B, A, X → option indices 0, 1, 2
-const GAMEPAD_REPEAT_BUTTON = 3; // Y → always REPEAT
+// Standard indices: A=0, B=1, X=2, Y=3.
+// Physical buttons are translated into semantic buttons 1-4 through GAMEPAD_SLOT_BINDINGS.
 
 window.addEventListener('gamepadconnected', (e) => {
   console.log(`[Gamepad] Connected: ${e.gamepad.id}`);
   gamepadIndex = e.gamepad.index;
   gamepadConnected = true;
-  _gamepadPrevButtons = [false, false, false, false];
+  _gamepadPrevButtons = [false, false, false, false, false];
   updateGamepadStatus();
   if (gamepadEnabled && !_gamepadPollId) startGamepadPoll();
 });
@@ -1910,56 +2641,27 @@ function startGamepadPoll() {
     }
     const gp = navigator.getGamepads()[gamepadIndex];
     if (gp) {
-      // Check face buttons B, A, X (options 0, 1, 2)
-      GAMEPAD_FACE_BUTTONS.forEach((btnIdx, optionIdx) => {
+      Object.entries(GAMEPAD_SLOT_BINDINGS).forEach(([slotKey, btnIdx]) => {
+        const slot = Number(slotKey);
         const pressed = gp.buttons[btnIdx]?.pressed || false;
-        if (pressed && !_gamepadPrevButtons[optionIdx]) {
-          handleGamepadOption(optionIdx);
+        if (pressed && !_gamepadPrevButtons[slot]) {
+          handleGamepadOptionSlot(slot);
         }
-        _gamepadPrevButtons[optionIdx] = pressed;
+        _gamepadPrevButtons[slot] = pressed;
       });
-      // Check Y button (always REPEAT)
-      const yPressed = gp.buttons[GAMEPAD_REPEAT_BUTTON]?.pressed || false;
-      if (yPressed && !_gamepadPrevButtons[3]) {
-        handleGamepadRepeat();
-      }
-      _gamepadPrevButtons[3] = yPressed;
     }
     _gamepadPollId = requestAnimationFrame(poll);
   }
   _gamepadPollId = requestAnimationFrame(poll);
 }
 
-function handleGamepadOption(optionIdx) {
+function handleGamepadOptionSlot(slot) {
   if (!_inputEnabled || _flipState === 'flip1' || isTtsActive()) return;
-  const allBtns = document.querySelectorAll('#optionsGrid .option-btn');
-  const nonRepeatBtns = [];
-  for (const btn of allBtns) {
-    const text = btn.textContent.trim().toUpperCase();
-    if (!text.startsWith('REPEAT') && !text.startsWith('फिर से')) {
-      nonRepeatBtns.push(btn);
-    }
-  }
-  if (optionIdx < nonRepeatBtns.length && !nonRepeatBtns[optionIdx].disabled) {
-    console.log(`[Gamepad] Button ${optionIdx} → "${nonRepeatBtns[optionIdx].textContent.trim()}"`);
+  const btn = document.querySelector(`#optionsGrid .option-btn[data-slot="${slot}"]`);
+  if (btn && !btn.disabled) {
+    console.log(`[Gamepad] Semantic button ${slot} → "${btn.textContent.trim()}"`);
     _lastInputMethod = 'Gamepad';
-    nonRepeatBtns[optionIdx].click();
-  }
-}
-
-function handleGamepadRepeat() {
-  if (!_inputEnabled || _flipState === 'flip1' || isTtsActive()) return;
-  const allBtns = document.querySelectorAll('#optionsGrid .option-btn');
-  for (const btn of allBtns) {
-    const text = btn.textContent.trim().toUpperCase();
-    if (text.startsWith('REPEAT') || text.startsWith('फिर से')) {
-      if (!btn.disabled) {
-        console.log('[Gamepad] Y → REPEAT');
-        _lastInputMethod = 'Gamepad';
-        btn.click();
-      }
-      return;
-    }
+    btn.click();
   }
 }
 
@@ -2076,6 +2778,10 @@ window.addEventListener('pagehide', () => {
 async function cleanup() {
   stopExamTtsAndTimers();
   if (heartbeatInterval) clearInterval(heartbeatInterval);
+  if (_observeAdvanceTimer) {
+    clearTimeout(_observeAdvanceTimer);
+    _observeAdvanceTimer = null;
+  }
   resetExamTimer();
   await releaseDevice();
   sessionStorage.removeItem('session_id');
@@ -2274,8 +2980,27 @@ async function loadDvSummary() {
       'AR / Lenso Mismatch': ['dv_ar_lenso_mismatch_level_RE', 'dv_ar_lenso_mismatch_level_LE', 'dv_start_source_policy'],
       'Starting Rx': ['dv_start_rx_RE_sph', 'dv_start_rx_RE_cyl', 'dv_start_rx_RE_axis', 'dv_start_rx_LE_sph', 'dv_start_rx_LE_cyl', 'dv_start_rx_LE_axis'],
       'Test Config': ['dv_target_distance_va', 'dv_endpoint_bias_policy', 'dv_step_size_policy', 'dv_confidence_requirement', 'dv_expected_convergence_time', 'dv_branching_guardrails'],
-      'Fogging': ['dv_fogging_policy', 'dv_fogging_amount_D', 'dv_fogging_clearance_mode', 'dv_fogging_required_confirmation', 'dv_fogging_required', 'dv_fogging_stop_at_target_va', 'dv_accommodation_level'],
-      'Axis / Cylinder': ['dv_axis_step_policy', 'dv_axis_tolerance_deg', 'dv_cyl_tolerance_D', 'dv_jcc_axis_same_required', 'dv_jcc_axis_max_flips'],
+      'Fogging': ['dv_fogging_policy', 'dv_fogging_amount_D', 'dv_fogging_clearance_mode', 'dv_fogging_required'],
+      'Axis / Cylinder': [
+        'dv_jcc_axis_same_required',
+        'dv_jcc_axis_max_flips',
+        'dv_axis_source_used_RE',
+        'dv_axis_source_used_LE',
+        'dv_axis_cyl_magnitude_for_lane_RE',
+        'dv_axis_cyl_magnitude_for_lane_LE',
+        'dv_axis_is_near_cardinal_RE',
+        'dv_axis_is_near_cardinal_LE',
+        'dv_axis_lane_id_RE',
+        'dv_axis_lane_id_LE',
+        'dv_axis_lane_name_RE',
+        'dv_axis_lane_name_LE',
+        'dv_axis_step_sequence_RE',
+        'dv_axis_step_sequence_LE',
+        'dv_axis_confidence_label_RE',
+        'dv_axis_confidence_label_LE',
+        'dv_axis_selection_reason_RE',
+        'dv_axis_selection_reason_LE',
+      ],
       'Duochrome': ['dv_duochrome_max_flips'],
       'Near Vision': ['dv_add_expected', 'dv_near_test_required', 'dv_near_binoc_step_D', 'dv_near_binoc_max_plus_steps', 'dv_near_binoc_max_minus_steps'],
       'Safety / Escalation': ['dv_max_delta_from_start_sph', 'dv_max_delta_from_ar_sph'],
@@ -2411,6 +3136,29 @@ document.addEventListener('keydown', (e) => {
 
 // ── Auto-screenshot toggle + PIP ──
 let autoScreenshot = true; // ON by default
+let _pipRefreshToken = 0;
+let _pipRefreshTimers = [];
+
+function clearPendingPipRefreshes() {
+  _pipRefreshTimers.forEach(timerId => clearTimeout(timerId));
+  _pipRefreshTimers = [];
+}
+
+function setPipLoadingState(message) {
+  const loading = document.getElementById('pipLoading');
+  const img = document.getElementById('pipImg');
+  const footer = document.getElementById('pipFooter');
+  if (loading) {
+    loading.style.display = 'flex';
+    loading.textContent = message;
+  }
+  if (img) {
+    img.style.opacity = '0.45';
+  }
+  if (footer && message) {
+    footer.textContent = message;
+  }
+}
 
 async function toggleAutoScreenshot() {
   autoScreenshot = !autoScreenshot;
@@ -2435,26 +3183,31 @@ async function toggleAutoScreenshot() {
   }
 
   // Take initial screenshot
-  if (autoScreenshot) refreshPipScreenshot();
+  if (autoScreenshot) schedulePipRefreshSequence({ forceFresh: true, reason: 'Initial capture' });
 }
 
-async function refreshPipScreenshot() {
+async function refreshPipScreenshot(refreshToken = _pipRefreshToken) {
   if (!sessionId) return;
   const loading = document.getElementById('pipLoading');
   const img = document.getElementById('pipImg');
   const footer = document.getElementById('pipFooter');
-  if (loading) { loading.style.display = 'flex'; loading.textContent = 'Capturing...'; }
+  if (loading) {
+    loading.style.display = 'flex';
+    loading.textContent = 'Capturing...';
+  }
 
   try {
     const resp = await fetch(`${API}/api/session/${sessionId}/screenshot`, {
       method: 'POST',
       signal: AbortSignal.timeout(8000), // 8s timeout
     });
+    if (refreshToken !== _pipRefreshToken) return;
     if (resp.ok) {
       const data = await resp.json();
       if (data.screenshot) {
         img.src = 'data:image/jpeg;base64,' + data.screenshot;
         img.style.display = '';
+        img.style.opacity = '1';
         if (loading) loading.style.display = 'none';
         if (footer) footer.textContent = new Date().toLocaleTimeString();
         return;
@@ -2463,18 +3216,44 @@ async function refreshPipScreenshot() {
     // Non-OK or no screenshot
     if (loading) loading.textContent = 'Device not connected';
     if (footer) footer.textContent = 'Phoropter offline';
+    if (img) img.style.opacity = '0.45';
   } catch (e) {
     console.warn('PIP screenshot failed:', e);
+    if (refreshToken !== _pipRefreshToken) return;
     if (loading) loading.textContent = 'Device not reachable';
     if (footer) footer.textContent = 'Connection timeout';
+    if (img) img.style.opacity = '0.45';
   }
 }
 
-// Auto-update PIP after each response (called from submitResponse)
-async function autoUpdatePip() {
+function schedulePipRefreshSequence({ powerChanged = false, phaseChanged = false, forceFresh = false, reason = '' } = {}) {
   if (!autoScreenshot) return;
-  // Small delay to let phoropter finish physical movement
-  setTimeout(refreshPipScreenshot, 500);
+  _pipRefreshToken += 1;
+  const token = _pipRefreshToken;
+  clearPendingPipRefreshes();
+
+  const delays = forceFresh
+    ? [700, 1700]
+    : powerChanged
+      ? [900, 1900, 3200]
+      : phaseChanged
+        ? [800, 1800]
+        : [900];
+
+  setPipLoadingState(reason || (powerChanged ? 'Syncing phoropter...' : 'Refreshing...'));
+  delays.forEach((delayMs) => {
+    const timerId = setTimeout(() => refreshPipScreenshot(token), delayMs);
+    _pipRefreshTimers.push(timerId);
+  });
+}
+
+// Auto-update PIP after each response (called from submitResponse)
+async function autoUpdatePip({ powerChanged = false, phaseChanged = false } = {}) {
+  schedulePipRefreshSequence({
+    powerChanged,
+    phaseChanged,
+    reason: powerChanged ? 'Syncing phoropter...' : 'Refreshing phoropter...',
+  });
 }
 
 function expandPip() {
@@ -2596,27 +3375,30 @@ function handleAutoFlip(data) {
     return;
   }
 
-  const isAxis = data.state === 'E' || data.state === 'H';
-  const phaseLabel = isAxis ? 'axis' : 'power';
-  const eyeLabel = (data.state === 'E' || data.state === 'F') ? 'right eye' : 'left eye';
-  const eyeLabelHi = (data.state === 'E' || data.state === 'F') ? 'दाईं आँख' : 'बाईं आँख';
+  stopVoiceCaptureHard();
+
+  // Match showQuestion: server always sends English preface — localize for hi-IN TTS (was English + Hindi flip = wrong voice).
+  const prefacePrompt = localizePrefacePrompt(data.preface_prompt || '');
+  const promptQuestion = (document.getElementById('questionText')?.textContent || data.question || '').trim();
 
   // ── Flip 1: Show + speak "This is Flip 1", WAIT for TTS, THEN start 2s timer ──
   _flipState = 'flip1';
   updateFlipIndicator('flip1');
   setOptionsEnabled(false);
 
-  const flip1Text = sessionLanguage === 'hi'
-    ? `यह विकल्प 1 है। ध्यान से देखिए।`
-    : `This is Dot Chart. First option. Look carefully.`;
-  document.getElementById('questionText').textContent = flip1Text;
+  const baseFlip1Text = sessionLanguage === 'hi' ? FLIP1_TTS_BODY_HI : FLIP1_TTS_BODY_EN;
+  // Stimulus caption stays on screen only; do not speak "Dot chart for axis comparison", etc.
+  const flip1Text = prefacePrompt
+    ? joinSpeechParts(prefacePrompt, baseFlip1Text)
+    : baseFlip1Text;
+  document.getElementById('questionText').textContent = baseFlip1Text;
   const waitSeconds = data.flip_wait_seconds || 2;
 
   // Wait for Flip 1 TTS to finish via onEnd callback, THEN wait the observation period
   speakQuestion(flip1Text, null, () => {
     if (!currentState || currentState.is_terminal) return;
     _autoFlipTimer = setTimeout(doFlip2, waitSeconds * 1000);
-  });
+  }, 'flip1');
 
   async function doFlip2() {
     if (!currentState || currentState.is_terminal) return;
@@ -2634,10 +3416,18 @@ function handleAutoFlip(data) {
     _flipState = 'flip2';
     updateFlipIndicator('flip2');
 
+    const flip2Prompt = promptQuestion || (
+      sessionLanguage === 'hi'
+        ? `पहला, दूसरा, समान, या फिर से कहिए।`
+        : `Say first option, second option, both same, or repeat.`
+    );
+    const flip2SpeakBody = sessionLanguage === 'hi'
+      ? flip2Prompt
+      : buildSpokenQuestionText(currentState || {}, flip2Prompt, '');
     const flip2Text = sessionLanguage === 'hi'
-      ? `यह विकल्प 2 है। कौन सा बेहतर है? पहला, दूसरा, समान, या फिर से कहिए।`
-      : `This is second option. Which is better? Say first, second, same, or repeat.`;
-    document.getElementById('questionText').textContent = flip2Text;
+      ? joinSpeechParts(FLIP2_PREFIX_HI, flip2SpeakBody)
+      : joinSpeechParts(FLIP2_PREFIX_EN, flip2SpeakBody);
+    document.getElementById('questionText').textContent = flip2Prompt;
     // Wait for Flip 2 TTS to finish via onEnd callback, then beep + enable buttons + listen
     speakQuestion(flip2Text, null, () => {
       setOptionsEnabled(true);
@@ -2647,7 +3437,7 @@ function handleAutoFlip(data) {
           startVoiceCapture(currentState.state, currentState.options || [], currentState.step);
         }
       });
-    });
+    }, 'flip2');
   }
 }
 

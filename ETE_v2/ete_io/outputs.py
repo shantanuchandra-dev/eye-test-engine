@@ -166,12 +166,12 @@ def write_voice_utterances_csv(
             "Transcript": att.get("transcript", ""),
             "Alternatives": alts,
             "Intent_Matched": "",
-            "Canonical_Label": "",
-            "Confidence": "",
-            "Match_Method": "",
+            "Canonical_Label": att.get("canonical_label", ""),
+            "Confidence": att.get("match_confidence", ""),
+            "Match_Method": att.get("match_method", ""),
             "Input_Method": f"Voice_{att.get('backend', 'Browser')}".replace("voice_", ""),
             "Language": att.get("language", ""),
-            "Stimulus_Letters": "",
+            "Stimulus_Letters": att.get("stimulus_letters", ""),
             "Audio_File": "",
             "Accepted": "false",
         })
@@ -250,8 +250,16 @@ COMBINED_METADATA_FIELDS = [
     "AR_L_SPH", "AR_L_CYL", "AR_L_AXIS",
     "Lenso_R_SPH", "Lenso_R_CYL", "Lenso_R_AXIS",
     "Lenso_L_SPH", "Lenso_L_CYL", "Lenso_L_AXIS",
+    "Achieved_R_SPH", "Achieved_R_CYL", "Achieved_R_AXIS", "Achieved_R_ADD",
+    "Achieved_L_SPH", "Achieved_L_CYL", "Achieved_L_AXIS", "Achieved_L_ADD",
+    "Current_R_SPH", "Current_R_CYL", "Current_R_AXIS", "Current_R_ADD",
+    "Current_L_SPH", "Current_L_CYL", "Current_L_AXIS", "Current_L_ADD",
     "Final_R_SPH", "Final_R_CYL", "Final_R_AXIS", "Final_R_ADD",
     "Final_L_SPH", "Final_L_CYL", "Final_L_AXIS", "Final_L_ADD",
+    "Final_R_Distance_VA", "Final_L_Distance_VA",
+    "Final_Rx_Compare_Ran", "Final_Rx_Compare_Current_Source",
+    "Final_Rx_Compare_Round_1", "Final_Rx_Compare_Round_2",
+    "Accepted_Achieved_Over_Current_Rx", "Final_Rx_Selected_Source",
     "Phases_Completed",
     # ── Patient Input fields ──
     "PI_Age", "PI_Occupation", "PI_Screen_Time_Hours", "PI_Driving_Hours",
@@ -292,6 +300,9 @@ def build_combined_metadata_flat(metadata: dict) -> dict:
     """Single combined_metadata.csv row as a flat dict."""
     qm = metadata.get("quality_metrics", {})
     final = metadata.get("final_prescription", {})
+    achieved = metadata.get("achieved_prescription", {})
+    current_rx = metadata.get("pgp_rx", metadata.get("current_rx", {}))
+    final_compare = metadata.get("final_rx_comparison", {})
     ar = metadata.get("ar", {})
     lenso = metadata.get("lensometry", {})
     pi = metadata.get("patient_input", {})
@@ -324,6 +335,22 @@ def build_combined_metadata_flat(metadata: dict) -> dict:
         "Lenso_L_SPH": _safe_get(lenso, "left", "sph"),
         "Lenso_L_CYL": _safe_get(lenso, "left", "cyl"),
         "Lenso_L_AXIS": _safe_get(lenso, "left", "axis"),
+        "Achieved_R_SPH": _safe_get(achieved, "right", "sph"),
+        "Achieved_R_CYL": _safe_get(achieved, "right", "cyl"),
+        "Achieved_R_AXIS": _safe_get(achieved, "right", "axis"),
+        "Achieved_R_ADD": _safe_get(achieved, "right", "add"),
+        "Achieved_L_SPH": _safe_get(achieved, "left", "sph"),
+        "Achieved_L_CYL": _safe_get(achieved, "left", "cyl"),
+        "Achieved_L_AXIS": _safe_get(achieved, "left", "axis"),
+        "Achieved_L_ADD": _safe_get(achieved, "left", "add"),
+        "Current_R_SPH": _safe_get(current_rx, "right", "sph"),
+        "Current_R_CYL": _safe_get(current_rx, "right", "cyl"),
+        "Current_R_AXIS": _safe_get(current_rx, "right", "axis"),
+        "Current_R_ADD": _safe_get(current_rx, "right", "add"),
+        "Current_L_SPH": _safe_get(current_rx, "left", "sph"),
+        "Current_L_CYL": _safe_get(current_rx, "left", "cyl"),
+        "Current_L_AXIS": _safe_get(current_rx, "left", "axis"),
+        "Current_L_ADD": _safe_get(current_rx, "left", "add"),
         "Final_R_SPH": _safe_get(final, "right", "sph"),
         "Final_R_CYL": _safe_get(final, "right", "cyl"),
         "Final_R_AXIS": _safe_get(final, "right", "axis"),
@@ -332,6 +359,14 @@ def build_combined_metadata_flat(metadata: dict) -> dict:
         "Final_L_CYL": _safe_get(final, "left", "cyl"),
         "Final_L_AXIS": _safe_get(final, "left", "axis"),
         "Final_L_ADD": _safe_get(final, "left", "add"),
+        "Final_R_Distance_VA": _safe_get(metadata, "final_distance_va", "right", "line"),
+        "Final_L_Distance_VA": _safe_get(metadata, "final_distance_va", "left", "line"),
+        "Final_Rx_Compare_Ran": final_compare.get("ran", ""),
+        "Final_Rx_Compare_Current_Source": final_compare.get("current_source", ""),
+        "Final_Rx_Compare_Round_1": final_compare.get("round_1_choice", ""),
+        "Final_Rx_Compare_Round_2": final_compare.get("round_2_choice", ""),
+        "Accepted_Achieved_Over_Current_Rx": final_compare.get("accepted_achieved_over_current_rx", ""),
+        "Final_Rx_Selected_Source": final_compare.get("selected_prescribed_rx_source", ""),
         "Phases_Completed": "; ".join(metadata.get("phases_completed", [])),
         # ── Patient Input ──
         "PI_Age": pi.get("age", ""),
@@ -441,6 +476,60 @@ def _serialize_derived_variables(dv) -> dict:
     return asdict(dv)
 
 
+def _eye_payload_from_prescription(rx) -> dict:
+    if rx is None:
+        return {}
+    return {
+        "sph": getattr(rx, "sphere", None),
+        "cyl": getattr(rx, "cylinder", None),
+        "axis": getattr(rx, "axis", None),
+    }
+
+
+def _rx_payload(
+    re_sph,
+    re_cyl,
+    re_axis,
+    add_r,
+    le_sph,
+    le_cyl,
+    le_axis,
+    add_l,
+) -> dict:
+    return {
+        "right": {"sph": re_sph, "cyl": re_cyl, "axis": re_axis, "add": add_r},
+        "left": {"sph": le_sph, "cyl": le_cyl, "axis": le_axis, "add": add_l},
+    }
+
+
+def _payload_has_values(payload: dict) -> bool:
+    for eye in ("right", "left"):
+        eye_payload = payload.get(eye, {})
+        if any(eye_payload.get(key) is not None for key in ("sph", "cyl", "axis", "add")):
+            return True
+    return False
+
+
+def _derive_objective_payloads(patient_input) -> tuple[dict, dict]:
+    if patient_input is None:
+        return {}, {}
+    ar = {
+        "right": _eye_payload_from_prescription(getattr(patient_input, "autorefractor_re", None)),
+        "left": _eye_payload_from_prescription(getattr(patient_input, "autorefractor_le", None)),
+    }
+    lenso = {
+        "right": {
+            **_eye_payload_from_prescription(getattr(patient_input, "lenso_re", None)),
+            "add": getattr(patient_input, "lenso_add_r", None),
+        },
+        "left": {
+            **_eye_payload_from_prescription(getattr(patient_input, "lenso_le", None)),
+            "add": getattr(patient_input, "lenso_add_l", None),
+        },
+    }
+    return ar, lenso
+
+
 def build_session_metadata(
     session_id: str,
     phoropter_id: str,
@@ -468,14 +557,80 @@ def build_session_metadata(
     manual_count = sum(1 for r in rows if r.get("interaction_type") == "Manual")
     qna_count = sum(1 for r in rows if r.get("interaction_type") == "QnA")
 
+    derived_ar, derived_lenso = _derive_objective_payloads(patient_input)
+    ar = ar or derived_ar
+    lensometry = lensometry or derived_lenso
+
     final_rx = {}
+    achieved_rx = {}
+    current_rx = {}
+    final_distance_va = {}
+    final_rx_comparison = {}
     if rows:
         last = rows[-1]
-        final_rx = {
-            "right": {"sph": last.get("re_sph"), "cyl": last.get("re_cyl"),
-                       "axis": last.get("re_axis"), "add": last.get("add_r")},
-            "left": {"sph": last.get("le_sph"), "cyl": last.get("le_cyl"),
-                      "axis": last.get("le_axis"), "add": last.get("add_l")},
+        achieved_rx = _rx_payload(
+            last.get("final_compare_achieved_re_sph", last.get("re_sph")),
+            last.get("final_compare_achieved_re_cyl", last.get("re_cyl")),
+            last.get("final_compare_achieved_re_axis", last.get("re_axis")),
+            last.get("final_compare_achieved_add_r", last.get("add_r")),
+            last.get("final_compare_achieved_le_sph", last.get("le_sph")),
+            last.get("final_compare_achieved_le_cyl", last.get("le_cyl")),
+            last.get("final_compare_achieved_le_axis", last.get("le_axis")),
+            last.get("final_compare_achieved_add_l", last.get("add_l")),
+        )
+        current_rx = _rx_payload(
+            last.get("final_compare_current_re_sph", _safe_get(lensometry, "right", "sph", default=None)),
+            last.get("final_compare_current_re_cyl", _safe_get(lensometry, "right", "cyl", default=None)),
+            last.get("final_compare_current_re_axis", _safe_get(lensometry, "right", "axis", default=None)),
+            last.get("final_compare_current_add_r", _safe_get(lensometry, "right", "add", default=None)),
+            last.get("final_compare_current_le_sph", _safe_get(lensometry, "left", "sph", default=None)),
+            last.get("final_compare_current_le_cyl", _safe_get(lensometry, "left", "cyl", default=None)),
+            last.get("final_compare_current_le_axis", _safe_get(lensometry, "left", "axis", default=None)),
+            last.get("final_compare_current_add_l", _safe_get(lensometry, "left", "add", default=None)),
+        )
+        comparison_ran = bool(last.get("final_compare_enabled", False))
+        accepted_achieved = last.get("patient_accepted_achieved_over_current_rx", "") == "Yes"
+        if comparison_ran:
+            if accepted_achieved and _payload_has_values(achieved_rx):
+                final_rx = achieved_rx
+                selected_source = "Achieved"
+            elif _payload_has_values(current_rx):
+                final_rx = current_rx
+                selected_source = "PGP"
+            elif _payload_has_values(achieved_rx):
+                final_rx = achieved_rx
+                selected_source = "Achieved"
+            else:
+                final_rx = _rx_payload(
+                    last.get("re_sph"), last.get("re_cyl"), last.get("re_axis"), last.get("add_r"),
+                    last.get("le_sph"), last.get("le_cyl"), last.get("le_axis"), last.get("add_l"),
+                )
+                selected_source = ""
+        else:
+            final_rx = _rx_payload(
+                last.get("re_sph"), last.get("re_cyl"), last.get("re_axis"), last.get("add_r"),
+                last.get("le_sph"), last.get("le_cyl"), last.get("le_axis"), last.get("add_l"),
+            )
+            selected_source = ""
+        final_distance_va = {
+            "right": {
+                "chart": last.get("distance_va_re_chart", ""),
+                "line": last.get("distance_va_re_line", ""),
+            },
+            "left": {
+                "chart": last.get("distance_va_le_chart", ""),
+                "line": last.get("distance_va_le_line", ""),
+            },
+        }
+        final_rx_comparison = {
+            "ran": comparison_ran,
+            "current_source": "PGP" if comparison_ran else "",
+            "option_1_source": "Achieved" if comparison_ran else "",
+            "option_2_source": "PGP" if comparison_ran else "",
+            "round_1_choice": last.get("final_compare_choice_round_1", ""),
+            "round_2_choice": last.get("final_compare_choice_round_2", ""),
+            "accepted_achieved_over_current_rx": last.get("patient_accepted_achieved_over_current_rx", ""),
+            "selected_prescribed_rx_source": selected_source,
         }
 
     return {
@@ -493,6 +648,11 @@ def build_session_metadata(
         "ar": ar or {},
         "lensometry": lensometry or {},
         "final_prescription": final_rx,
+        "achieved_prescription": achieved_rx,
+        "pgp_rx": current_rx,
+        "current_rx": current_rx,
+        "final_distance_va": final_distance_va,
+        "final_rx_comparison": final_rx_comparison,
         "qualitative_feedback": qualitative_feedback or "",
         "phases_completed": phases_completed or [],
         "phases_skipped": phases_skipped or [],

@@ -1,6 +1,9 @@
 # ETE v2 — Eye Test Engine
 
-Automated refraction engine that drives a complete eye examination through a phoropter, using an FSM (Finite State Machine) to navigate sphere, cylinder, axis, duochrome, binocular balance, and near vision testing.
+Automated refraction engine that drives a complete eye examination through a phoropter, using an FSM (Finite State Machine) to navigate coarse sphere, axis, cylinder power, duochrome, distance VA confirmation, binocular balance, and near vision testing.
+
+The current coarse sphere workflow starts at `70_60_50`, shows only the active last line for the working chart, and asks the patient to read that line while minus is refined.
+At the end of the exam, when full lensometry is available, the system now runs a two-round final comparison using achieved Rx as option 1 and PGP (previous glasses power) as option 2, with timed observation on the `20/20/20` last line before each choice.
 
 ## Architecture
 
@@ -29,7 +32,7 @@ Automated refraction engine that drives a complete eye examination through a pho
            │
 ┌──────────▼───────────────────────────────────────────┐
 │           Configuration                                 │
-│  calibration.csv (115 params, 13 sections)              │
+│  calibration.csv                                        │
 │  CalibrationLoader → DerivedVariablesEngine             │
 └──────────────────────────────────────────────────────┘
 ```
@@ -53,24 +56,27 @@ python run.py
 | `LOG_DIR` | `logs` | Session log output directory |
 | `FLASK_ENV` | `development` | Flask run mode |
 
-## FSM State Flow (FSMv3.1)
+## FSM State Flow (Current)
 
 ```
-B: Coarse Sphere RE ──► E: JCC Axis RE ──► F: JCC Power RE ──► G: Duochrome RE
-       │                                                              │
-       ▼                                                              ▼
-D: Coarse Sphere LE ──► H: JCC Axis LE ──► I: JCC Power LE ──► J: Duochrome LE
-                                                                      │
-                                                                      ▼
-                                                               K: Binocular Balance
-                                                                      │
-                                                            ┌─────────┴─────────┐
-                                                            ▼                   ▼
-                                                    P/Q: Near Add         END: Complete
-                                                    R: Binoc Near
-                                                            │
-                                                            ▼
-                                                       END: Complete
+B: Coarse Sphere RE ──► E: JCC Axis RE ──► F: JCC Power RE ──► G: Duochrome RE ──► C: Distance VA Confirm RE
+                                                                                                         │
+                                                                                                         ▼
+D: Coarse Sphere LE ──► H: JCC Axis LE ──► I: JCC Power LE ──► J: Duochrome LE ──► L: Distance VA Confirm LE
+                                                                                                         │
+                                                                                                         ▼
+                                                                                                  K: Binocular Balance
+                                                                                                         │
+                                                                                               ┌─────────┴─────────┐
+                                                                                               ▼                   ▼
+                                                                                       P/Q: Near Add         END: Complete
+                                                                                       R: Binoc Near
+                                                                                               │
+                                                                                               ▼
+                                                                                          S/T/U: Final Rx Compare
+                                                                                               │
+                                                                                               ▼
+                                                                                          END: Complete
 ```
 
 ## Project Structure
@@ -91,7 +97,7 @@ ETE_v2/
 │   │   └── derived_variables_engine.py # Patient → test config
 │   ├── models/
 │   │   ├── fsm_runtime.py      # FSMRuntimeRow (step state)
-│   │   ├── derived_variables.py # 63-field test config
+│   │   ├── derived_variables.py # Derived test config
 │   │   ├── patient.py          # PatientInput model
 │   │   └── prescription.py     # EyePrescription model
 │   ├── charts/
@@ -128,17 +134,17 @@ ETE_v2/
 | `/` | Test Session | Main eye test interface with questions, Rx table, phase progress |
 | `/intake` | Patient Intake | Patient form → starts session |
 | `/dashboard` | Dashboard | Session stats, R&R metrics, export |
-| `/cal` | Calibration Editor | Password-gated editor for all 115 calibration parameters |
+| `/cal` | Calibration Editor | Password-gated editor for calibration parameters |
 
 ## Logging
 
 Each session produces:
-- `{session_id}.csv` — Per-step log (23 columns including input method and voice data)
-- `{session_id}_metadata.json` — Full session metadata (calibration snapshot, patient input, derived variables)
+- `{session_id}.csv` — Per-step log including Rx values, phase/state data, voice metadata, lane metadata, and distance VA confirmation
+- `{session_id}_metadata.json` — Full session metadata (calibration snapshot, patient input, derived variables, and final achieved-vs-current acceptance result when run)
 - `{session_id}_voice_utterances.csv` — Voice interaction training data (16 columns)
 - `{session_id}_failed_voice_attempts.csv` — Failed STT attempts
 - `logs/sessions/audio/` — Saved audio blobs (.webm) from whisper transcriptions
 
 Combined logs across sessions:
 - `combined_log.csv` — All session steps appended
-- `combined_metadata.csv` — All session metadata flattened (99 columns)
+- `combined_metadata.csv` — All session metadata flattened, including final distance VA for each eye and final achieved-vs-current acceptance fields

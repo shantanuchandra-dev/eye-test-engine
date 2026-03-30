@@ -13,6 +13,16 @@ class DerivedVariablesEngine:
     def __init__(self, calibration: CalibrationLoader):
         self.cal = calibration
 
+    def _round_axis_to_phoropter_step(self, axis: Optional[float]) -> Optional[float]:
+        if axis is None:
+            return None
+        step = float(self.cal.get("axis_fixed_step", 5))
+        if step <= 0:
+            return float(axis)
+        rounded = round(float(axis) / step) * step
+        wrapped = rounded % 180
+        return 180.0 if abs(wrapped) < 1e-9 else float(wrapped)
+
     def derive(self, patient: PatientInput) -> DerivedVariables:
         age_bucket = self._derive_age_bucket(patient)
         distance_priority = self._derive_distance_priority(patient)
@@ -145,13 +155,17 @@ class DerivedVariablesEngine:
             self.cal.get("jcc_axis_max_flips", 3)
         )
 
-        quick_axis_search_re = self._derive_quick_axis_search_enabled(
-            patient.autorefractor_re,
-            patient.lenso_re,
+        axis_lane_re = self._derive_axis_lane_metadata(
+            ar=patient.autorefractor_re,
+            lenso=patient.lenso_re,
+            policy=start_policy,
+            start_rx=start_re,
         )
-        quick_axis_search_le = self._derive_quick_axis_search_enabled(
-            patient.autorefractor_le,
-            patient.lenso_le,
+        axis_lane_le = self._derive_axis_lane_metadata(
+            ar=patient.autorefractor_le,
+            lenso=patient.lenso_le,
+            policy=start_policy,
+            start_rx=start_le,
         )
 
         near_binoc_step = float(
@@ -207,14 +221,32 @@ class DerivedVariablesEngine:
             # FSM v3.1 additions
             dv_accommodation_level=age_bucket,
             # A positive low-fog amount should still be applied at coarse entry
-            # even when the policy label is "No_Fog".
+            # even when the policy label is "Low_Fog".
             dv_fogging_required=(fog_amount > 0.0),
             dv_fogging_stop_at_target_va=True,
 
             dv_jcc_axis_same_required=jcc_axis_same_required,
             dv_jcc_axis_max_flips=jcc_axis_max_flips,
-            dv_quick_axis_search_RE=quick_axis_search_re,
-            dv_quick_axis_search_LE=quick_axis_search_le,
+            # Retained for compatibility with older exports/debug consumers.
+            # Lane 4 corresponds to the old "quick search" behavior family.
+            dv_quick_axis_search_RE=(axis_lane_re["lane_id"] == "LANE_4"),
+            dv_quick_axis_search_LE=(axis_lane_le["lane_id"] == "LANE_4"),
+            dv_axis_source_used_RE=axis_lane_re["source_used"],
+            dv_axis_source_used_LE=axis_lane_le["source_used"],
+            dv_axis_cyl_magnitude_for_lane_RE=axis_lane_re["cyl_magnitude"],
+            dv_axis_cyl_magnitude_for_lane_LE=axis_lane_le["cyl_magnitude"],
+            dv_axis_is_near_cardinal_RE=axis_lane_re["is_near_cardinal"],
+            dv_axis_is_near_cardinal_LE=axis_lane_le["is_near_cardinal"],
+            dv_axis_lane_id_RE=axis_lane_re["lane_id"],
+            dv_axis_lane_id_LE=axis_lane_le["lane_id"],
+            dv_axis_lane_name_RE=axis_lane_re["lane_name"],
+            dv_axis_lane_name_LE=axis_lane_le["lane_name"],
+            dv_axis_step_sequence_RE=axis_lane_re["sequence_text"],
+            dv_axis_step_sequence_LE=axis_lane_le["sequence_text"],
+            dv_axis_confidence_label_RE=axis_lane_re["confidence_label"],
+            dv_axis_confidence_label_LE=axis_lane_le["confidence_label"],
+            dv_axis_selection_reason_RE=axis_lane_re["selection_reason"],
+            dv_axis_selection_reason_LE=axis_lane_le["selection_reason"],
 
             dv_near_binoc_step_D=near_binoc_step,
             dv_near_binoc_max_plus_steps=near_binoc_max_plus,
@@ -370,12 +402,12 @@ class DerivedVariablesEngine:
         ln_a = lenso.axis if lenso else None
 
         if policy == "Start_AR":
-            return EyePrescription(ar_s, ar_c, ar_a)
+            return EyePrescription(ar_s, ar_c, self._round_axis_to_phoropter_step(ar_a))
         if policy == "Start_Lenso":
             return EyePrescription(
                 ln_s if ln_s is not None else ar_s,
                 ln_c if ln_c is not None else ar_c,
-                ln_a if ln_a is not None else ar_a,
+                ln_a if ln_a is not None else self._round_axis_to_phoropter_step(ar_a),
             )
 
         # Hybrid
@@ -389,7 +421,11 @@ class DerivedVariablesEngine:
             if ar_c is not None and ln_c is not None
             else ar_c if ar_c is not None else ln_c
         )
-        axis = ar_a if ar_a is not None else ln_a
+        axis = (
+            self._round_axis_to_phoropter_step(ar_a)
+            if ar_a is not None
+            else ln_a
+        )
         return EyePrescription(sph, cyl, axis)
 
     def _derive_add_expected(self, patient: PatientInput, near_priority: str) -> str:
@@ -425,14 +461,8 @@ class DerivedVariablesEngine:
         medical_risk: str,
         stability: str,
     ) -> str:
-        dt = (patient.distance_target_preference or "").strip()
         target_66 = self.cal.get("default_distance_target", "6/6_target")
         target_69 = self.cal.get("high_risk_distance_target", "6/9_acceptable")
-
-        if dt:
-            if dt in ("Accept 6/9 if needed", "6/9 acceptable", "6/9_acceptable"):
-                return target_69
-            return target_66
 
         if symptom_risk == "High" or medical_risk == "High" or stability == "Unstable":
             return target_69
@@ -606,18 +636,18 @@ class DerivedVariablesEngine:
         if medical_risk == "High" or symptom_risk == "High":
             return "Standard_Fog"
 
-        # Presbyopes → no fog (low accommodation)
+        # Presbyopes → low fog (low accommodation, but still a mild plus buffer)
         if age_bucket == "Presbyope":
-            return "No_Fog"
+            return "Low_Fog"
 
-        return "No_Fog"
+        return "Low_Fog"
 
     def _derive_fogging_amount(self, fog_policy: str) -> float:
         if fog_policy == "Strong_Fog":
             return float(self.cal.get("strong_fog_amount", 1))
         if fog_policy == "Standard_Fog":
             return float(self.cal.get("standard_fog_amount", 0.75))
-        return float(self.cal.get("no_fog_amount", 0))
+        return float(self.cal.get("low_fog_amount", self.cal.get("no_fog_amount", 0)))
 
     def _derive_fogging_clearance_mode(
         self,
@@ -654,12 +684,158 @@ class DerivedVariablesEngine:
             return "Fast"
         return "Normal"
 
-    def _derive_quick_axis_search_enabled(
+    def _derive_axis_lane_metadata(
         self,
         ar: Optional[EyePrescription],
         lenso: Optional[EyePrescription],
-    ) -> bool:
-        return self._is_cardinal_axis(ar.axis if ar else None) or self._is_cardinal_axis(lenso.axis if lenso else None)
+        policy: str,
+        start_rx: EyePrescription,
+    ) -> dict:
+        near_cardinal_threshold = float(self.cal.get("axis_near_cardinal_threshold_deg", 10))
+        low_cyl_threshold = float(self.cal.get("axis_low_cyl_threshold_d", 0.50))
+        meaningful_cyl_threshold = float(self.cal.get("axis_meaningful_cyl_threshold_d", 0.75))
+
+        source_used = self._derive_axis_source_used(ar=ar, lenso=lenso, policy=policy)
+        axis_for_start = self._axis_value_for_source(
+            ar=ar,
+            lenso=lenso,
+            start_rx=start_rx,
+            source_used=source_used,
+        )
+        lenso_axis_available = bool(lenso and lenso.axis is not None)
+        ar_axis_available = bool(ar and ar.axis is not None)
+        lenso_cyl_mag = abs(float(lenso.cylinder)) if lenso and lenso.cylinder is not None else 0.0
+        ar_cyl_mag = abs(float(ar.cylinder)) if ar and ar.cylinder is not None else 0.0
+        decision_cyl_mag = lenso_cyl_mag if lenso_axis_available else ar_cyl_mag
+        if not lenso_axis_available and not ar_axis_available:
+            decision_cyl_mag = abs(float(start_rx.cylinder or 0.0))
+
+        is_near_cardinal = self._is_near_cardinal_axis(
+            axis_for_start,
+            threshold_deg=near_cardinal_threshold,
+        )
+
+        reasons = [f"axis_source={source_used or 'Unknown'}"]
+        if lenso_axis_available:
+            reasons.append("lensometer_axis_available")
+        else:
+            reasons.append("ar_only_axis")
+        if decision_cyl_mag >= meaningful_cyl_threshold:
+            reasons.append("meaningful_cylinder")
+        elif decision_cyl_mag < low_cyl_threshold:
+            reasons.append("low_cylinder")
+        else:
+            reasons.append("intermediate_cylinder")
+        reasons.append("near_cardinal_axis" if is_near_cardinal else "non_cardinal_axis")
+
+        if lenso_axis_available and lenso_cyl_mag >= meaningful_cyl_threshold:
+            lane_id = "LANE_1"
+            lane_name = "High-confidence axis"
+            confidence_label = "High"
+            reasons.insert(0, "lensometer_supported_axis")
+        elif (not lenso_axis_available) and ar_axis_available and ar_cyl_mag >= meaningful_cyl_threshold and not is_near_cardinal:
+            lane_id = "LANE_2"
+            lane_name = "Medium-confidence axis"
+            confidence_label = "Medium"
+            reasons.insert(0, "ar_only_meaningful_non_cardinal")
+        elif (not lenso_axis_available) and ar_axis_available and is_near_cardinal and ar_cyl_mag < low_cyl_threshold:
+            lane_id = "LANE_4"
+            lane_name = "Very low-confidence axis"
+            confidence_label = "Very Low"
+            reasons.insert(0, "ar_only_near_cardinal_low_cylinder")
+        else:
+            lane_id = "LANE_3"
+            lane_name = "Low-confidence axis"
+            confidence_label = "Low"
+            reasons.insert(0, "conservative_fallback_lane")
+
+        sequence = self._read_axis_lane_sequence(
+            lane_id=lane_id,
+            default=[5.0],
+        )
+
+        return {
+            "source_used": source_used,
+            "cyl_magnitude": round(float(decision_cyl_mag), 4),
+            "is_near_cardinal": is_near_cardinal,
+            "lane_id": lane_id,
+            "lane_name": lane_name,
+            "confidence_label": confidence_label,
+            "sequence_text": self._format_axis_step_sequence(sequence),
+            "selection_reason": "; ".join(reasons),
+        }
+
+    def _derive_axis_source_used(
+        self,
+        ar: Optional[EyePrescription],
+        lenso: Optional[EyePrescription],
+        policy: str,
+    ) -> str:
+        if policy == "Start_Lenso":
+            if lenso and lenso.axis is not None:
+                return "Lenso"
+            if ar and ar.axis is not None:
+                return "AR"
+
+        if policy in ("Start_AR", "Hybrid"):
+            if ar and ar.axis is not None:
+                return "AR"
+            if lenso and lenso.axis is not None:
+                return "Lenso"
+
+        if lenso and lenso.axis is not None:
+            return "Lenso"
+        if ar and ar.axis is not None:
+            return "AR"
+        return "Unknown"
+
+    def _axis_value_for_source(
+        self,
+        ar: Optional[EyePrescription],
+        lenso: Optional[EyePrescription],
+        start_rx: EyePrescription,
+        source_used: str,
+    ) -> Optional[float]:
+        if source_used == "Lenso" and lenso:
+            return lenso.axis
+        if source_used == "AR" and ar:
+            return ar.axis
+        return start_rx.axis
+
+    def _read_axis_lane_sequence(self, lane_id: str, default: list[float]) -> list[float]:
+        raw = self.cal.get(f"{str(lane_id).lower()}_sequence_deg", "")
+        if not raw:
+            fallback_map = {
+                "LANE_1": "10,5",
+                "LANE_2": "20,10,5",
+                "LANE_3": "30,20,10,5",
+                "LANE_4": "45,30,20,10,5",
+            }
+            raw = fallback_map.get(lane_id, "")
+
+        sequence = []
+        for token in str(raw).replace("|", ",").split(","):
+            token = token.strip()
+            if not token:
+                continue
+            try:
+                value = float(token)
+            except ValueError:
+                continue
+            if value > 0:
+                sequence.append(value)
+
+        return sequence or list(default)
+
+    def _format_axis_step_sequence(self, sequence: list[float]) -> str:
+        parts = []
+        for step in sequence:
+            step_value = float(step)
+            if abs(step_value - round(step_value)) < 1e-9:
+                parts.append(str(int(round(step_value))))
+            else:
+                parts.append(f"{step_value:g}")
+        return ",".join(parts)
 
     def _use_slow_axis_policy_for_ar_start(
         self,
@@ -675,6 +851,17 @@ class DerivedVariablesEngine:
         if axis is None:
             return False
         return abs(float(axis) % 180.0) < 1e-9
+
+    def _is_near_cardinal_axis(self, axis: Optional[float], threshold_deg: float) -> bool:
+        if axis is None:
+            return False
+        axis_value = float(axis) % 180.0
+        distances = (
+            abs(axis_value - 0.0),
+            abs(axis_value - 90.0),
+            abs(axis_value - 180.0),
+        )
+        return min(distances) <= float(threshold_deg)
 
     def _derive_duochrome_max_flips(self, branching_guardrails: str) -> int:
         if branching_guardrails == "Strict":
