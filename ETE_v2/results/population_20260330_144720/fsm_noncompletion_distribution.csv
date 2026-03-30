@@ -1,0 +1,4 @@
+state_code,state_name,escalations,timeouts,non_completions,pct_of_non_completions
+R,Near Binocular,13,0,13,0.7222
+Q,Near Add LE,3,0,3,0.1667
+P,Near Add RE,2,0,2,0.1111

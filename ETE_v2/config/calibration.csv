@@ -49,19 +49,20 @@ STEP_POLICY,conservative_cyl_step,0.25,D,float,FSM cyl_step,Cylinder step used i
 STEP_POLICY,standard_cyl_step,0.25,D,float,FSM cyl_step,Cylinder step used in Standard mode
 STEP_POLICY,aggressive_cyl_step,0.25,D,float,FSM cyl_step,Cylinder step used in Aggressive mode
 
-AXIS_POLICY,axis_fixed_step,5,deg,integer,FSM v2.3 JCC axis delta,Fixed JCC axis step used for all axis changes
+AXIS_POLICY,axis_fixed_step,5,deg,integer,FSM adaptive axis fallback,Legacy/default JCC axis step used only when no adaptive lane sequence is available
+AXIS_POLICY,axis_rounding_step,5,deg,integer,Start-Rx axis normalization,Axis rounding step used when normalizing AR-derived starting axes
 AXIS_POLICY,jcc_axis_same_required,1,count,integer,FSM axis convergence,Number of SAME confirmations required before exiting axis refinement
 AXIS_POLICY,jcc_axis_max_flips,3,count,integer,FSM axis convergence,Maximum BETTER_1 ↔ BETTER_2 reversals allowed in JCC axis
 AXIS_POLICY,axis_near_cardinal_threshold_deg,10,deg,float,FSM adaptive axis lane selection,Axis is treated as near-cardinal when within this many degrees of 0/90/180
 AXIS_POLICY,axis_low_cyl_threshold_d,0.5,D,float,FSM adaptive axis lane selection,Cylinder magnitude below this threshold is treated as low for axis confidence
 AXIS_POLICY,axis_meaningful_cyl_threshold_d,0.75,D,float,FSM adaptive axis lane selection,Cylinder magnitude at or above this threshold is treated as meaningful for stronger axis confidence
-AXIS_POLICY,lane_1_sequence_deg,"10,5",deg sequence,text,FSM adaptive axis lane selection,Step sequence for high-confidence axis refinement
-AXIS_POLICY,lane_2_sequence_deg,"20,10,5",deg sequence,text,FSM adaptive axis lane selection,Step sequence for medium-confidence axis refinement
-AXIS_POLICY,lane_3_sequence_deg,"30,20,10,5",deg sequence,text,FSM adaptive axis lane selection,Step sequence for low-confidence axis refinement
-AXIS_POLICY,lane_4_sequence_deg,"45,30,20,10,5",deg sequence,text,FSM adaptive axis lane selection,Step sequence for very low-confidence axis refinement
-AXIS_POLICY,axis_tol_strict,1,deg,integer,dv_axis_tolerance_deg,Axis tolerance used when branching guardrails are strict
-AXIS_POLICY,axis_tol_normal,3,deg,integer,dv_axis_tolerance_deg,Axis tolerance used when branching guardrails are normal
-AXIS_POLICY,axis_tol_relaxed,5,deg,integer,dv_axis_tolerance_deg,Axis tolerance used when branching guardrails are relaxed
+AXIS_POLICY,lane_1_sequence_deg,10,deg sequence,text,FSM adaptive axis lane selection,Step sequence for high-confidence axis refinement
+AXIS_POLICY,lane_2_sequence_deg,"20,10",deg sequence,text,FSM adaptive axis lane selection,Step sequence for medium-confidence axis refinement
+AXIS_POLICY,lane_3_sequence_deg,"30,20,10",deg sequence,text,FSM adaptive axis lane selection,Step sequence for low-confidence axis refinement
+AXIS_POLICY,lane_4_sequence_deg,"45,30,20,10",deg sequence,text,FSM adaptive axis lane selection,Step sequence for very low-confidence axis refinement
+AXIS_POLICY,axis_tol_strict,10,deg,integer,dv_axis_tolerance_deg,Implementable terminal reversal stage used for adaptive axis convergence in strict cases; if set to 5 the lane gains a live 5-degree terminal step
+AXIS_POLICY,axis_tol_normal,10,deg,integer,dv_axis_tolerance_deg,Implementable terminal reversal stage used for adaptive axis convergence in normal cases; if set to 5 the lane gains a live 5-degree terminal step
+AXIS_POLICY,axis_tol_relaxed,10,deg,integer,dv_axis_tolerance_deg,Implementable terminal reversal stage used for adaptive axis convergence in relaxed cases; if set to 5 the lane gains a live 5-degree terminal step
 
 CYL_POLICY,cyl_tol_conservative,0.25,D,float,dv_cyl_tolerance_D,Cylinder tolerance used in Conservative mode
 CYL_POLICY,cyl_tol_standard,0.25,D,float,dv_cyl_tolerance_D,Cylinder tolerance used in Standard mode
@@ -72,8 +73,8 @@ CYL_POLICY,jcc_power_same_high,1,count,integer,FSM JCC power convergence,Number 
 CYL_POLICY,jcc_power_max_flips,2,count,integer,FSM JCC power convergence,Maximum allowed BETTER_1 ↔ BETTER_2 flips in JCC power before forcing exit to duochrome
 
 FOGGING,low_fog_amount,0.5,D,float,dv_fogging_amount_D,Sphere shift added when low fogging is applied
-FOGGING,standard_fog_amount,1.25,D,float,dv_fogging_amount_D,Sphere fog amount used for standard fogging
-FOGGING,strong_fog_amount,1.5,D,float,dv_fogging_amount_D,Sphere fog amount used for strong fogging
+FOGGING,standard_fog_amount,0.75,D,float,dv_fogging_amount_D,Sphere fog amount used for standard fogging
+FOGGING,strong_fog_amount,1,D,float,dv_fogging_amount_D,Sphere fog amount used for strong fogging
 
 DUOCHROME,duochrome_red_step,-0.25,D,float,FSM dS in duochrome,Sphere adjustment applied when red is clearer
 DUOCHROME,duochrome_green_step,0.25,D,float,FSM dS in duochrome,Sphere adjustment applied when green is clearer
@@ -102,8 +103,8 @@ ESCALATION,immediate_review_if_high_symptom,FALSE,boolean,TRUE/FALSE,dv_requires
 ESCALATION,immediate_review_if_high_medical,TRUE,boolean,TRUE/FALSE,dv_requires_optom_review,"If TRUE, high medical risk immediately triggers optometrist review"
 
 PHASE_TIMEOUTS,timeout_coarse_fast,30,steps,integer,FSM phaseMax,Maximum allowed coarse sphere iterations in fast cases
-PHASE_TIMEOUTS,timeout_coarse_normal,48,steps,integer,FSM phaseMax,Maximum allowed coarse sphere iterations in normal cases
-PHASE_TIMEOUTS,timeout_coarse_slow,60,steps,integer,FSM phaseMax,Maximum allowed coarse sphere iterations in slow cases
+PHASE_TIMEOUTS,timeout_coarse_normal,36,steps,integer,FSM phaseMax,Maximum allowed coarse sphere iterations in normal cases
+PHASE_TIMEOUTS,timeout_coarse_slow,45,steps,integer,FSM phaseMax,Maximum allowed coarse sphere iterations in slow cases
 PHASE_TIMEOUTS,timeout_jcc_fast,15,steps,integer,FSM phaseMax,Maximum allowed JCC axis/power iterations in fast cases
 PHASE_TIMEOUTS,timeout_jcc_normal,20,steps,integer,FSM phaseMax,Maximum allowed JCC axis/power iterations in normal cases
 PHASE_TIMEOUTS,timeout_jcc_slow,30,steps,integer,FSM phaseMax,Maximum allowed JCC axis/power iterations in slow cases

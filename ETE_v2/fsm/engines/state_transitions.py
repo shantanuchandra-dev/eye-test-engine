@@ -73,9 +73,9 @@ def compute_next_state(context: dict) -> str:
     final_compare_round = int(context.get("final_compare_round", 0))
 
     # FSM v2.3 additions
-    axis_same_required = int(context.get("axis_same_required", 2))
     axis_flip_count = int(context.get("axis_flip_count", 0))
     axis_flip_max = int(context.get("axis_flip_max", 3))
+    axis_reversal_converged = bool(context.get("axis_reversal_converged", False))
 
     if immediate_review:
         return "ESCALATE"
@@ -95,7 +95,9 @@ def compute_next_state(context: dict) -> str:
             return "ESCALATE"
         if response == "REPEAT":
             return "E"
-        if same_streak >= axis_same_required:
+        if response == "SAME":
+            return "F"
+        if axis_reversal_converged:
             return "F"
         if axis_flip_count >= axis_flip_max:
             return "F"
@@ -143,7 +145,9 @@ def compute_next_state(context: dict) -> str:
             return "ESCALATE"
         if response == "REPEAT":
             return "H"
-        if same_streak >= axis_same_required:
+        if response == "SAME":
+            return "I"
+        if axis_reversal_converged:
             return "I"
         if axis_flip_count >= axis_flip_max:
             return "I"

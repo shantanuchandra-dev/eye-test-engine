@@ -3,7 +3,7 @@
 Automated refraction engine that drives a complete eye examination through a phoropter, using an FSM (Finite State Machine) to navigate coarse sphere, axis, cylinder power, duochrome, distance VA confirmation, binocular balance, and near vision testing.
 
 The current coarse sphere workflow starts at `70_60_50`, shows only the active last line for the working chart, and asks the patient to read that line while minus is refined.
-At the end of the exam, when full lensometry is available, the system now runs a two-round final comparison using achieved Rx as option 1 and PGP (previous glasses power) as option 2, with timed observation on the `20/20/20` last line before each choice.
+At the end of the exam, when full lensometry is available, the system now runs a two-round final comparison using achieved Rx as the first option and PGP (previous glasses power) as the second option, with timed observation on the `20/20/20` last line before each choice.
 
 ## Architecture
 

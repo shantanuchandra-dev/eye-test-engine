@@ -46,12 +46,12 @@ COMPACT_PROMPT_CONFIG = {
     },
     "E": {
         "response_type": "comparison_4way",
-        "question": "Please compare the two choices. Which one is clearer or sharper? say first option, second option, both same, or repeat.",
+        "question": "Please compare the two dot patterns. Which one is clearer or sharper? say first option, second option, both same, or repeat.",
         "options": ("ONE", "TWO", "SAME", "REPEAT"),
     },
     "F": {
         "response_type": "comparison_4way",
-        "question": "Please compare the two choices. Which one is clearer or sharper? say first option, second option, both same, or repeat.",
+        "question": "Please compare the two dot patterns. Which one is clearer or sharper? say first option, second option, both same, or repeat.",
         "options": ("ONE", "TWO", "SAME", "REPEAT"),
     },
     "G": {
@@ -61,12 +61,12 @@ COMPACT_PROMPT_CONFIG = {
     },
     "H": {
         "response_type": "comparison_4way",
-        "question": "Please compare the two choices. Which one is clearer or sharper? say first option, second option, both same, or repeat.",
+        "question": "Please compare the two dot patterns. Which one is clearer or sharper? say first option, second option, both same, or repeat.",
         "options": ("ONE", "TWO", "SAME", "REPEAT"),
     },
     "I": {
         "response_type": "comparison_4way",
-        "question": "Please compare the two choices. Which one is clearer or sharper? say first option, second option, both same, or repeat.",
+        "question": "Please compare the two dot patterns. Which one is clearer or sharper? say first option, second option, both same, or repeat.",
         "options": ("ONE", "TWO", "SAME", "REPEAT"),
     },
     "J": {
@@ -81,32 +81,32 @@ COMPACT_PROMPT_CONFIG = {
     },
     "P": {
         "response_type": "clarity_3way",
-        "question": "Please look at the near text. Is it clear, blurry, or repeat?",
+        "question": "Please read the last line. Is it clear, blurry, or should I repeat?",
         "options": ("CLEAR", "BLURRY", "REPEAT"),
     },
     "Q": {
         "response_type": "clarity_3way",
-        "question": "Please look at the near text. Is it clear, blurry, or repeat?",
+        "question": "Please read the last line. Is it clear, blurry, or should I repeat?",
         "options": ("CLEAR", "BLURRY", "REPEAT"),
     },
     "R": {
         "response_type": "clarity_3way",
-        "question": "Please look at the near text. Is it clear, blurry, or repeat?",
+        "question": "Please read the last line. Is it clear, blurry, or should I repeat?",
         "options": ("CLEAR", "BLURRY", "REPEAT"),
     },
     "S": {
         "response_type": "observe_only",
-        "question": "This is the final confirmation before I finish your eye test. This is option 1. Please observe the line carefully.",
+        "question": "This is the final confirmation before I finish your eye test. This is the first option. Please observe the line carefully.",
         "options": (),
     },
     "T": {
         "response_type": "observe_only",
-        "question": "Now this is option 2. Please observe the line carefully.",
+        "question": "Now this is the second option. Please observe the line carefully.",
         "options": (),
     },
     "U": {
         "response_type": "comparison_4way",
-        "question": "Which option was better, first option or second option? Say first option, second option, or repeat.",
+        "question": "Which option was better, first option or second option?",
         "options": ("ONE", "TWO", "REPEAT"),
     },
     "C": {
@@ -193,6 +193,25 @@ class RefractionFSMEngine:
         sequence = self._parse_axis_step_sequence_text(sequence_text)
         bounded_index = min(max(int(step_index), 0), len(sequence) - 1)
         return float(sequence[bounded_index])
+
+    def _axis_converges_on_terminal_reversal(
+        self,
+        current: FSMRuntimeRow,
+        dv,
+        normalized_response: str,
+    ) -> bool:
+        if current.state not in ("E", "H"):
+            return False
+        if normalized_response not in ("ONE", "TWO"):
+            return False
+        last_directional = current.axis_last_directional_response
+        if last_directional not in ("ONE", "TWO"):
+            return False
+        if normalized_response == last_directional:
+            return False
+        current_step = self._axis_nominal_step(current.axis_step_sequence, current.axis_step_index)
+        tolerance = float(getattr(dv, "dv_axis_tolerance_deg", 10.0) or 10.0)
+        return current_step <= tolerance + 1e-9
 
     def _axis_lane_delta(
         self,
@@ -308,9 +327,9 @@ class RefractionFSMEngine:
         if state in ("B", "D"):
             if row.coarse_compare_mode:
                 question = (
-                    "Did it get better now? Say yes or no."
+                    "Did it get better than before? Say yes or no."
                     if early
-                    else "Better now, yes or no?"
+                    else "Better than before now? Yes or no?"
                 )
                 return question, ("CLEAR", "BLURRY", "REPEAT")
             if row.coarse_recheck_mode:
@@ -329,7 +348,7 @@ class RefractionFSMEngine:
 
         if state in ("E", "H"):
             question = (
-                "Please compare the two choices. Which one is clearer or sharper? say first option, second option, both same, or repeat."
+                "Please compare the two dot patterns. Which one is clearer or sharper? say first option, second option, both same, or repeat."
                 if early
                 else "First option, second option, both same, or repeat?"
             )
@@ -337,7 +356,7 @@ class RefractionFSMEngine:
 
         if state in ("F", "I"):
             question = (
-                "Please compare the two choices. Which one is clearer or sharper? say first option, second option, both same, or repeat."
+                "Please compare the two dot patterns. Which one is clearer or sharper? say first option, second option, both same, or repeat."
                 if early
                 else "First option, second option, both same, or repeat?"
             )
@@ -361,33 +380,33 @@ class RefractionFSMEngine:
 
         if state in ("P", "Q", "R"):
             question = (
-                "Please look at the near text. Is it clear, blurry, or repeat?"
+                "Please read the last line. Is it clear, blurry, or should I repeat?"
                 if early
-                else "Clear, blurry, or repeat?"
+                else "Is the last line clear or blurry?"
             )
             return question, ("CLEAR", "BLURRY", "REPEAT")
 
         if state == "S":
             question = (
-                "This is the final confirmation before I finish your eye test. This is option 1. Please observe the line carefully."
+                "This is the final confirmation before I finish your eye test. This is the first option. Please observe the line carefully."
                 if early
-                else "Option 1. Please observe the line carefully."
+                else "First option. Please observe the line carefully."
             )
             return question, ()
 
         if state == "T":
             question = (
-                "Now this is option 2. Please observe the line carefully."
+                "Now this is the second option. Please observe the line carefully."
                 if early
-                else "Option 2. Please observe the line carefully."
+                else "Second option. Please observe the line carefully."
             )
             return question, ()
 
         if state == "U":
             question = (
-                "Which option was better, first option or second option? Say first option, second option, or repeat."
+                "Which option was better, first option or second option?"
                 if early
-                else "Which was better, first option, second option, or repeat?"
+                else "Which was better, first option or second option?"
             )
             return question, ("ONE", "TWO", "REPEAT")
 
@@ -773,14 +792,14 @@ class RefractionFSMEngine:
             row.eye = "BIN"
 
         elif state == "S":
-            row.phase_name = "Final Compare Option 1 Achieved Rx"
+            row.phase_name = "Final Compare First Option Achieved Rx"
             row.phase_type = "FINAL_RX_COMPARE"
             row.stimulus_type = "FINAL_RX_COMPARE"
             row.chart_type = "SNELLEN_FEET"
             row.eye = "BIN"
 
         elif state == "T":
-            row.phase_name = "Final Compare Option 2 PGP"
+            row.phase_name = "Final Compare Second Option PGP"
             row.phase_type = "FINAL_RX_COMPARE"
             row.stimulus_type = "FINAL_RX_COMPARE"
             row.chart_type = "SNELLEN_FEET"
@@ -1295,24 +1314,40 @@ class RefractionFSMEngine:
                     row.coarse_compare_mode = True
 
         elif current.state == "E":
-            (
-                row.da_re,
-                row.axis_step,
-                row.axis_step_index,
-                row.axis_flip_count,
-                row.axis_reversal_count,
-                row.axis_last_directional_response,
-            ) = self._axis_lane_delta(current, normalized_response)
+            if self._axis_converges_on_terminal_reversal(current, dv, normalized_response):
+                row.da_re = 0.0
+                row.axis_step = self._axis_nominal_step(current.axis_step_sequence, current.axis_step_index)
+                row.axis_step_index = current.axis_step_index
+                row.axis_flip_count = current.axis_flip_count
+                row.axis_reversal_count = current.axis_reversal_count + 1
+                row.axis_last_directional_response = normalized_response
+            else:
+                (
+                    row.da_re,
+                    row.axis_step,
+                    row.axis_step_index,
+                    row.axis_flip_count,
+                    row.axis_reversal_count,
+                    row.axis_last_directional_response,
+                ) = self._axis_lane_delta(current, normalized_response)
 
         elif current.state == "H":
-            (
-                row.da_le,
-                row.axis_step,
-                row.axis_step_index,
-                row.axis_flip_count,
-                row.axis_reversal_count,
-                row.axis_last_directional_response,
-            ) = self._axis_lane_delta(current, normalized_response)
+            if self._axis_converges_on_terminal_reversal(current, dv, normalized_response):
+                row.da_le = 0.0
+                row.axis_step = self._axis_nominal_step(current.axis_step_sequence, current.axis_step_index)
+                row.axis_step_index = current.axis_step_index
+                row.axis_flip_count = current.axis_flip_count
+                row.axis_reversal_count = current.axis_reversal_count + 1
+                row.axis_last_directional_response = normalized_response
+            else:
+                (
+                    row.da_le,
+                    row.axis_step,
+                    row.axis_step_index,
+                    row.axis_flip_count,
+                    row.axis_reversal_count,
+                    row.axis_last_directional_response,
+                ) = self._axis_lane_delta(current, normalized_response)
 
         elif current.state == "F":
             proposed_dc = jcc_power_cyl_delta(normalized_response, current.cyl_step)
@@ -1581,6 +1616,9 @@ class RefractionFSMEngine:
             "axis_same_required": int(dv.dv_jcc_axis_same_required),
             "axis_flip_count": int(row.axis_flip_count),
             "axis_flip_max": int(dv.dv_jcc_axis_max_flips),
+            "axis_reversal_converged": bool(
+                self._axis_converges_on_terminal_reversal(current, dv, normalized_response)
+            ),
 
             "near_binoc_direction": row.near_bino_direction,
             "near_binoc_reversed": bool(row.near_bino_reversed),

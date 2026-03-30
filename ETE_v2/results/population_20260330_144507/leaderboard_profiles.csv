@@ -1,0 +1,10 @@
+profile_id,total_cases,completion_rate,escalation_rate,timeout_rate,distance_accuracy_among_completed,distance_success_rate_all_cases,avg_steps
+high_myope_stable,1,1.0,0.0,0.0,0.8333,0.0,29.0
+presbyope_distance_priority,1,1.0,0.0,0.0,0.8333,0.0,29.0
+conservative_comfort_first,2,1.0,0.0,0.0,0.9167,0.5,31.0
+young_stable_myope,2,1.0,0.0,0.0,0.9167,0.5,30.5
+adult_hyperope,2,1.0,0.0,0.0,1.0,1.0,29.0
+driver_night_symptoms,1,1.0,0.0,0.0,1.0,1.0,39.0
+near_demand_professional,1,1.0,0.0,0.0,1.0,1.0,37.0
+screen_heavy_young_adult,1,1.0,0.0,0.0,1.0,1.0,32.0
+young_astigmat,1,1.0,0.0,0.0,1.0,1.0,28.0

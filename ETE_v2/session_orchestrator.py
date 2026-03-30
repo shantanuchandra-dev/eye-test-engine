@@ -136,8 +136,8 @@ STATE_PHASE_DISPLAY = {
     "P": "Near Add RE",
     "Q": "Near Add LE",
     "R": "Near Binocular",
-    "S": "Final Compare Option 1 Achieved Rx",
-    "T": "Final Compare Option 2 PGP",
+    "S": "Final Compare First Option Achieved Rx",
+    "T": "Final Compare Second Option PGP",
     "U": "Final Compare Decision",
     "END": "Test Complete",
     "ESCALATE": "Escalation Required",
@@ -167,6 +167,20 @@ def _snap_ar_pd_mm(raw: Any) -> float:
         v = 64.0
     v = round(v * 2.0) / 2.0
     return max(50.0, min(78.0, v))
+
+
+def _optional_eye_rx(
+    data: dict,
+    sph_key: str,
+    cyl_key: str,
+    axis_key: str,
+) -> Optional[EyePrescription]:
+    sph = data.get(sph_key)
+    cyl = data.get(cyl_key)
+    axis = data.get(axis_key)
+    if sph is None and cyl is None and axis is None:
+        return None
+    return EyePrescription(sphere=sph, cylinder=cyl, axis=axis)
 
 
 class SessionOrchestrator:
@@ -241,16 +255,8 @@ class SessionOrchestrator:
         self.patient_input = self._build_patient_input(patient_data)
 
         # Build AR prescriptions
-        self.ar_re = EyePrescription(
-            sphere=patient_data.get("ar_re_sph", 0.0),
-            cylinder=patient_data.get("ar_re_cyl", 0.0),
-            axis=patient_data.get("ar_re_axis", 180.0),
-        )
-        self.ar_le = EyePrescription(
-            sphere=patient_data.get("ar_le_sph", 0.0),
-            cylinder=patient_data.get("ar_le_cyl", 0.0),
-            axis=patient_data.get("ar_le_axis", 180.0),
-        )
+        self.ar_re = _optional_eye_rx(patient_data, "ar_re_sph", "ar_re_cyl", "ar_re_axis")
+        self.ar_le = _optional_eye_rx(patient_data, "ar_le_sph", "ar_le_cyl", "ar_le_axis")
 
         # Derive variables
         self.derived_variables = self.dv_engine.derive(self.patient_input)
@@ -314,6 +320,10 @@ class SessionOrchestrator:
         self._prev_le_axis = self._axis_or_default(self.current_row.le_axis)
         self._prev_aux_lens = STATE_AUX_LENS_MAP.get(self.current_row.state, "BINO")
         self._log_conversation("system", f"Phoropter init: {phoropter_result}")
+        self.current_row.preface_prompt = (
+            "Your eye test is about to begin. Please rest your forehead gently "
+            "against the forehead bar and look straight ahead."
+        )
 
         return self._build_response()
 
@@ -435,7 +445,7 @@ class SessionOrchestrator:
             if next_state == "S":
                 self._log_conversation(
                     "system",
-                    "Final comparison starting: option 1 is achieved prescription, option 2 is PGP.",
+                    "Final comparison starting: first option is achieved prescription, second option is PGP.",
                     state=next_state,
                     step=self.current_row.step,
                 )
@@ -566,20 +576,10 @@ class SessionOrchestrator:
 
     def _build_patient_input(self, data: dict) -> PatientInput:
         """Build PatientInput from intake form data."""
-        lenso_re = None
-        if data.get("lenso_re_sph") is not None:
-            lenso_re = EyePrescription(
-                sphere=data.get("lenso_re_sph"),
-                cylinder=data.get("lenso_re_cyl"),
-                axis=data.get("lenso_re_axis"),
-            )
-        lenso_le = None
-        if data.get("lenso_le_sph") is not None:
-            lenso_le = EyePrescription(
-                sphere=data.get("lenso_le_sph"),
-                cylinder=data.get("lenso_le_cyl"),
-                axis=data.get("lenso_le_axis"),
-            )
+        ar_re = _optional_eye_rx(data, "ar_re_sph", "ar_re_cyl", "ar_re_axis")
+        ar_le = _optional_eye_rx(data, "ar_le_sph", "ar_le_cyl", "ar_le_axis")
+        lenso_re = _optional_eye_rx(data, "lenso_re_sph", "lenso_re_cyl", "lenso_re_axis")
+        lenso_le = _optional_eye_rx(data, "lenso_le_sph", "lenso_le_cyl", "lenso_le_axis")
 
         return PatientInput(
             visit_id=self.session_id,
@@ -604,16 +604,8 @@ class SessionOrchestrator:
             amblyopia=data.get("amblyopia", False),
             infection=data.get("infection", False),
             optom_review_flag=data.get("optom_review", False),
-            autorefractor_re=EyePrescription(
-                sphere=data.get("ar_re_sph", 0.0),
-                cylinder=data.get("ar_re_cyl", 0.0),
-                axis=data.get("ar_re_axis", 180.0),
-            ),
-            autorefractor_le=EyePrescription(
-                sphere=data.get("ar_le_sph", 0.0),
-                cylinder=data.get("ar_le_cyl", 0.0),
-                axis=data.get("ar_le_axis", 180.0),
-            ),
+            autorefractor_re=ar_re,
+            autorefractor_le=ar_le,
             lenso_re=lenso_re,
             lenso_le=lenso_le,
             lenso_add_r=data.get("lenso_add_r"),

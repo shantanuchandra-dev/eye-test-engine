@@ -16,7 +16,7 @@ class DerivedVariablesEngine:
     def _round_axis_to_phoropter_step(self, axis: Optional[float]) -> Optional[float]:
         if axis is None:
             return None
-        step = float(self.cal.get("axis_fixed_step", 5))
+        step = float(self.cal.get("axis_rounding_step", self.cal.get("axis_fixed_step", 5)))
         if step <= 0:
             return float(axis)
         rounded = round(float(axis) / step) * step
@@ -148,7 +148,7 @@ class DerivedVariablesEngine:
 
         # FSM v2.3 additions
         jcc_axis_same_required = int(
-            self.cal.get("jcc_axis_same_required", 2)
+            self.cal.get("jcc_axis_same_required", 1)
         )
 
         jcc_axis_max_flips = int(
@@ -160,12 +160,14 @@ class DerivedVariablesEngine:
             lenso=patient.lenso_re,
             policy=start_policy,
             start_rx=start_re,
+            axis_tolerance=axis_tolerance,
         )
         axis_lane_le = self._derive_axis_lane_metadata(
             ar=patient.autorefractor_le,
             lenso=patient.lenso_le,
             policy=start_policy,
             start_rx=start_le,
+            axis_tolerance=axis_tolerance,
         )
 
         near_binoc_step = float(
@@ -519,10 +521,13 @@ class DerivedVariablesEngine:
 
     def _derive_axis_tolerance(self, branching_guardrails: str) -> float:
         if branching_guardrails == "Strict":
-            return float(self.cal.get("axis_tol_strict", 1))
-        if branching_guardrails == "Normal":
-            return float(self.cal.get("axis_tol_normal", 3))
-        return float(self.cal.get("axis_tol_relaxed", 5))
+            raw = self.cal.get("axis_tol_strict", 10)
+        elif branching_guardrails == "Relaxed":
+            raw = self.cal.get("axis_tol_relaxed", 10)
+        else:
+            raw = self.cal.get("axis_tol_normal", 10)
+
+        return self._normalize_axis_tolerance(raw)
 
     def _derive_cyl_tolerance(self, step_size_policy: str) -> float:
         if step_size_policy == "Aggressive":
@@ -690,6 +695,7 @@ class DerivedVariablesEngine:
         lenso: Optional[EyePrescription],
         policy: str,
         start_rx: EyePrescription,
+        axis_tolerance: float,
     ) -> dict:
         near_cardinal_threshold = float(self.cal.get("axis_near_cardinal_threshold_deg", 10))
         low_cyl_threshold = float(self.cal.get("axis_low_cyl_threshold_d", 0.50))
@@ -751,7 +757,8 @@ class DerivedVariablesEngine:
 
         sequence = self._read_axis_lane_sequence(
             lane_id=lane_id,
-            default=[5.0],
+            default=[10.0],
+            terminal_tolerance=axis_tolerance,
         )
 
         return {
@@ -802,14 +809,19 @@ class DerivedVariablesEngine:
             return ar.axis
         return start_rx.axis
 
-    def _read_axis_lane_sequence(self, lane_id: str, default: list[float]) -> list[float]:
+    def _read_axis_lane_sequence(
+        self,
+        lane_id: str,
+        default: list[float],
+        terminal_tolerance: Optional[float] = None,
+    ) -> list[float]:
         raw = self.cal.get(f"{str(lane_id).lower()}_sequence_deg", "")
         if not raw:
             fallback_map = {
-                "LANE_1": "10,5",
-                "LANE_2": "20,10,5",
-                "LANE_3": "30,20,10,5",
-                "LANE_4": "45,30,20,10,5",
+                "LANE_1": "10",
+                "LANE_2": "20,10",
+                "LANE_3": "30,20,10",
+                "LANE_4": "45,30,20,10",
             }
             raw = fallback_map.get(lane_id, "")
 
@@ -825,7 +837,31 @@ class DerivedVariablesEngine:
             if value > 0:
                 sequence.append(value)
 
+        terminal = self._normalize_axis_tolerance(
+            terminal_tolerance if terminal_tolerance is not None else self.cal.get("axis_tol_normal", 10)
+        )
+        if sequence and terminal > 0 and terminal < min(sequence) - 1e-9:
+            sequence.append(terminal)
+
         return sequence or list(default)
+
+    def _normalize_axis_tolerance(self, raw_tolerance: object) -> float:
+        device_step = float(self.cal.get("axis_rounding_step", self.cal.get("axis_fixed_step", 5)))
+        if device_step <= 0:
+            device_step = 5.0
+
+        try:
+            requested = float(raw_tolerance or device_step)
+        except (TypeError, ValueError):
+            requested = device_step
+
+        if requested <= 0:
+            return device_step
+
+        snapped = int(requested // device_step) * device_step
+        if snapped < device_step:
+            snapped = device_step
+        return float(snapped)
 
     def _format_axis_step_sequence(self, sequence: list[float]) -> str:
         parts = []

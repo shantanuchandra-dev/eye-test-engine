@@ -10,7 +10,7 @@
 - **Distance VA Confirmation** (RE then LE) — After duochrome convergence, starts from `20_20_20`, steps to larger charts if needed, and records the last confirmed line read for each eye
 - **Binocular Balance** — Equalize both eyes with OU comparison
 - **Near Vision Workflow** — Monocular ADD (RE/LE) then binocular near refinement
-- **Final Rx Comparison** — When lensometry is available, shows achieved Rx as option 1 and PGP (previous glasses power) as option 2, gives the patient timed observe-only views of the `20_20_20` last line twice, and records whether the patient accepted the achieved Rx over the PGP
+- **Final Rx Comparison** — When lensometry is available, shows achieved Rx as the first option and PGP (previous glasses power) as the second option, gives the patient timed observe-only views of the `20_20_20` last line twice, and records whether the patient accepted the achieved Rx over the PGP
 - **Escalation** — Safety exit to optometrist review on anomaly detection
 
 ### Accommodation-Driven Fogging (v3.1)
@@ -43,7 +43,7 @@
 
 ### Gamepad Input
 - Xbox controller support via Chrome Gamepad API
-- B/A/X → option 1/2/3, Y → REPEAT
+- B/A/X → first option/second option/both same, Y → REPEAT
 - Configurable polling with debounce
 
 ### Keyboard Input

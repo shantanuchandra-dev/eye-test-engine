@@ -96,6 +96,41 @@ def _request_payload() -> dict:
         return {}
 
 
+def _section_is_complete(data: dict, keys: list[str]) -> bool:
+    return all(data.get(key) is not None for key in keys)
+
+
+def _section_has_any_value(data: dict, keys: list[str]) -> bool:
+    return any(data.get(key) is not None for key in keys)
+
+
+def _validate_objective_intake(patient: dict) -> Optional[str]:
+    ar_keys = [
+        "ar_re_sph", "ar_re_cyl", "ar_re_axis",
+        "ar_le_sph", "ar_le_cyl", "ar_le_axis",
+    ]
+    lenso_keys = [
+        "lenso_re_sph", "lenso_re_cyl", "lenso_re_axis",
+        "lenso_le_sph", "lenso_le_cyl", "lenso_le_axis",
+        "lenso_add_r", "lenso_add_l",
+    ]
+
+    ar_confirmed = bool(patient.get("ar_confirmed"))
+    lenso_confirmed = bool(patient.get("lenso_confirmed"))
+    ar_has_any = _section_has_any_value(patient, ar_keys)
+    lenso_has_any = _section_has_any_value(patient, lenso_keys)
+    ar_complete = _section_is_complete(patient, ar_keys)
+    lenso_complete = _section_is_complete(patient, lenso_keys)
+
+    if (ar_confirmed or ar_has_any) and not ar_complete:
+        return "Please provide a complete AR set or leave AR blank."
+    if (lenso_confirmed or lenso_has_any) and not lenso_complete:
+        return "Please provide a complete lensometry / PGP set or leave it blank."
+    if not ar_complete and not lenso_complete:
+        return "Please enter AR and/or lensometry values before starting the test."
+    return None
+
+
 def _proxy_request(method: str, path: str, body: Optional[dict] = None) -> tuple:
     """Proxy a request to the phoropter broker."""
     import requests as req
@@ -316,6 +351,9 @@ def session_intake():
     data = _request_payload()
     phoropter_id = data.get("phoropter_id", "")
     patient = data.get("patient", data)
+    validation_error = _validate_objective_intake(patient)
+    if validation_error:
+        return jsonify({"error": validation_error}), 400
 
     session_id = f"session_{int(time.time() * 1000)}"
 

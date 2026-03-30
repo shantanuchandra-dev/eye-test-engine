@@ -68,6 +68,24 @@ class AxisLanePolicyTests(unittest.TestCase):
     def _derive(self, patient: PatientInput):
         return DerivedVariablesEngine(self.calibration).derive(patient)
 
+    def _derive_with_calibration_overrides(self, patient: PatientInput, **overrides):
+        with tempfile.NamedTemporaryFile("w", newline="", suffix=".csv", delete=False) as tmp:
+            writer = csv.writer(tmp)
+            with CALIBRATION_PATH.open(newline="") as source:
+                reader = csv.DictReader(source)
+                writer.writerow(reader.fieldnames)
+                for row in reader:
+                    if row["Parameter_Key"] in overrides:
+                        row["Value"] = str(overrides[row["Parameter_Key"]])
+                    writer.writerow([row[field] for field in reader.fieldnames])
+            temp_path = Path(tmp.name)
+
+        try:
+            calibration = CalibrationLoader(temp_path)
+            return DerivedVariablesEngine(calibration).derive(patient), calibration
+        finally:
+            temp_path.unlink(missing_ok=True)
+
     def _advance_to_axis_re(self, dv) -> FSMRuntimeRow:
         engine = RefractionFSMEngine(self.calibration)
         current = engine.initialize_row("axis-seq-visit", dv)
@@ -102,7 +120,7 @@ class AxisLanePolicyTests(unittest.TestCase):
             prev_axis_response="",
             duo_iter=0,
             duo_flip=0,
-            axis_step=5.0,
+            axis_step=10.0,
             final_compare_enabled=True,
             final_compare_round=0,
             final_compare_option_source="Achieved",
@@ -125,7 +143,7 @@ class AxisLanePolicyTests(unittest.TestCase):
             )
         )
         self.assertEqual(dv.dv_axis_lane_id_RE, "LANE_1")
-        self.assertEqual(dv.dv_axis_step_sequence_RE, "10,5")
+        self.assertEqual(dv.dv_axis_step_sequence_RE, "10")
         self.assertEqual(dv.dv_axis_confidence_label_RE, "High")
         self.assertGreaterEqual(dv.dv_axis_cyl_magnitude_for_lane_RE, 0.75)
 
@@ -138,7 +156,7 @@ class AxisLanePolicyTests(unittest.TestCase):
             )
         )
         self.assertEqual(dv.dv_axis_lane_id_RE, "LANE_2")
-        self.assertEqual(dv.dv_axis_step_sequence_RE, "20,10,5")
+        self.assertEqual(dv.dv_axis_step_sequence_RE, "20,10")
         self.assertFalse(dv.dv_axis_is_near_cardinal_RE)
         self.assertEqual(dv.dv_start_rx_RE_axis, 45.0)
 
@@ -151,7 +169,7 @@ class AxisLanePolicyTests(unittest.TestCase):
             )
         )
         self.assertEqual(dv.dv_axis_lane_id_RE, "LANE_3")
-        self.assertEqual(dv.dv_axis_step_sequence_RE, "30,20,10,5")
+        self.assertEqual(dv.dv_axis_step_sequence_RE, "30,20,10")
         self.assertIn("conservative_fallback_lane", dv.dv_axis_selection_reason_RE)
 
     def test_lane_4_selected_for_ar_only_near_cardinal_low_cylinder_case(self):
@@ -163,16 +181,71 @@ class AxisLanePolicyTests(unittest.TestCase):
             )
         )
         self.assertEqual(dv.dv_axis_lane_id_RE, "LANE_4")
-        self.assertEqual(dv.dv_axis_step_sequence_RE, "45,30,20,10,5")
+        self.assertEqual(dv.dv_axis_step_sequence_RE, "45,30,20,10")
         self.assertTrue(dv.dv_axis_is_near_cardinal_RE)
         self.assertLess(dv.dv_axis_cyl_magnitude_for_lane_RE, 0.50)
 
+    def test_axis_calibration_is_consistent_with_live_lane_policy(self):
+        self.assertEqual(float(self.calibration.get("axis_fixed_step", 0)), 5.0)
+        self.assertEqual(float(self.calibration.get("axis_rounding_step", 0)), 5.0)
+        self.assertEqual(float(self.calibration.get("axis_tol_strict", 0)), 10.0)
+        self.assertEqual(float(self.calibration.get("axis_tol_normal", 0)), 10.0)
+        self.assertEqual(float(self.calibration.get("axis_tol_relaxed", 0)), 10.0)
+        self.assertEqual(int(self.calibration.get("jcc_axis_same_required", 0)), 1)
+
+    def test_axis_tolerance_of_five_adds_live_five_degree_terminal_step(self):
+        patient = self._patient(
+            visit_id="axis-five-degree-terminal-step",
+            ar_re=self._rx(-1.50, -1.25, 47),
+            lenso_re=None,
+        )
+        dv, calibration = self._derive_with_calibration_overrides(
+            patient,
+            axis_tol_strict=5,
+            axis_tol_normal=5,
+            axis_tol_relaxed=5,
+        )
+        self.assertEqual(dv.dv_axis_tolerance_deg, 5.0)
+        self.assertEqual(dv.dv_axis_step_sequence_RE, "20,10,5")
+
+        engine = RefractionFSMEngine(calibration)
+        current = engine.initialize_row("axis-five-degree-terminal-step", dv)
+        guard = 0
+        while current.state != "E":
+            self.assertLess(guard, 12)
+            finalized = engine.apply_response(current, "CLEAR", dv)
+            current = engine._build_next_row(finalized, dv)
+            self.assertIsNotNone(current)
+            guard += 1
+
+        first = engine.apply_response(current, "ONE", dv)
+        self.assertEqual(first.next_state, "E")
+        self.assertEqual(abs(first.da_re), 20.0)
+        second_row = engine._build_next_row(first, dv)
+        self.assertIsNotNone(second_row)
+
+        second = engine.apply_response(second_row, "TWO", dv)
+        self.assertEqual(second.next_state, "E")
+        self.assertEqual(abs(second.da_re), 10.0)
+        third_row = engine._build_next_row(second, dv)
+        self.assertIsNotNone(third_row)
+
+        third = engine.apply_response(third_row, "ONE", dv)
+        self.assertEqual(third.next_state, "E")
+        self.assertEqual(abs(third.da_re), 5.0)
+        fourth_row = engine._build_next_row(third, dv)
+        self.assertIsNotNone(fourth_row)
+
+        final = engine.apply_response(fourth_row, "TWO", dv)
+        self.assertEqual(final.next_state, "F")
+        self.assertEqual(final.da_re, 0.0)
+
     def test_reversal_progression_uses_each_lane_sequence_without_skipping(self):
         cases = [
-            ("LANE_1", self._rx(-2.00, -1.00, 45), self._rx(-2.25, -1.00, 40), [10.0, 5.0]),
-            ("LANE_2", self._rx(-1.50, -1.25, 47), None, [20.0, 10.0, 5.0]),
-            ("LANE_3", self._rx(-1.50, -0.50, 55), None, [30.0, 20.0, 10.0, 5.0]),
-            ("LANE_4", self._rx(-1.50, -0.25, 4), None, [45.0, 30.0, 20.0, 10.0, 5.0]),
+            ("LANE_1", self._rx(-2.00, -1.00, 45), self._rx(-2.25, -1.00, 40), [10.0, 0.0]),
+            ("LANE_2", self._rx(-1.50, -1.25, 47), None, [20.0, 10.0, 0.0]),
+            ("LANE_3", self._rx(-1.50, -0.50, 55), None, [30.0, 20.0, 10.0, 0.0]),
+            ("LANE_4", self._rx(-1.50, -0.25, 4), None, [45.0, 30.0, 20.0, 10.0, 0.0]),
         ]
 
         for lane_id, ar_re, lenso_re, expected_steps in cases:
@@ -186,6 +259,7 @@ class AxisLanePolicyTests(unittest.TestCase):
                 )
                 axis_row = self._advance_to_axis_re(dv)
                 engine = RefractionFSMEngine(self.calibration)
+                axis_row.re_axis = float(dv.dv_start_rx_RE_axis or 0.0) + 15.0
 
                 current = axis_row
                 responses = ["ONE"] + ["TWO" if i % 2 else "ONE" for i in range(1, len(expected_steps))]
@@ -201,6 +275,44 @@ class AxisLanePolicyTests(unittest.TestCase):
 
                 self.assertEqual(seen_steps, expected_steps)
 
+    def test_axis_phase_converges_on_reversal_at_ten_degrees(self):
+        dv = self._derive(
+            self._patient(
+                visit_id="axis-ten-reversal-exit",
+                ar_re=self._rx(-1.50, -1.25, 47),
+                lenso_re=None,
+            )
+        )
+        self.assertEqual(dv.dv_axis_tolerance_deg, 10.0)
+
+        engine = RefractionFSMEngine(self.calibration)
+        axis_row = self._advance_to_axis_re(dv)
+        first = engine.apply_response(axis_row, "ONE", dv)
+        second_row = engine._build_next_row(first, dv)
+        self.assertIsNotNone(second_row)
+        second = engine.apply_response(second_row, "TWO", dv)
+        third_row = engine._build_next_row(second, dv)
+        self.assertIsNotNone(third_row)
+        finalized = engine.apply_response(third_row, "ONE", dv)
+        self.assertEqual(finalized.next_state, "F")
+        self.assertEqual(finalized.da_re, 0.0)
+
+    def test_axis_phase_converges_on_single_same_response(self):
+        dv = self._derive(
+            self._patient(
+                visit_id="axis-same-exit",
+                ar_re=self._rx(-1.50, -1.25, 47),
+                lenso_re=None,
+            )
+        )
+
+        engine = RefractionFSMEngine(self.calibration)
+        axis_row = self._advance_to_axis_re(dv)
+        finalized = engine.apply_response(axis_row, "SAME", dv)
+
+        self.assertEqual(finalized.next_state, "F")
+        self.assertEqual(finalized.da_re, 0.0)
+
     def test_non_axis_power_phase_behavior_is_unchanged(self):
         dv = self._derive(
             self._patient(
@@ -211,7 +323,13 @@ class AxisLanePolicyTests(unittest.TestCase):
         )
         engine = RefractionFSMEngine(self.calibration)
         current = self._advance_to_axis_re(dv)
-        axis_done = engine.apply_response(current, "SAME", dv)
+        first = engine.apply_response(current, "ONE", dv)
+        first_row = engine._build_next_row(first, dv)
+        self.assertIsNotNone(first_row)
+        second = engine.apply_response(first_row, "TWO", dv)
+        second_row = engine._build_next_row(second, dv)
+        self.assertIsNotNone(second_row)
+        axis_done = engine.apply_response(second_row, "ONE", dv)
         self.assertEqual(axis_done.next_state, "F")
         power_row = engine._build_next_row(axis_done, dv)
         self.assertIsNotNone(power_row)
@@ -249,7 +367,7 @@ class AxisLanePolicyTests(unittest.TestCase):
         self.assertTrue(orchestrator.session_history)
         last_row = orchestrator.session_history[-1]
         self.assertEqual(last_row["axis_lane_id"], "LANE_4")
-        self.assertEqual(last_row["axis_step_sequence"], "45,30,20,10,5")
+        self.assertEqual(last_row["axis_step_sequence"], "45,30,20,10")
         self.assertEqual(last_row["axis_source_used"], "AR")
         self.assertIn(
             "Axis lane selected",
@@ -290,7 +408,7 @@ class AxisLanePolicyTests(unittest.TestCase):
         self.assertNotIn("dv_quick_axis_search_LE", dv)
 
         self.assertEqual(dv["dv_axis_lane_id_RE"], "LANE_4")
-        self.assertEqual(dv["dv_axis_step_sequence_RE"], "45,30,20,10,5")
+        self.assertEqual(dv["dv_axis_step_sequence_RE"], "45,30,20,10")
 
     def test_existing_start_source_and_start_rx_logic_is_preserved(self):
         dv = self._derive(
@@ -513,7 +631,7 @@ class AxisLanePolicyTests(unittest.TestCase):
             transcript="हां बेहतर है",
             state="B",
             available_options=["CLEAR", "BLURRY", "REPEAT"],
-            question="Did it get better now? Say yes or no.",
+            question="Did it get better than before? Say yes or no.",
             language="hi",
         )
         self.assertTrue(result.accepted)
@@ -642,7 +760,7 @@ class AxisLanePolicyTests(unittest.TestCase):
             state="B",
             available_options=["CLEAR", "BLURRY", "REPEAT"],
             stimulus_letters="A P E O F",
-            question="Did it get better now? Say yes or no.",
+            question="Did it get better than before? Say yes or no.",
             language="hi",
         )
         self.assertFalse(result.accepted)
@@ -653,7 +771,7 @@ class AxisLanePolicyTests(unittest.TestCase):
             state="B",
             available_options=["CLEAR", "BLURRY", "REPEAT"],
             stimulus_letters="A P E O F",
-            question="Did it get better now? Say yes or no.",
+            question="Did it get better than before? Say yes or no.",
         )
         self.assertTrue(result.accepted)
         self.assertEqual(result.response_value, "CLEAR")
@@ -665,7 +783,7 @@ class AxisLanePolicyTests(unittest.TestCase):
             state="B",
             available_options=["CLEAR", "BLURRY", "REPEAT"],
             stimulus_letters="A P E O F",
-            question="Did it get better now? Say yes or no.",
+            question="Did it get better than before? Say yes or no.",
         )
         self.assertTrue(result.accepted)
         self.assertEqual(result.response_value, "CLEAR")
@@ -676,7 +794,7 @@ class AxisLanePolicyTests(unittest.TestCase):
             state="B",
             available_options=["CLEAR", "BLURRY", "REPEAT"],
             stimulus_letters="A P E O F",
-            question="Did it get better now? Say yes or no.",
+            question="Did it get better than before? Say yes or no.",
         )
         self.assertTrue(result.accepted)
         self.assertEqual(result.response_value, "BLURRY")
@@ -687,7 +805,7 @@ class AxisLanePolicyTests(unittest.TestCase):
             state="B",
             available_options=["CLEAR", "BLURRY", "REPEAT"],
             stimulus_letters="A P E O F",
-            question="Did it get better now? Say yes or no.",
+            question="Did it get better than before? Say yes or no.",
         )
         self.assertTrue(result.accepted)
         self.assertEqual(result.response_value, "BLURRY")
@@ -741,7 +859,7 @@ class AxisLanePolicyTests(unittest.TestCase):
             prev_axis_response="",
             duo_iter=0,
             duo_flip=0,
-            axis_step=5.0,
+            axis_step=10.0,
         )
 
         selection = orchestrator._chart_selection_for_state("C")
@@ -775,7 +893,7 @@ class AxisLanePolicyTests(unittest.TestCase):
             prev_axis_response="",
             duo_iter=0,
             duo_flip=0,
-            axis_step=5.0,
+            axis_step=10.0,
         )
         self.assertEqual(row.question, "Please read the line. If the letters are not clear, say blurry, or repeat.")
 
@@ -811,7 +929,7 @@ class AxisLanePolicyTests(unittest.TestCase):
             prompt_memory=re_row.prompt_memory,
             duo_iter=0,
             duo_flip=0,
-            axis_step=5.0,
+            axis_step=10.0,
         )
         self.assertEqual(le_row.question, "Read the line, say blurry, or repeat.")
 
@@ -909,7 +1027,7 @@ class AxisLanePolicyTests(unittest.TestCase):
         compare_row = engine._build_next_row(blurred, dv)
         self.assertIsNotNone(compare_row)
         self.assertEqual(compare_row.state, "B")
-        self.assertEqual(compare_row.question, "Did it get better now? Say yes or no.")
+        self.assertEqual(compare_row.question, "Did it get better than before? Say yes or no.")
 
         worse = engine.apply_response(compare_row, "BLURRY", dv)
         self.assertAlmostEqual(worse.ds_re, 0.25)
@@ -980,7 +1098,7 @@ class AxisLanePolicyTests(unittest.TestCase):
         )
         engine = RefractionFSMEngine(self.calibration)
         current = self._advance_to_axis_re(dv)
-        self.assertIn("Please compare the two choices.", current.question)
+        self.assertIn("Please compare the two dot patterns.", current.question)
 
         first_repeat = engine.apply_response(current, "REPEAT", dv)
         second_row = engine._build_next_row(first_repeat, dv)
@@ -997,9 +1115,15 @@ class AxisLanePolicyTests(unittest.TestCase):
         )
         engine = RefractionFSMEngine(self.calibration)
         axis_row = self._advance_to_axis_re(dv)
-        self.assertIn("Please compare the two choices.", axis_row.question)
+        self.assertIn("Please compare the two dot patterns.", axis_row.question)
 
-        axis_done = engine.apply_response(axis_row, "SAME", dv)
+        first = engine.apply_response(axis_row, "ONE", dv)
+        first_row = engine._build_next_row(first, dv)
+        self.assertIsNotNone(first_row)
+        second = engine.apply_response(first_row, "TWO", dv)
+        second_row = engine._build_next_row(second, dv)
+        self.assertIsNotNone(second_row)
+        axis_done = engine.apply_response(second_row, "ONE", dv)
         self.assertEqual(axis_done.next_state, "F")
         power_row = engine._build_next_row(axis_done, dv)
         self.assertIsNotNone(power_row)
@@ -1049,7 +1173,7 @@ class AxisLanePolicyTests(unittest.TestCase):
             prompt_memory={"session:duochrome_compare": 1},
             duo_iter=0,
             duo_flip=0,
-            axis_step=5.0,
+            axis_step=10.0,
         )
         self.assertEqual(row.question, "Green side, red side, both same, or repeat?")
 
@@ -1089,7 +1213,7 @@ class AxisLanePolicyTests(unittest.TestCase):
             distance_va_re_line="",
             distance_va_le_line="",
             va_confirm_ceiling_chart="40_30_25",
-            axis_step=5.0,
+            axis_step=10.0,
         )
 
         smaller_unreadable = engine.apply_response(current, "BLURRY", dv)
@@ -1266,13 +1390,64 @@ class AxisLanePolicyTests(unittest.TestCase):
             prev_axis_response="",
             duo_iter=0,
             duo_flip=0,
-            axis_step=5.0,
+            axis_step=10.0,
             final_compare_enabled=True,
             final_compare_round=1,
         )
 
         selection = orchestrator._chart_selection_for_state("S")
         self.assertEqual(selection["chart_items"], ["chart_15", "20_3"])
+
+    def test_session_initialize_adds_pre_exam_forehead_bar_preface(self):
+        orchestrator = SessionOrchestrator(calibration_path=str(CALIBRATION_PATH))
+        orchestrator.phoropter_auto_dispatch = False
+
+        payload = {
+            "age": 30,
+            "primary_reason": "Routine check",
+            "satisfaction": "No PGP",
+            "wear_type": "None",
+            "priority": "Standard",
+            "near_priority": "Medium",
+            "ar_re_sph": -1.50,
+            "ar_re_cyl": -0.50,
+            "ar_re_axis": 45,
+            "ar_le_sph": -1.25,
+            "ar_le_cyl": -0.75,
+            "ar_le_axis": 80,
+        }
+
+        response = orchestrator.initialize(payload, session_id="preface-init", phoropter_id="")
+        self.assertEqual(
+            response["preface_prompt"],
+            "Your eye test is about to begin. Please rest your forehead gently against the forehead bar and look straight ahead.",
+        )
+
+    def test_session_initialize_supports_lenso_only_start(self):
+        orchestrator = SessionOrchestrator(calibration_path=str(CALIBRATION_PATH))
+        orchestrator.phoropter_auto_dispatch = False
+
+        payload = {
+            "age": 34,
+            "primary_reason": "Routine check",
+            "satisfaction": "Satisfied",
+            "wear_type": "Single vision",
+            "priority": "Standard",
+            "near_priority": "Medium",
+            "lenso_re_sph": -2.00,
+            "lenso_re_cyl": -0.75,
+            "lenso_re_axis": 45,
+            "lenso_le_sph": -1.50,
+            "lenso_le_cyl": -0.50,
+            "lenso_le_axis": 80,
+            "lenso_add_r": 0.0,
+            "lenso_add_l": 0.0,
+        }
+
+        orchestrator.initialize(payload, session_id="lenso-only-init", phoropter_id="")
+        self.assertIsNone(orchestrator.ar_re)
+        self.assertIsNone(orchestrator.ar_le)
+        self.assertEqual(orchestrator.derived_variables.dv_start_source_policy, "Start_Lenso")
 
     def test_final_compare_metadata_includes_acceptance_flag(self):
         end_time = build_session_metadata(
@@ -1486,6 +1661,26 @@ class ApiPathResolutionTests(unittest.TestCase):
         self.assertIn("session_id", payload)
         self.assertIn("question", payload)
 
+    def test_session_intake_rejects_missing_objective_data(self):
+        response = self.client.post(
+            "/api/session/intake",
+            json={
+                "phoropter_id": "",
+                "patient": {
+                    "patient_name": "No Objective",
+                    "age": 29,
+                    "primary_reason": "Routine check",
+                    "priority": "Standard",
+                    "near_priority": "Medium",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.get_json()["error"],
+            "Please enter AR and/or lensometry values before starting the test.",
+        )
+
 
 class HindiLocalizationTests(unittest.TestCase):
     def test_hindi_localizes_coarse_read_prompt(self):
@@ -1511,9 +1706,9 @@ class HindiLocalizationTests(unittest.TestCase):
             state="B",
             language="hi",
             retry=False,
-            fallback_question="Did it get better now? Say yes or no.",
+            fallback_question="Did it get better than before? Say yes or no.",
         )
-        self.assertEqual(prompt, "क्या अब यह बेहतर हुआ? हाँ या नहीं कहिए।")
+        self.assertEqual(prompt, "क्या यह पहले से बेहतर हुआ? हाँ या नहीं कहिए।")
 
     def test_hindi_localizes_coarse_recheck_prompt(self):
         prompt = localized_voice_prompt(
@@ -1555,7 +1750,7 @@ class HindiLocalizationTests(unittest.TestCase):
                 "CLEAR",
                 "hi",
                 state="B",
-                question="Did it get better now? Say yes or no.",
+                question="Did it get better than before? Say yes or no.",
             ),
             "हाँ",
         )
@@ -1594,7 +1789,7 @@ class HindiLocalizationTests(unittest.TestCase):
             json={
                 "state": "E",
                 "language": "hi",
-                "question": "Please compare the two choices. Which one is clearer or sharper? say first option, second option, both same, or repeat.",
+                "question": "Please compare the two dot patterns. Which one is clearer or sharper? say first option, second option, both same, or repeat.",
                 "options": ["ONE", "TWO", "SAME", "REPEAT"],
             },
         )
@@ -1602,7 +1797,7 @@ class HindiLocalizationTests(unittest.TestCase):
         payload = response.get_json()
         self.assertEqual(
             payload["question"],
-            "कृपया दोनों विकल्पों की तुलना कीजिए। कौन सा ज़्यादा साफ या शार्प दिख रहा है? पहला विकल्प, दूसरा विकल्प, दोनों समान, या फिर से कहिए।",
+            "कृपया दोनों डॉट पैटर्न की तुलना कीजिए। कौन सा ज़्यादा साफ या शार्प दिख रहा है? पहला विकल्प, दूसरा विकल्प, दोनों समान, या फिर से कहिए।",
         )
         self.assertEqual(
             [item["localized"] for item in payload["labels"]],

@@ -1005,9 +1005,12 @@ HINDI_QUESTION_TRANSLATIONS = {
     "Read the line.": "क्या अक्षर साफ हैं या धुंधले?",
     "Did it get better now? Say yes or no.": "क्या अब यह बेहतर हुआ? हाँ या नहीं कहिए।",
     "Better now, yes or no?": "अब बेहतर है, हाँ या नहीं?",
+    "Did it get better than before? Say yes or no.": "क्या यह पहले से बेहतर हुआ? हाँ या नहीं कहिए।",
+    "Better than before now? Yes or no?": "अब यह पहले से बेहतर है? हाँ या नहीं?",
     "Can you read the line now, or is it still blurry?": "क्या अब यह साफ है, अभी भी धुंधला है, या फिर से?",
     "Read it now, or say still blurry.": "साफ, अभी भी धुंधला, या फिर से?",
     "Please compare the two choices. Which one is clearer or sharper? say first option, second option, both same, or repeat.": "कृपया दोनों विकल्पों की तुलना कीजिए। कौन सा ज़्यादा साफ या शार्प दिख रहा है? पहला विकल्प, दूसरा विकल्प, दोनों समान, या फिर से कहिए।",
+    "Please compare the two dot patterns. Which one is clearer or sharper? say first option, second option, both same, or repeat.": "कृपया दोनों डॉट पैटर्न की तुलना कीजिए। कौन सा ज़्यादा साफ या शार्प दिख रहा है? पहला विकल्प, दूसरा विकल्प, दोनों समान, या फिर से कहिए।",
     "First, second, or both same?": "पहला, दूसरा, या दोनों समान?",
     "First option, second option, both same, or repeat?": "पहला विकल्प, दूसरा विकल्प, दोनों समान, या फिर से?",
     "First option, second option, or both same?": "पहला विकल्प, दूसरा विकल्प, या दोनों समान?",
@@ -1017,14 +1020,18 @@ HINDI_QUESTION_TRANSLATIONS = {
     "Bottom line, top line, both same, or repeat?": "नीचे की लाइन, ऊपर की लाइन, दोनों समान, या फिर से?",
     "Please look at the near text. Is it clear, blurry, or repeat?": "कृपया पास के टेक्स्ट को देखिए। क्या यह साफ है, धुंधला है, या \"फिर से\"?",
     "Clear, blurry, or repeat?": "साफ, धुंधला, या फिर से?",
+    "Please read the last line. Is it clear, blurry, or should I repeat?": "कृपया आखिरी लाइन पढ़िए। क्या यह साफ है, धुंधला है, या क्या मैं फिर से कहूँ?",
+    "Is the last line clear or blurry?": "क्या आखिरी लाइन साफ है या धुंधली?",
     "Please read the line.": "कृपया लाइन पढ़िए।",
     "Please read the line, or say blurry.": "कृपया लाइन पढ़िए, या धुंधला कहिए।",
-    "This is the final confirmation before I finish your eye test. This is option 1. Please observe the line carefully.": "आई टेस्ट समाप्त करने से पहले यह अंतिम पुष्टि है। यह विकल्प 1 है। कृपया लाइन को ध्यान से देखिए।",
-    "Option 1. Please observe the line carefully.": "विकल्प 1। कृपया लाइन को ध्यान से देखिए।",
-    "Now this is option 2. Please observe the line carefully.": "अब यह विकल्प 2 है। कृपया लाइन को ध्यान से देखिए।",
-    "Option 2. Please observe the line carefully.": "विकल्प 2। कृपया लाइन को ध्यान से देखिए।",
+    "This is the final confirmation before I finish your eye test. This is the first option. Please observe the line carefully.": "आई टेस्ट समाप्त करने से पहले यह अंतिम पुष्टि है। यह पहला विकल्प है। कृपया लाइन को ध्यान से देखिए।",
+    "First option. Please observe the line carefully.": "पहला विकल्प। कृपया लाइन को ध्यान से देखिए।",
+    "Now this is the second option. Please observe the line carefully.": "अब यह दूसरा विकल्प है। कृपया लाइन को ध्यान से देखिए।",
+    "Second option. Please observe the line carefully.": "दूसरा विकल्प। कृपया लाइन को ध्यान से देखिए।",
     "Which option was better, first option or second option? Say first option, second option, or repeat.": "कौन सा विकल्प बेहतर था, पहला विकल्प या दूसरा विकल्प? पहला विकल्प, दूसरा विकल्प, या फिर से कहिए।",
     "Which was better, first option, second option, or repeat?": "कौन बेहतर था, पहला विकल्प, दूसरा विकल्प, या फिर से?",
+    "Which option was better, first option or second option?": "कौन सा विकल्प बेहतर था, पहला विकल्प या दूसरा विकल्प?",
+    "Which was better, first option or second option?": "कौन बेहतर था, पहला विकल्प या दूसरा विकल्प?",
 }
 
 
@@ -1060,7 +1067,9 @@ def _localized_hindi_question(*, state: str, fallback_question: str, retry: bool
         return translated
 
     prompt_lc = prompt.lower()
-    if state in {"B", "D"} and ("better now" in prompt_lc or "yes or no" in prompt_lc):
+    if state in {"B", "D"} and ("better now" in prompt_lc or "better than before" in prompt_lc or "yes or no" in prompt_lc):
+        if "better than before" in prompt_lc:
+            return "अब यह पहले से बेहतर है? हाँ या नहीं?"
         return "अब बेहतर है, हाँ या नहीं?"
     if state in {"B", "D"} and "still blurry" in prompt_lc:
         return "क्या अब यह साफ है, अभी भी धुंधला है, या फिर से?"
@@ -1083,7 +1092,11 @@ def _localized_hindi_question(*, state: str, fallback_question: str, retry: bool
         return "हरा साइड, लाल साइड, दोनों समान, या फिर से?"
     if state == "K" and "both same" in prompt_lc:
         return "नीचे की लाइन, ऊपर की लाइन, दोनों समान, या फिर से?"
-    if state in {"P", "Q", "R"} and ("clear or blurry" in prompt_lc or "letters clear" in prompt_lc or "is it clear" in prompt_lc):
+    if state in {"P", "Q", "R"} and ("last line" in prompt_lc or "clear or blurry" in prompt_lc or "letters clear" in prompt_lc or "is it clear" in prompt_lc):
+        if "please read the last line" in prompt_lc:
+            return "कृपया आखिरी लाइन पढ़िए। क्या यह साफ है, धुंधला है, या क्या मैं फिर से कहूँ?"
+        if "is the last line clear or blurry" in prompt_lc:
+            return "क्या आखिरी लाइन साफ है या धुंधली?"
         if "please look at the near text" in prompt_lc:
             return "कृपया पास के टेक्स्ट को देखिए। क्या यह साफ है, धुंधला है, या \"फिर से\"?"
         return "साफ, धुंधला, या फिर से?"
@@ -1092,7 +1105,7 @@ def _localized_hindi_question(*, state: str, fallback_question: str, retry: bool
 
 def _hindi_option_label(option: str, *, state: str, question: str) -> str:
     prompt = str(question or "").lower()
-    if state in {"B", "D"} and ("better now" in prompt or "yes or no" in prompt):
+    if state in {"B", "D"} and ("better now" in prompt or "better than before" in prompt or "yes or no" in prompt):
         return {
             "CLEAR": "हाँ",
             "BLURRY": "नहीं",
@@ -1408,7 +1421,7 @@ COMPACT_MATCH_ALIASES = {
                 "readable hai", "साफ है", "साफ दिख रहा है", "दिख रहा है", "पढ़ पा रहा हूं", "padh pa raha", "saaf dikh raha", "saf hai", "saf dikh raha",
                 "comfortable", "clear and comfortable", "आराम है",
                 "letters clear", "last line clear", "read last line", "got clearer", "became clearer",
-                "got better", "became better", "it got better", "yes it got better", "better now",
+                "got better", "became better", "it got better", "yes it got better", "better now", "better than before", "yes better than before",
                 "क्लियर", "क्लियर है", "हाँ बेहतर है", "हां बेहतर है", "हाँ बेहतर", "हां बेहतर",
             ],
             "fuzzy": ["bloody clear", "cleer", "clar", "cler", "clir", "klear", "kleer", "saaf", "saf", "theek", "thik", "haanji", "पड़बारा हूं", "पढ़वाराएं", "here", "hear", "cheers", "cheer"],
@@ -1772,7 +1785,7 @@ ENGLISH_CLEAR_VARIANTS = _merge_variant_groups(
     [
         "it's clear", "it is clear", "looks clear", "looks good", "looks sharp", "looks readable",
         "i can read", "i can read it", "i can read now", "i can see it", "i can see now",
-        "got better", "better now", "much better", "more clear", "fully clear", "very clear",
+        "got better", "better now", "better than before", "much better", "more clear", "fully clear", "very clear",
         "all letters clear", "everything clear", "everything is clear", "easy to read",
         "comfortable now", "perfectly clear", "super clear", "can read this", "can read line",
         "yes better", "yes it is better", "yes clearer", "yes it is clear", "looks fine",
@@ -2021,6 +2034,7 @@ def _question_expects_line_reading(*, state: str, question: Optional[str], langu
         return True
     if (
         "better now" in prompt
+        or "better than before" in prompt
         or "yes or no" in prompt
         or "हाँ या नहीं" in prompt
         or "ha ya nahi" in prompt
@@ -2038,6 +2052,7 @@ def _is_line_clarity_phase(*, state: str, question: Optional[str]) -> bool:
     prompt = str(question or "").strip().lower()
     if (
         "better now" in prompt
+        or "better than before" in prompt
         or "yes or no" in prompt
         or "हाँ या नहीं" in prompt
         or "ha ya nahi" in prompt
@@ -2339,7 +2354,7 @@ def localized_language_selection_prompt(*, retry: bool = False) -> str:
 
 def _english_option_label(option: str, *, state: str, question: str) -> str:
     prompt = str(question or "").lower()
-    if state in {"B", "D"} and ("better now" in prompt or "yes or no" in prompt):
+    if state in {"B", "D"} and ("better now" in prompt or "better than before" in prompt or "yes or no" in prompt):
         return {
             "CLEAR": "Yes",
             "BLURRY": "No",
@@ -3230,6 +3245,7 @@ def _compact_clarity_intent_match(normalized_text: str) -> Optional[str]:
         r"\bmore clear\b",
         r"\bless blurry\b",
         r"\bbetter now\b",
+        r"\bbetter than before\b",
         r"\bgot better\b",
         r"\bbecame better\b",
         r"\bimproved\b",

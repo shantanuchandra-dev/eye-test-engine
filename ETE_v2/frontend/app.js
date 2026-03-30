@@ -7,10 +7,22 @@
 
 const API = window.BACKEND_URL || '';
 const LOGS_PASSWORD = 'Shantanu';
+const TTS_VOICE_STORAGE_KEY = 'ete_tts_voice_name';
+// Single-switch rollback point for the duplex audio layer.
+// Set back to "legacy" to restore the original half-duplex behavior.
+const AUDIO_TURN_MODE = 'duplex';
+// Keep early controller/keyboard answers, but disable early voice interruption.
+const EARLY_VOICE_BARGE_IN_ENABLED = false;
 
 // ── TTS (Browser SpeechSynthesis) ──
 let ttsEnabled = true;
 let ttsSelectedVoiceName = null; // null = auto; string = pinned voice name
+
+try {
+  ttsSelectedVoiceName = localStorage.getItem(TTS_VOICE_STORAGE_KEY) || null;
+} catch (e) {
+  ttsSelectedVoiceName = null;
+}
 
 // Fixed voice list: only these voices are shown in the dropdown
 const ALLOWED_VOICES = [
@@ -54,6 +66,10 @@ function isSafariBrowser() {
   const ua = navigator.userAgent || '';
   const vendor = navigator.vendor || '';
   return /Safari/i.test(ua) && /Apple/i.test(vendor) && !/Chrome|CriOS|Edg|OPR|Firefox|FxiOS/i.test(ua);
+}
+
+function isDuplexTurnMode() {
+  return AUDIO_TURN_MODE === 'duplex';
 }
 
 function scoreVoiceForTTS(voice, lang = 'en') {
@@ -103,24 +119,24 @@ function getBestAvailableVoice(voices, lang = 'en') {
 
 function getTTSProfile(profileKey = 'default', lang = 'en') {
   const englishProfiles = {
-    default: { rate: 0.86, pitch: 1.02, volume: 0.95 },
-    guide: { rate: 0.85, pitch: 1.03, volume: 0.96 },
-    reading: { rate: 0.84, pitch: 1.01, volume: 0.95 },
-    comparison: { rate: 0.87, pitch: 1.0, volume: 0.95 },
-    retry: { rate: 0.83, pitch: 1.0, volume: 0.95 },
-    flip1: { rate: 0.82, pitch: 0.99, volume: 0.95 },
-    flip2: { rate: 0.86, pitch: 1.0, volume: 0.95 },
-    terminal: { rate: 0.88, pitch: 1.05, volume: 0.97 },
+    default: { rate: 1, pitch: 1.02, volume: 0.95 },
+    guide: { rate: 1, pitch: 1.03, volume: 0.96 },
+    reading: { rate: 1, pitch: 1.01, volume: 0.95 },
+    comparison: { rate: 1, pitch: 1.0, volume: 0.95 },
+    retry: { rate: 1, pitch: 1.0, volume: 0.95 },
+    flip1: { rate: 1, pitch: 0.99, volume: 0.95 },
+    flip2: { rate: 1, pitch: 1.0, volume: 0.95 },
+    terminal: { rate: 1, pitch: 1.05, volume: 0.97 },
   };
   const hindiProfiles = {
-    default: { rate: 0.9, pitch: 1.0, volume: 0.97 },
-    guide: { rate: 0.89, pitch: 1.01, volume: 0.97 },
-    reading: { rate: 0.88, pitch: 1.0, volume: 0.97 },
-    comparison: { rate: 0.91, pitch: 1.0, volume: 0.97 },
-    retry: { rate: 0.88, pitch: 1.0, volume: 0.97 },
-    flip1: { rate: 0.87, pitch: 0.99, volume: 0.97 },
-    flip2: { rate: 0.9, pitch: 1.0, volume: 0.97 },
-    terminal: { rate: 0.92, pitch: 1.03, volume: 0.98 },
+    default: { rate: 1, pitch: 1.0, volume: 0.97 },
+    guide: { rate: 1, pitch: 1.01, volume: 0.97 },
+    reading: { rate: 1, pitch: 1.0, volume: 0.97 },
+    comparison: { rate: 1, pitch: 1.0, volume: 0.97 },
+    retry: { rate: 1, pitch: 1.0, volume: 0.97 },
+    flip1: { rate: 1, pitch: 0.99, volume: 0.97 },
+    flip2: { rate: 1, pitch: 1.0, volume: 0.97 },
+    terminal: { rate: 1, pitch: 1.03, volume: 0.98 },
   };
   const profiles = lang === 'hi' ? hindiProfiles : englishProfiles;
   return profiles[profileKey] || profiles.default;
@@ -137,13 +153,32 @@ function getStaticQuestionSpeech(localizedQuestion) {
   return (localizedQuestion || '').replace(/\s+/g, ' ').trim();
 }
 
-function getStaticFlipPrompt(stage) {
+function getStaticFlipPrompt(stage, baseQuestion = '') {
+  const prompt = (baseQuestion || '').toLowerCase();
+  const useShortForm = !(
+    prompt.includes('please compare the two dot patterns')
+    || prompt.includes('please compare the two choices')
+  );
+
   if (sessionLanguage === 'hi') {
-    if (stage === 'flip1') return 'यह पहला विकल्प है। कृपया ध्यान से देखिए।';
-    return 'यह दूसरा विकल्प है। पहला विकल्प, दूसरा विकल्प, दोनों समान, या फिर से कहिए।';
+    if (stage === 'flip1') {
+      return useShortForm
+        ? 'पहला विकल्प'
+        : 'कृपया दोनों डॉट पैटर्न की तुलना कीजिए। कौन सा ज़्यादा साफ या शार्प दिख रहा है? यह पहला विकल्प है।';
+    }
+    return useShortForm
+      ? 'दूसरा विकल्प। कौन बेहतर है? पहला विकल्प, दूसरा विकल्प, दोनों समान, या फिर से?'
+      : 'यह दूसरा विकल्प है। कौन बेहतर है, पहला विकल्प, दूसरा विकल्प, दोनों समान, या फिर से कहिए।';
   }
-  if (stage === 'flip1') return 'This is the first option. Please observe carefully.';
-  return 'This is the second option. First option, second option, both same, or repeat.';
+
+  if (stage === 'flip1') {
+    return useShortForm
+      ? 'First option'
+      : 'Please compare the two dot patterns. Which one is clearer or sharper? This is the first option.';
+  }
+  return useShortForm
+    ? 'Second option. Which is better? First option, second option, both same or repeat?'
+    : 'This is the second option. Which is better, first option, second option, both same, or repeat.';
 }
 
 function getStaticTerminalSpeech({ isEscalate, compareRan, acceptedAchieved }) {
@@ -229,6 +264,7 @@ function setTTSVoice(name) {
     return;
   }
   ttsSelectedVoiceName = name;
+  try { localStorage.setItem(TTS_VOICE_STORAGE_KEY, name || ''); } catch (e) {}
   console.log(`[TTS] Voice pinned to: ${name}`);
 }
 
@@ -463,8 +499,8 @@ const STIMULUS_DESCRIPTIONS = {
   'P': 'Near text chart',
   'Q': 'Near text chart',
   'R': 'Near text with both eyes',
-  'S': 'Final prescription comparison option 1 achieved Rx',
-  'T': 'Final prescription comparison option 2 PGP',
+  'S': 'Final prescription comparison first option achieved Rx',
+  'T': 'Final prescription comparison second option PGP',
   'U': 'Final prescription comparison',
 };
 
@@ -483,8 +519,8 @@ const STIMULUS_DESCRIPTIONS_HI = {
   'P': 'पास का टेक्स्ट चार्ट',
   'Q': 'पास का टेक्स्ट चार्ट',
   'R': 'दोनों आँखों से पास का टेक्स्ट',
-  'S': 'अंतिम प्रिस्क्रिप्शन तुलना विकल्प 1 प्राप्त Rx',
-  'T': 'अंतिम प्रिस्क्रिप्शन तुलना विकल्प 2 PGP',
+  'S': 'अंतिम प्रिस्क्रिप्शन तुलना पहला विकल्प प्राप्त Rx',
+  'T': 'अंतिम प्रिस्क्रिप्शन तुलना दूसरा विकल्प PGP',
   'U': 'अंतिम प्रिस्क्रिप्शन तुलना',
 };
 
@@ -525,11 +561,24 @@ const STATIC_MOTIVATION_PROMPTS = Object.freeze({
   }),
 });
 
+const STATIC_PREFACE_PROMPTS = Object.freeze({
+  en: Object.freeze({
+    'Your eye test is about to begin. Please rest your forehead gently against the forehead bar and look straight ahead.':
+      'Your eye test is about to begin. Please rest your forehead gently against the forehead bar and look straight ahead.',
+  }),
+  hi: Object.freeze({
+    'Your eye test is about to begin. Please rest your forehead gently against the forehead bar and look straight ahead.':
+      'आपका आई टेस्ट अब शुरू होने वाला है। कृपया अपना माथा धीरे से फोरहेड बार पर टिकाएँ और सामने देखें।',
+  }),
+});
+
 function localizePrefacePrompt(prefacePrompt, lang) {
   const activeLang = lang || sessionLanguage || 'en';
   const text = (prefacePrompt || '').trim();
   if (!text) return text;
 
+  const staticPreface = STATIC_PREFACE_PROMPTS[activeLang]?.[text];
+  if (staticPreface) return staticPreface;
   const staticPrompt = STATIC_MOTIVATION_PROMPTS[activeLang]?.[text];
   if (staticPrompt) return staticPrompt;
   if (activeLang !== 'hi') return text;
@@ -548,6 +597,8 @@ function getMotivationSpeech(prefacePrompt, lang) {
   const text = (prefacePrompt || '').trim();
   if (!text) return '';
 
+  const staticPreface = STATIC_PREFACE_PROMPTS[activeLang]?.[text];
+  if (staticPreface) return staticPreface;
   const staticPrompt = STATIC_MOTIVATION_PROMPTS[activeLang]?.[text];
   if (staticPrompt) return staticPrompt;
 
@@ -575,6 +626,19 @@ let _observeAdvanceTimer = null;
 let _ttsSessionId = 0;
 let _voiceStartGeneration = 0;
 let _voiceStartTimer = null;
+let _questionTurnToken = 0;
+let _duplexBargeInTimer = null;
+let _duplexBargeInStream = null;
+let _duplexBargeInCtx = null;
+let _duplexBargeInSource = null;
+let _duplexBargeInAnalyser = null;
+let _duplexSpeechDetectedToken = 0;
+let _duplexRecognitionFlush = null;
+
+const DUPLEX_BARGE_IN_GRACE_MS = 200;
+const DUPLEX_BARGE_IN_HOLD_MS = 100;
+const DUPLEX_BARGE_IN_POLL_MS = 50;
+const DUPLEX_BARGE_IN_LEVEL = 0.018;
 
 // ── Faster-whisper backend state ──
 let whisperAvailable = false; // Set true if backend has faster-whisper loaded
@@ -590,9 +654,189 @@ function invalidatePendingVoiceStart() {
   }
 }
 
+function nextQuestionTurnToken() {
+  _questionTurnToken += 1;
+  return _questionTurnToken;
+}
+
+function invalidateQuestionTurn() {
+  _questionTurnToken += 1;
+  stopDuplexBargeInMonitor();
+  _duplexSpeechDetectedToken = 0;
+  _duplexRecognitionFlush = null;
+  return _questionTurnToken;
+}
+
+function isCurrentQuestionTurn(token) {
+  return token === _questionTurnToken;
+}
+
+function isTtsActive() {
+  return !!('speechSynthesis' in window && (speechSynthesis.speaking || speechSynthesis.pending));
+}
+
+function stopDuplexBargeInMonitor() {
+  if (_duplexBargeInTimer) {
+    clearInterval(_duplexBargeInTimer);
+    _duplexBargeInTimer = null;
+  }
+  if (_duplexBargeInSource) {
+    try { _duplexBargeInSource.disconnect(); } catch (e) {}
+    _duplexBargeInSource = null;
+  }
+  _duplexBargeInAnalyser = null;
+  if (_duplexBargeInCtx) {
+    try { _duplexBargeInCtx.close(); } catch (e) {}
+    _duplexBargeInCtx = null;
+  }
+  if (_duplexBargeInStream) {
+    try { _duplexBargeInStream.getTracks().forEach(track => track.stop()); } catch (e) {}
+    _duplexBargeInStream = null;
+  }
+}
+
+function isDuplexSpeechDetected(questionToken) {
+  return questionToken === _duplexSpeechDetectedToken;
+}
+
+function markDuplexSpeechDetected(questionToken) {
+  if (!isCurrentQuestionTurn(questionToken)) return;
+  _duplexSpeechDetectedToken = questionToken;
+  if (typeof _duplexRecognitionFlush === 'function') {
+    _duplexRecognitionFlush(questionToken);
+  }
+}
+
+function canEnableEarlyControllerInput(data) {
+  return isDuplexTurnMode()
+    && !!data
+    && !data.is_terminal
+    && !data.auto_flip
+    && Number(data.auto_advance_seconds || 0) <= 0;
+}
+
+function isVoiceBargeInEligible(state, questionText, data = {}) {
+  if (!EARLY_VOICE_BARGE_IN_ENABLED) return false;
+  if (!isDuplexTurnMode()) return false;
+  if (!voiceEnabled || voiceMode !== 'browser' || !SpeechRecognition) return false;
+  if (!state || state === 'LANG_SELECT') return false;
+  if (data.auto_flip || Number(data.auto_advance_seconds || 0) > 0) return false;
+
+  if (['E', 'F', 'G', 'H', 'I', 'J', 'K', 'P', 'Q', 'R', 'U'].includes(state)) {
+    return true;
+  }
+  if ((state === 'B' || state === 'D') && !questionExpectsLineReading(state, questionText)) {
+    return true;
+  }
+  return false;
+}
+
+async function startDuplexBargeInMonitor({ state, options, step, questionText, questionToken, data }) {
+  if (!isVoiceBargeInEligible(state, questionText, data)) return;
+  if (!navigator.mediaDevices?.getUserMedia) return;
+
+  stopDuplexBargeInMonitor();
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
+
+    if (!isCurrentQuestionTurn(questionToken) || responseSubmitting || voiceSubmitting || !isTtsActive()) {
+      stream.getTracks().forEach(track => track.stop());
+      return;
+    }
+
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) {
+      stream.getTracks().forEach(track => track.stop());
+      return;
+    }
+
+    _duplexBargeInStream = stream;
+    _duplexBargeInCtx = new Ctx();
+    _duplexBargeInSource = _duplexBargeInCtx.createMediaStreamSource(stream);
+    _duplexBargeInAnalyser = _duplexBargeInCtx.createAnalyser();
+    _duplexBargeInAnalyser.fftSize = 2048;
+    _duplexBargeInAnalyser.smoothingTimeConstant = 0.25;
+    _duplexBargeInSource.connect(_duplexBargeInAnalyser);
+
+    const buffer = new Float32Array(_duplexBargeInAnalyser.fftSize);
+    const startedAt = performance.now();
+    let hotMs = 0;
+
+    _duplexBargeInTimer = setInterval(() => {
+      if (!isCurrentQuestionTurn(questionToken) || responseSubmitting || voiceSubmitting || !voiceEnabled) {
+        stopDuplexBargeInMonitor();
+        return;
+      }
+      if (!isTtsActive()) {
+        stopDuplexBargeInMonitor();
+        return;
+      }
+
+      const elapsedMs = performance.now() - startedAt;
+      if (elapsedMs < DUPLEX_BARGE_IN_GRACE_MS) {
+        return;
+      }
+
+      _duplexBargeInAnalyser.getFloatTimeDomainData(buffer);
+      let sumSquares = 0;
+      let peak = 0;
+      for (let i = 0; i < buffer.length; i++) {
+        const v = Math.abs(buffer[i]);
+        sumSquares += buffer[i] * buffer[i];
+        if (v > peak) peak = v;
+      }
+      const rms = Math.sqrt(sumSquares / buffer.length);
+      const level = Math.max(rms, peak * 0.5);
+
+      if (level >= DUPLEX_BARGE_IN_LEVEL) {
+        hotMs += DUPLEX_BARGE_IN_POLL_MS;
+      } else {
+        hotMs = 0;
+      }
+
+      if (hotMs < DUPLEX_BARGE_IN_HOLD_MS) return;
+
+      console.log(`[Duplex] Voice barge-in detected for ${state}`);
+      stopDuplexBargeInMonitor();
+      markDuplexSpeechDetected(questionToken);
+      invalidatePendingVoiceStart();
+      if (recognition) {
+        try { recognition.abort(); } catch (e) {}
+        recognition = null;
+      }
+      _duplexRecognitionFlush = null;
+      _inputEnabled = true;
+      if (isTtsActive()) {
+        _ttsSessionId += 1;
+        try { speechSynthesis.cancel(); } catch (e) {}
+      }
+      updateVoiceStatus(sessionLanguage === 'hi' ? '🎙 बोलिए...' : '🎙 Listening...');
+      setTimeout(() => {
+        if (!isCurrentQuestionTurn(questionToken) || responseSubmitting || voiceSubmitting) return;
+        cueAndStartVoiceCapture(state, options, step, {
+          delayMs: 0,
+          enableInput: true,
+          questionToken,
+          skipBeep: true,
+          setupDelayMs: 0,
+        });
+      }, 20);
+    }, DUPLEX_BARGE_IN_POLL_MS);
+  } catch (e) {
+    console.warn('[Duplex] Barge-in monitor unavailable:', e);
+    stopDuplexBargeInMonitor();
+  }
+}
+
 function stopActiveVoiceCapture({ resetVoiceSubmitting = false } = {}) {
   invalidatePendingVoiceStart();
   invalidateSpokenFlow();
+  stopDuplexBargeInMonitor();
+  _duplexRecognitionFlush = null;
+  _duplexSpeechDetectedToken = 0;
   if (recognition) {
     try { recognition.abort(); } catch (e) {}
     recognition = null;
@@ -643,33 +887,44 @@ function playBeep() {
   });
 }
 
-function cueAndStartVoiceCapture(state, options, step, { delayMs = null, enableInput = true, statusText = null } = {}) {
+function cueAndStartVoiceCapture(state, options, step, { delayMs = null, enableInput = true, statusText = null, questionToken = _questionTurnToken, skipBeep = false, setupDelayMs = 100 } = {}) {
   if (!voiceEnabled) return;
   invalidatePendingVoiceStart();
   const generation = _voiceStartGeneration;
   const resolvedDelayMs = delayMs == null ? (sessionLanguage === 'hi' ? 50 : 200) : delayMs;
 
+  const scheduleActualStart = () => {
+    _voiceStartTimer = setTimeout(() => {
+      _voiceStartTimer = null;
+      if (generation !== _voiceStartGeneration) return;
+      if (!isCurrentQuestionTurn(questionToken)) return;
+      if (!voiceEnabled || voiceSubmitting || responseSubmitting) return;
+      if ('speechSynthesis' in window && (speechSynthesis.speaking || speechSynthesis.pending)) {
+        waitForSpeechAndStart();
+        return;
+      }
+      if (enableInput) _inputEnabled = true;
+      startVoiceCapture(state, options, step, { questionToken, setupDelayMs });
+    }, resolvedDelayMs);
+  };
+
   const waitForSpeechAndStart = () => {
     if (generation !== _voiceStartGeneration) return;
+    if (!isCurrentQuestionTurn(questionToken)) return;
     if (!voiceEnabled || voiceSubmitting || responseSubmitting) return;
     if ('speechSynthesis' in window && (speechSynthesis.speaking || speechSynthesis.pending)) {
       _voiceStartTimer = setTimeout(waitForSpeechAndStart, 100);
       return;
     }
     if (statusText) updateVoiceStatus(statusText);
+    if (skipBeep) {
+      scheduleActualStart();
+      return;
+    }
     playBeep().then(() => {
       if (generation !== _voiceStartGeneration) return;
-      _voiceStartTimer = setTimeout(() => {
-        _voiceStartTimer = null;
-        if (generation !== _voiceStartGeneration) return;
-        if (!voiceEnabled || voiceSubmitting || responseSubmitting) return;
-        if ('speechSynthesis' in window && (speechSynthesis.speaking || speechSynthesis.pending)) {
-          waitForSpeechAndStart();
-          return;
-        }
-        if (enableInput) _inputEnabled = true;
-        startVoiceCapture(state, options, step);
-      }, resolvedDelayMs);
+      if (!isCurrentQuestionTurn(questionToken)) return;
+      scheduleActualStart();
     });
   };
 
@@ -692,8 +947,8 @@ const ALL_PHASES = [
   { state: 'P', name: 'Near Add RE', eye: 'RE' },
   { state: 'Q', name: 'Near Add LE', eye: 'LE' },
   { state: 'R', name: 'Near Binocular', eye: 'BIN' },
-  { state: 'S', name: 'Final Compare Option 1 Achieved Rx', eye: 'BIN' },
-  { state: 'T', name: 'Final Compare Option 2 PGP', eye: 'BIN' },
+  { state: 'S', name: 'Final Compare First Option Achieved Rx', eye: 'BIN' },
+  { state: 'T', name: 'Final Compare Second Option PGP', eye: 'BIN' },
   { state: 'U', name: 'Final Compare Decision', eye: 'BIN' },
 ];
 
@@ -1107,6 +1362,7 @@ function updateTopbar(data) {
 
 // ── Question display (async — fetches localized text BEFORE TTS) ──
 async function showQuestion(data) {
+  const questionToken = nextQuestionTurnToken();
   document.getElementById('questionCard').style.display = '';
   document.getElementById('endCard').classList.remove('active');
 
@@ -1188,9 +1444,11 @@ async function showQuestion(data) {
   const motivationSpeech = getMotivationSpeech(data.preface_prompt || '', sessionLanguage);
   const spokenPrompt = [motivationSpeech, getStaticQuestionSpeech(localizedQuestion)].filter(Boolean).join(' ').trim();
   const startObserveAdvance = () => {
+    if (!isCurrentQuestionTurn(questionToken)) return;
     const delayMs = Math.max(0, Number(data.auto_advance_seconds || 0)) * 1000;
     updateVoiceStatus(sessionLanguage === 'hi' ? 'ध्यान से देखिए...' : 'Observe carefully...');
     _observeAdvanceTimer = setTimeout(() => {
+      if (!isCurrentQuestionTurn(questionToken)) return;
       _observeAdvanceTimer = null;
       submitResponse(
         data.auto_advance_response || 'AUTO_ADVANCE',
@@ -1209,21 +1467,47 @@ async function showQuestion(data) {
     return;
   }
 
+  if (canEnableEarlyControllerInput(data)) {
+    _inputEnabled = true;
+  }
+
   if (ttsEnabled && !isAutoFlip) {
+    if (isVoiceBargeInEligible(data.state, data.question || localizedQuestion, data)) {
+      startDuplexBargeInMonitor({
+        state: data.state,
+        options: data.options || [],
+        step: data.step,
+        questionText: data.question || localizedQuestion,
+        questionToken,
+        data,
+      });
+    }
     speakQuestionWithStableFollowup(spokenPrompt, null, () => {
+      if (!isCurrentQuestionTurn(questionToken)) return;
+      stopDuplexBargeInMonitor();
+      if (isDuplexSpeechDetected(questionToken)) return;
       if (canListen) {
-        cueAndStartVoiceCapture(data.state, data.options || [], data.step, { enableInput: true });
+        cueAndStartVoiceCapture(data.state, data.options || [], data.step, {
+          enableInput: true,
+          questionToken,
+        });
       } else {
         playBeep().then(() => {
+          if (!isCurrentQuestionTurn(questionToken)) return;
           _inputEnabled = true;
         });
       }
     }, getQuestionTTSProfile(data));
   } else if (!isAutoFlip) {
+    stopDuplexBargeInMonitor();
     if (canListen) {
-      cueAndStartVoiceCapture(data.state, data.options || [], data.step, { enableInput: true });
+      cueAndStartVoiceCapture(data.state, data.options || [], data.step, {
+        enableInput: true,
+        questionToken,
+      });
     } else {
       playBeep().then(() => {
+        if (!isCurrentQuestionTurn(questionToken)) return;
         _inputEnabled = true;
       });
     }
@@ -1249,7 +1533,7 @@ function setVoiceMode(mode) {
   updateVoiceStatus(voiceEnabled ? `Ready (${mode})` : '—');
 
   // If turning on and we have an active question, start listening
-  if (voiceEnabled && currentState && !currentState.is_terminal) {
+  if (voiceEnabled && currentState && !currentState.is_terminal && _flipState !== 'flip1') {
     cueAndStartVoiceCapture(currentState.state, currentState.options || [], currentState.step, { enableInput: true });
   }
 }
@@ -1263,18 +1547,21 @@ function updateVoiceModeSelect() {
 function toggleVoice() { setVoiceMode(voiceMode === 'off' ? 'browser' : 'off'); }
 function updateVoiceButton() { updateVoiceModeSelect(); }
 
-function startVoiceCapture(state, options, step) {
+function startVoiceCapture(state, options, step, runtime = {}) {
+  const { skipTtsCheck = false, questionToken = _questionTurnToken, duplexArmOnly = false, setupDelayMs = 100 } = runtime;
   if (!voiceEnabled) return;
   if (voiceSubmitting) return;
   if (responseSubmitting) return;
+  if (_flipState === 'flip1') return;
+  if (!isCurrentQuestionTurn(questionToken)) return;
   // Don't start listening while TTS is speaking
-  if ('speechSynthesis' in window && (speechSynthesis.speaking || speechSynthesis.pending)) {
+  if (!skipTtsCheck && isTtsActive()) {
     return;
   }
 
   // Route based on user's explicit voiceMode selection
   if (voiceMode === 'whisper') {
-    startWhisperCapture(state, options, step);
+    startWhisperCapture(state, options, step, questionToken);
     return;
   }
 
@@ -1291,6 +1578,7 @@ function startVoiceCapture(state, options, step) {
 
   // Small delay to let previous recognition clean up
   setTimeout(() => {
+    if (!isCurrentQuestionTurn(questionToken)) return;
     if (!voiceEnabled || voiceSubmitting || responseSubmitting) return;
 
     recognition = new SpeechRecognition();
@@ -1316,15 +1604,48 @@ function startVoiceCapture(state, options, step) {
     const capturedState = state;
     const capturedOptions = options;
     const capturedStep = step;
+    const capturedQuestionToken = questionToken;
+    const capturedDuplexArmOnly = duplexArmOnly;
     let lastInterimTranscript = ''; // store interim for fallback
     let quickMatchTimer = null; // 1s timer to force-process short words
     let lineReadingFinalizeTimer = null;
     let accumulatedFinalTranscript = '';
+    let deferredFinalTranscript = '';
+    let deferredAlternatives = [];
     let alreadyProcessed = false; // prevent double-processing
 
+    const isDeferredDuplexMode = () => capturedDuplexArmOnly && !isDuplexSpeechDetected(capturedQuestionToken);
+    const processFinalTranscript = (trimmed, alts = []) => {
+      alreadyProcessed = true;
+      try { recognition.stop(); } catch(e) {}
+      voiceRecording = false;
+      console.log(`[Voice] Final: "${trimmed}" | Alternatives: ${JSON.stringify(alts)}`);
+      updateVoiceStatus(`Processing: "${trimmed}"`);
+      matchVoiceResponseWithAlternatives(trimmed, alts, capturedState, capturedOptions, capturedQuestionToken);
+    };
+    const flushDeferredDuplexRecognition = () => {
+      if (!isCurrentQuestionTurn(capturedQuestionToken)) return;
+      if (!isDuplexSpeechDetected(capturedQuestionToken)) return;
+      if (alreadyProcessed) return;
+      if (deferredFinalTranscript) {
+        processFinalTranscript(deferredFinalTranscript, deferredAlternatives);
+        return;
+      }
+      if (lastInterimTranscript) {
+        forceProcessInterim();
+      }
+    };
+    _duplexRecognitionFlush = flushDeferredDuplexRecognition;
+
     recognition.onstart = () => {
+      if (!isCurrentQuestionTurn(capturedQuestionToken)) {
+        try { recognition.abort(); } catch (e) {}
+        return;
+      }
       voiceRecording = true;
-      updateVoiceStatus('🎙 Listening...');
+      if (!capturedDuplexArmOnly) {
+        updateVoiceStatus('🎙 Listening...');
+      }
       console.log(`[Voice] Listening for step ${capturedStep}, state ${capturedState}, options: ${capturedOptions.join(', ')}`);
     };
 
@@ -1362,6 +1683,7 @@ function startVoiceCapture(state, options, step) {
     }
 
     function processLineReadingBuffer() {
+      if (!isCurrentQuestionTurn(capturedQuestionToken)) return;
       if (alreadyProcessed) return;
       const combinedTranscript = buildLineReadingTranscript();
       if (!combinedTranscript) return;
@@ -1379,6 +1701,7 @@ function startVoiceCapture(state, options, step) {
         Array.from(altSet).filter(t => t && t !== combinedTranscript),
         capturedState,
         capturedOptions,
+        capturedQuestionToken,
       );
     }
 
@@ -1389,6 +1712,8 @@ function startVoiceCapture(state, options, step) {
     }
 
     function forceProcessInterim() {
+      if (!isCurrentQuestionTurn(capturedQuestionToken)) return;
+      if (isDeferredDuplexMode()) return;
       if (alreadyProcessed || !lastInterimTranscript) return;
       alreadyProcessed = true;
       try { recognition.stop(); } catch(e) {}
@@ -1398,10 +1723,11 @@ function startVoiceCapture(state, options, step) {
       const alts = cleaned !== lastInterimTranscript.toLowerCase() ? [cleaned] : [];
       console.log(`[Voice] Quick-match: forcing "${lastInterimTranscript}" (cleaned: "${cleaned}")`);
       updateVoiceStatus(`Processing: "${lastInterimTranscript}"`);
-      matchVoiceResponseWithAlternatives(lastInterimTranscript, alts, capturedState, capturedOptions);
+      matchVoiceResponseWithAlternatives(lastInterimTranscript, alts, capturedState, capturedOptions, capturedQuestionToken);
     }
 
     recognition.onresult = (event) => {
+      if (!isCurrentQuestionTurn(capturedQuestionToken)) return;
       if (alreadyProcessed) return;
 
       let finalTranscript = '';
@@ -1422,10 +1748,16 @@ function startVoiceCapture(state, options, step) {
       // Store interim and check for quick match
       if (interimTranscript && !finalTranscript) {
         lastInterimTranscript = interimTranscript.trim();
-        updateVoiceStatus(`🎙 "${interimTranscript}"...`);
+        if (!capturedDuplexArmOnly || isDuplexSpeechDetected(capturedQuestionToken)) {
+          updateVoiceStatus(`🎙 "${interimTranscript}"...`);
+        }
 
         if (isEnglishLineReadingCapture) {
           scheduleLineReadingFinalize();
+          return;
+        }
+
+        if (isDeferredDuplexMode()) {
           return;
         }
 
@@ -1465,20 +1797,27 @@ function startVoiceCapture(state, options, step) {
           scheduleLineReadingFinalize();
           return;
         }
-        alreadyProcessed = true;
-        try { recognition.stop(); } catch(e) {}
-        voiceRecording = false;
-        console.log(`[Voice] Final: "${trimmed}" | Alternatives: ${JSON.stringify(alts)}`);
-        updateVoiceStatus(`Processing: "${trimmed}"`);
-        matchVoiceResponseWithAlternatives(trimmed, alts, capturedState, capturedOptions);
+        if (isDeferredDuplexMode()) {
+          deferredFinalTranscript = trimmed;
+          deferredAlternatives = alts;
+          return;
+        }
+        processFinalTranscript(trimmed, alts);
       }
     };
 
     recognition.onerror = (event) => {
+      if (!isCurrentQuestionTurn(capturedQuestionToken)) return;
       if (quickMatchTimer) { clearTimeout(quickMatchTimer); quickMatchTimer = null; }
       clearLineReadingFinalizeTimer();
       voiceRecording = false;
+      if (_duplexRecognitionFlush === flushDeferredDuplexRecognition) {
+        _duplexRecognitionFlush = null;
+      }
       console.log(`[Voice] Error: ${event.error}`);
+      if (capturedDuplexArmOnly && !isDuplexSpeechDetected(capturedQuestionToken)) {
+        return;
+      }
       if (event.error === 'no-speech') {
         updateVoiceStatus('No speech detected. Repeating question...');
         // Re-speak the question (like FSMv3.1_R2 retry=True reprompt)
@@ -1489,7 +1828,8 @@ function startVoiceCapture(state, options, step) {
             ? `फिर से सुनिए। ${questionText}`
             : `Let me repeat. ${questionText}`;
           speakQuestionWithStableFollowup(retryPrompt, null, () => {
-            cueAndStartVoiceCapture(capturedState, capturedOptions, capturedStep);
+            if (!isCurrentQuestionTurn(capturedQuestionToken)) return;
+            cueAndStartVoiceCapture(capturedState, capturedOptions, capturedStep, { questionToken: capturedQuestionToken });
           }, 'retry');
         }
       } else if (event.error === 'aborted') {
@@ -1505,6 +1845,7 @@ function startVoiceCapture(state, options, step) {
     // Patch: track whether we got a result or error
     const origOnResult = recognition.onresult;
     recognition.onresult = (event) => {
+      if (!isCurrentQuestionTurn(capturedQuestionToken)) return;
       // Check if any result is final
       for (let i = event.resultIndex; i < event.results.length; i++) {
         if (event.results[i].isFinal) gotFinalResult = true;
@@ -1513,14 +1854,19 @@ function startVoiceCapture(state, options, step) {
     };
     const origOnError = recognition.onerror;
     recognition.onerror = (event) => {
+      if (!isCurrentQuestionTurn(capturedQuestionToken)) return;
       gotError = true;
       origOnError(event);
     };
 
     recognition.onend = () => {
+      if (!isCurrentQuestionTurn(capturedQuestionToken)) return;
       if (quickMatchTimer) { clearTimeout(quickMatchTimer); quickMatchTimer = null; }
       clearLineReadingFinalizeTimer();
       voiceRecording = false;
+      if (_duplexRecognitionFlush === flushDeferredDuplexRecognition) {
+        _duplexRecognitionFlush = null;
+      }
 
       if (isEnglishLineReadingCapture) {
         if (alreadyProcessed || gotError || voiceSubmitting) return;
@@ -1528,7 +1874,7 @@ function startVoiceCapture(state, options, step) {
         if (combinedTranscript) {
           console.log(`[Voice] Using line-reading buffer on end: "${combinedTranscript}"`);
           updateVoiceStatus(`Processing: "${combinedTranscript}"`);
-          matchVoiceResponseWithAlternatives(combinedTranscript, [], capturedState, capturedOptions);
+          matchVoiceResponseWithAlternatives(combinedTranscript, [], capturedState, capturedOptions, capturedQuestionToken);
           return;
         }
       }
@@ -1536,11 +1882,15 @@ function startVoiceCapture(state, options, step) {
       // If already processed (final, quick-match, or error), do nothing
       if (alreadyProcessed || gotFinalResult || gotError || voiceSubmitting) return;
 
+      if (capturedDuplexArmOnly && !isDuplexSpeechDetected(capturedQuestionToken)) {
+        return;
+      }
+
       // Fix 2: Try interim transcript as fallback for single-syllable words
       if (lastInterimTranscript) {
         console.log(`[Voice] Using interim as fallback: "${lastInterimTranscript}"`);
         updateVoiceStatus(`Processing interim: "${lastInterimTranscript}"`);
-        matchVoiceResponseWithAlternatives(lastInterimTranscript, [], capturedState, capturedOptions);
+        matchVoiceResponseWithAlternatives(lastInterimTranscript, [], capturedState, capturedOptions, capturedQuestionToken);
         return;
       }
 
@@ -1555,7 +1905,8 @@ function startVoiceCapture(state, options, step) {
           ? `सुनाई नहीं दिया। ${questionText}`
           : `I could not hear you. ${questionText}`;
         speakQuestionWithStableFollowup(retryPrompt, null, () => {
-          cueAndStartVoiceCapture(capturedState, capturedOptions, capturedStep);
+          if (!isCurrentQuestionTurn(capturedQuestionToken)) return;
+          cueAndStartVoiceCapture(capturedState, capturedOptions, capturedStep, { questionToken: capturedQuestionToken });
         }, 'retry');
       }
     };
@@ -1566,12 +1917,13 @@ function startVoiceCapture(state, options, step) {
       console.warn('[Voice] Could not start recognition:', e);
       updateVoiceStatus('Mic start failed. Click Mic: ON to retry.');
     }
-  }, 100);
+  }, setupDelayMs);
 }
 
 // ── Faster-whisper recording pipeline ──
-async function startWhisperCapture(state, options, step) {
+async function startWhisperCapture(state, options, step, questionToken = _questionTurnToken) {
   if (!voiceEnabled || voiceSubmitting || responseSubmitting) return;
+  if (!isCurrentQuestionTurn(questionToken)) return;
   stopActiveVoiceCapture();
 
   // Request mic access
@@ -1686,6 +2038,7 @@ async function startWhisperCapture(state, options, step) {
   }, FRAME_MS);
 
   mediaRecorder.onstop = async () => {
+    if (!isCurrentQuestionTurn(questionToken)) return;
     clearInterval(vadInterval);
     vadCtx.close().catch(() => {});
     voiceRecording = false;
@@ -1693,7 +2046,7 @@ async function startWhisperCapture(state, options, step) {
     console.log(`[VAD] Stop reason: ${vadStopReason}, speech: ${speechDetected}, duration: ${speechDuration.toFixed(1)}s`);
     if (audioChunks.length === 0) {
       updateVoiceStatus('No audio captured');
-      repeatAndListen(state, options, step);
+      repeatAndListen(state, options, step, questionToken);
       return;
     }
 
@@ -1729,6 +2082,10 @@ async function startWhisperCapture(state, options, step) {
 
       const result = resp.ok ? await resp.json() : { error: `Server error ${resp.status}`, accepted: false };
       console.log(`[Whisper] Result:`, result);
+      if (!isCurrentQuestionTurn(questionToken)) {
+        voiceSubmitting = false;
+        return;
+      }
 
       // Case 1: Matched — submit response (like FSMv3.1_R2 accepted path)
       if (result.accepted && result.response_value) {
@@ -1758,7 +2115,7 @@ async function startWhisperCapture(state, options, step) {
       if (errMsg.includes('No speech') || errMsg.includes('too short') || errMsg.includes('too small') || !result.transcript) {
         voiceSubmitting = false;
         updateVoiceStatus('No speech detected. Repeating...');
-        repeatAndListen(state, options, step);
+        repeatAndListen(state, options, step, questionToken);
         return;
       }
 
@@ -1785,14 +2142,14 @@ async function startWhisperCapture(state, options, step) {
       if (voiceAttemptCount >= VOICE_REPROMPT_LIMIT) {
         updateVoiceStatus(`✗ Failed ${voiceAttemptCount}x. Use buttons below.`);
       } else {
-        repeatAndListen(state, options, step);
+        repeatAndListen(state, options, step, questionToken);
       }
       return;
     } catch (e) {
       console.error('[Whisper] Processing error:', e);
       voiceSubmitting = false;
       updateVoiceStatus(`Whisper error: ${e.message}`);
-      repeatAndListen(state, options, step);
+      repeatAndListen(state, options, step, questionToken);
     }
   };
 
@@ -1800,15 +2157,17 @@ async function startWhisperCapture(state, options, step) {
   // VAD interval handles stopping — no fixed timeout needed
 }
 
-function repeatAndListen(state, options, step) {
+function repeatAndListen(state, options, step, questionToken = _questionTurnToken) {
   if (!voiceEnabled) return;
+  if (!isCurrentQuestionTurn(questionToken)) return;
   const questionEl = document.getElementById('questionText');
   const questionText = questionEl ? questionEl.textContent : '';
   const retryPrompt = sessionLanguage === 'hi'
     ? `समझ नहीं आया। ${questionText}`
     : `I didn't catch that. ${questionText}`;
   speakQuestionWithStableFollowup(retryPrompt, null, () => {
-    cueAndStartVoiceCapture(state, options, step);
+    if (!isCurrentQuestionTurn(questionToken)) return;
+    cueAndStartVoiceCapture(state, options, step, { questionToken });
   }, 'retry');
 }
 
@@ -1841,6 +2200,7 @@ function questionExpectsEnglishLetterReading(state, questionText) {
   if (state === 'B' || state === 'D') {
     if (
       question.includes('better now')
+      || question.includes('better than before')
       || question.includes('yes or no')
       || question.includes('हाँ या नहीं')
       || question.includes('बेहतर')
@@ -1871,7 +2231,8 @@ function getWhisperSTTLanguageHint(state, questionText) {
 
 let _currentVoiceAlternatives = []; // Stored for inclusion in voiceMeta
 
-async function matchVoiceResponseWithAlternatives(primary, alternatives, state, options) {
+async function matchVoiceResponseWithAlternatives(primary, alternatives, state, options, questionToken = _questionTurnToken) {
+  if (!isCurrentQuestionTurn(questionToken)) return;
   _currentVoiceAlternatives = alternatives || [];
   // Special handling for language selection
   if (state === 'LANG_SELECT') {
@@ -1892,9 +2253,11 @@ async function matchVoiceResponseWithAlternatives(primary, alternatives, state, 
     updateVoiceStatus('Say "English" or "Hindi"');
     if (voiceEnabled) {
       setTimeout(() => {
+        if (!isCurrentQuestionTurn(questionToken)) return;
         cueAndStartVoiceCapture('LANG_SELECT', ['ENGLISH', 'HINDI'], 0, {
           statusText: 'Say "English" or "Hindi"',
           enableInput: false,
+          questionToken,
         });
       }, 1000);
     }
@@ -1906,12 +2269,15 @@ async function matchVoiceResponseWithAlternatives(primary, alternatives, state, 
   let lastFailure = null;
 
   for (const transcript of transcriptsToTry) {
-    const result = await matchVoiceResponse(transcript, state, options);
+    const result = await matchVoiceResponse(transcript, state, options, questionToken);
+    if (!isCurrentQuestionTurn(questionToken)) return;
     if (result && result.matched) return; // Matched and submitted
+    if (result && result.stale) return;
     if (result && !result.matched) lastFailure = result;
   }
 
   // None matched — track failed attempt
+  if (!isCurrentQuestionTurn(questionToken)) return;
   voiceSubmitting = false;
   voiceAttemptCount++;
 
@@ -1952,13 +2318,18 @@ async function matchVoiceResponseWithAlternatives(primary, alternatives, state, 
         ? `समझ नहीं आया। ${questionText}`
         : `I didn't catch that. ${questionText}`;
       speakQuestionWithStableFollowup(retryPrompt, null, () => {
-        cueAndStartVoiceCapture(state, options, 0);
+        if (!isCurrentQuestionTurn(questionToken)) return;
+        cueAndStartVoiceCapture(state, options, 0, { questionToken });
       }, 'retry');
     }
   }
 }
 
-async function matchVoiceResponse(transcript, state, options) {
+async function matchVoiceResponse(transcript, state, options, questionToken = _questionTurnToken) {
+  if (!isCurrentQuestionTurn(questionToken)) {
+    voiceSubmitting = false;
+    return { matched: false, stale: true, reason: 'stale_question' };
+  }
   // Stop recognition while we process
   if (recognition) {
     try { recognition.abort(); } catch (e) {}
@@ -1995,6 +2366,10 @@ async function matchVoiceResponse(transcript, state, options) {
     });
     if (resp.ok) {
       const result = await resp.json();
+      if (!isCurrentQuestionTurn(questionToken)) {
+        voiceSubmitting = false;
+        return { matched: false, stale: true, reason: 'stale_question' };
+      }
       if (result.accepted && result.response_value) {
         matched = result.response_value;
         voiceMeta = {
@@ -2052,6 +2427,10 @@ async function matchVoiceResponse(transcript, state, options) {
   }
 
   if (matched) {
+    if (!isCurrentQuestionTurn(questionToken)) {
+      voiceSubmitting = false;
+      return { matched: false, stale: true, reason: 'stale_question' };
+    }
     voiceSubmitting = false;
     await submitResponse(matched, voiceMeta);
     return { matched: true }; // Successfully matched
@@ -2091,7 +2470,7 @@ function clientSideMatch(transcript, options) {
     // Clarity + misrecognitions
     'clear': 'CLEAR', 'clearly': 'CLEAR', 'yes': 'CLEAR', 'readable': 'CLEAR',
     'clearer': 'CLEAR', 'got clearer': 'CLEAR', 'read line': 'CLEAR', 'read last line': 'CLEAR',
-    'better now': 'CLEAR', 'got better': 'CLEAR', 'it got better': 'CLEAR',
+    'better now': 'CLEAR', 'better than before': 'CLEAR', 'got better': 'CLEAR', 'it got better': 'CLEAR',
     'here': 'CLEAR', 'beer': 'CLEAR', 'cheer': 'CLEAR', 'dear': 'CLEAR', 'near': 'CLEAR',
     'saaf': 'CLEAR', 'saaf hai': 'CLEAR', 'saf': 'CLEAR', 'saf hai': 'CLEAR', 'safi': 'CLEAR', 'safi hai': 'CLEAR', 'saif': 'CLEAR', 'saif hai': 'CLEAR', 'saath hai': 'CLEAR', 'haan': 'CLEAR', 'haan ji': 'CLEAR', 'हाँ': 'CLEAR', 'साफ': 'CLEAR', 'साफ है': 'CLEAR', 'क्लियर': 'CLEAR', 'क्लियर है': 'CLEAR', 'हां बेहतर है': 'CLEAR', 'हाँ बेहतर है': 'CLEAR', 'clear enough': 'CLEAR', 'all clear': 'CLEAR', 'allclear': 'CLEAR',
     'blurry': 'BLURRY', 'blurred': 'BLURRY', 'blur': 'BLURRY', 'not clear': 'BLURRY',
@@ -2182,6 +2561,7 @@ function questionExpectsLineReading(state, questionText) {
   if (state === 'B' || state === 'D') {
     if (
       question.includes('better now')
+      || question.includes('better than before')
       || question.includes('yes or no')
       || question.includes('हाँ या नहीं')
       || question.includes('बेहतर')
@@ -2287,6 +2667,14 @@ function fmtAxisDisplay(axis) {
 
 // ── Terminal display ──
 function showTerminal(data) {
+  invalidateQuestionTurn();
+  stopActiveVoiceCapture({ resetVoiceSubmitting: true });
+  if (_autoFlipTimer) {
+    clearTimeout(_autoFlipTimer);
+    _autoFlipTimer = null;
+  }
+  _flipState = null;
+  updateFlipIndicator(null);
   stopExamTimer();
   updateExamTimerDisplay();
 
@@ -2435,6 +2823,7 @@ function prescriptionsEqual(a, b) {
 async function submitResponse(responseValue, voiceMeta, overrides = {}) {
   if (!sessionId) return;
   if (responseSubmitting) return;
+  invalidateQuestionTurn();
   responseSubmitting = true;
   _inputEnabled = false;
   if (_observeAdvanceTimer) {
@@ -2515,7 +2904,7 @@ async function submitResponse(responseValue, voiceMeta, overrides = {}) {
 
 // ── Keyboard shortcuts ──
 function handleKeyboard(e) {
-  if (!_inputEnabled || speechSynthesis.speaking) return;
+  if (!_inputEnabled || (!isDuplexTurnMode() && isTtsActive())) return;
   if (e.key >= '1' && e.key <= '4') {
     const slot = parseInt(e.key, 10);
     const btn = document.querySelector(`#optionsGrid .option-btn[data-slot="${slot}"]`);
@@ -2571,7 +2960,7 @@ function startGamepadPoll() {
 }
 
 function handleGamepadOptionSlot(slot) {
-  if (!_inputEnabled || _flipState === 'flip1' || speechSynthesis.speaking) return;
+  if (!_inputEnabled || _flipState === 'flip1' || (!isDuplexTurnMode() && isTtsActive())) return;
   const btn = document.querySelector(`#optionsGrid .option-btn[data-slot="${slot}"]`);
   if (btn && !btn.disabled) {
     console.log(`[Gamepad] Semantic button ${slot} → "${btn.textContent.trim()}"`);
@@ -3281,6 +3670,7 @@ function applyPipTransform() {
 function handleAutoFlip(data) {
   // Clear any pending flip timer
   if (_autoFlipTimer) { clearTimeout(_autoFlipTimer); _autoFlipTimer = null; }
+  stopDuplexBargeInMonitor();
 
   if (!data.auto_flip) {
     _flipState = null;
@@ -3289,23 +3679,30 @@ function handleAutoFlip(data) {
     return;
   }
 
+  const questionToken = _questionTurnToken;
   const promptQuestion = (document.getElementById('questionText')?.textContent || data.question || '').trim();
 
   // ── Flip 1: Show + speak "This is Flip 1", WAIT for TTS, THEN start 2s timer ──
   _flipState = 'flip1';
   updateFlipIndicator('flip1');
   setOptionsEnabled(false);
+  _inputEnabled = false;
 
-  const flip1Text = getStaticFlipPrompt('flip1');
+  const flip1Text = getStaticFlipPrompt('flip1', data.question || promptQuestion);
   document.getElementById('questionText').textContent = flip1Text;
   const waitSeconds = data.flip_wait_seconds || 2;
 
   // Wait for Flip 1 TTS to finish via onEnd callback, THEN wait the observation period
   speakQuestionWithStableFollowup(flip1Text, null, () => {
-    _autoFlipTimer = setTimeout(doFlip2, waitSeconds * 1000);
+    if (!isCurrentQuestionTurn(questionToken)) return;
+    _autoFlipTimer = setTimeout(() => {
+      if (!isCurrentQuestionTurn(questionToken)) return;
+      doFlip2();
+    }, waitSeconds * 1000);
   }, 'flip1');
 
   async function doFlip2() {
+    if (!isCurrentQuestionTurn(questionToken)) return;
     // Send handle command to flip to position 2
     if (sessionId) {
       try {
@@ -3315,21 +3712,43 @@ function handleAutoFlip(data) {
         });
       } catch (e) { console.warn('JCC flip failed:', e); }
     }
+    if (!isCurrentQuestionTurn(questionToken)) return;
 
     // ── Flip 2: Show + speak "This is Flip 2. Which is better?" ──
     _flipState = 'flip2';
     updateFlipIndicator('flip2');
 
-    const flip2Text = getStaticFlipPrompt('flip2');
+    const flip2Text = getStaticFlipPrompt('flip2', data.question || promptQuestion);
     const flip2Prompt = promptQuestion;
     document.getElementById('questionText').textContent = flip2Prompt;
+    if (isDuplexTurnMode()) {
+      setOptionsEnabled(true);
+      _inputEnabled = true;
+      if (currentState && isVoiceBargeInEligible(currentState.state, currentState.question || flip2Prompt, currentState)) {
+        startDuplexBargeInMonitor({
+          state: currentState.state,
+          options: currentState.options || [],
+          step: currentState.step,
+          questionText: currentState.question || flip2Prompt,
+          questionToken,
+          data: currentState,
+        });
+      }
+    }
     // Wait for Flip 2 TTS to finish via onEnd callback, then beep + enable buttons + listen
     speakQuestionWithStableFollowup(flip2Text, null, () => {
+      if (!isCurrentQuestionTurn(questionToken)) return;
+      stopDuplexBargeInMonitor();
+      if (isDuplexSpeechDetected(questionToken)) return;
       setOptionsEnabled(true);
       if (voiceEnabled && currentState) {
-        cueAndStartVoiceCapture(currentState.state, currentState.options || [], currentState.step, { enableInput: true });
+        cueAndStartVoiceCapture(currentState.state, currentState.options || [], currentState.step, {
+          enableInput: true,
+          questionToken,
+        });
       } else {
         playBeep().then(() => {
+          if (!isCurrentQuestionTurn(questionToken)) return;
           _inputEnabled = true;
         });
       }
