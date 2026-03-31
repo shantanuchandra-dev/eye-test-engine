@@ -1207,7 +1207,7 @@ body.loading-active {
       <div class="voice-intake-progress" id="voiceIntakeProgress">Question 1</div>
     </div>
     <div class="voice-intake-question" id="voiceIntakeQuestion">Please select your preferred language.</div>
-    <div class="voice-intake-note" id="voiceIntakeNote">You can answer by speaking or by tapping one of the options below.</div>
+    <div class="voice-intake-note" id="voiceIntakeNote">Read the options on the screen and select the response below.</div>
     <div class="voice-intake-status">
       <span class="voice-intake-dot" id="voiceIntakeStatusDot" aria-hidden="true"></span>
       <span id="voiceIntakeStatusText">Waiting to begin.</span>
@@ -1233,6 +1233,7 @@ body.loading-active {
 <script>
 const API = window.BACKEND_URL || '';
 const TTS_VOICE_STORAGE_KEY = 'ete_tts_voice_name';
+const GUIDED_INTAKE_MANUAL_ONLY = true;
 const ENGLISH_VOICE_PREFERENCE_ORDER = [
   'Samantha',
   'Ava',
@@ -1813,6 +1814,7 @@ function voiceIntakeElements() {
     note: document.getElementById('voiceIntakeNote'),
     statusText: document.getElementById('voiceIntakeStatusText'),
     statusDot: document.getElementById('voiceIntakeStatusDot'),
+    transcript: document.querySelector('#voiceIntakeOverlay .voice-intake-transcript'),
     heardLabel: document.getElementById('voiceIntakeHeardLabel'),
     heardValue: document.getElementById('voiceIntakeHeardValue'),
     mappedLabel: document.getElementById('voiceIntakeMappedLabel'),
@@ -2015,11 +2017,40 @@ function renderVoiceIntakeOptions(question) {
 }
 
 function voiceIntakeQuestionPrompt(question) {
+  if (GUIDED_INTAKE_MANUAL_ONLY && question?.multiple) {
+    return getVoiceIntakeLanguage() === 'hi'
+      ? 'कृपया स्क्रीन पर दिए गए विकल्प पढ़िए और जो भी लागू हों वे चुनिए। जब पूरा हो जाए, तब नीचे Done चुनिए।'
+      : 'Please read the options on the screen and choose all the relevant ones. When you are finished, select Done below.';
+  }
   return localizeVoiceIntakeText(question.prompt);
 }
 
 function voiceIntakeQuestionNote(question) {
+  if (GUIDED_INTAKE_MANUAL_ONLY) {
+    const lang = getVoiceIntakeLanguage();
+    if (question?.multiple) {
+      return lang === 'hi'
+        ? 'स्क्रीन पर दिए गए विकल्प पढ़िए और नीचे सभी लागू विकल्प चुनिए। जब पूरा हो जाए, तब Done दबाइए।'
+        : 'Read the options on the screen and select all that apply below. Tap Done when finished.';
+    }
+    return lang === 'hi'
+      ? 'स्क्रीन पर दिए गए विकल्प पढ़िए और नीचे एक विकल्प चुनिए।'
+      : 'Read the options on the screen and select one option below.';
+  }
   return localizeVoiceIntakeText(question.note) || INTAKE_COMMON_NOTES[getVoiceIntakeLanguage()];
+}
+
+function setVoiceIntakeManualReadyState(question) {
+  const lang = getVoiceIntakeLanguage();
+  if (question?.multiple) {
+    setVoiceIntakeStatus('', lang === 'hi'
+      ? 'नीचे लागू विकल्प चुनिए, फिर Done दबाइए।'
+      : 'Select the relevant options below, then tap Done.');
+    return;
+  }
+  setVoiceIntakeStatus('', lang === 'hi'
+    ? 'नीचे एक विकल्प चुनिए।'
+    : 'Select one option below.');
 }
 
 function matchVoiceIntakeResponse(question, transcript) {
@@ -2513,8 +2544,18 @@ function askVoiceIntakeQuestion({ skipSpeech = false } = {}) {
   }
   if (elements.question) elements.question.textContent = voiceIntakeQuestionPrompt(question);
   if (elements.note) elements.note.textContent = voiceIntakeQuestionNote(question);
+  if (elements.transcript) elements.transcript.hidden = GUIDED_INTAKE_MANUAL_ONLY;
   setVoiceIntakeTranscript('', '');
   renderVoiceIntakeOptions(question);
+
+  if (GUIDED_INTAKE_MANUAL_ONLY) {
+    if (skipSpeech) {
+      setVoiceIntakeManualReadyState(question);
+      return;
+    }
+    speakVoiceIntakeQuestion(question, () => setVoiceIntakeManualReadyState(question));
+    return;
+  }
 
   if (skipSpeech) {
     startVoiceIntakeRecognition(question);

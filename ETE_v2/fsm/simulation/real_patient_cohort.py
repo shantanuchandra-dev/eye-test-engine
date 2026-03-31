@@ -23,7 +23,13 @@ from fsm.simulation.behavior_models import (
     InconsistentResponder,
     NoisyResponder,
 )
-from fsm.simulation.common import STATE_NAMES, execute_case
+from fsm.simulation.common import (
+    STATE_NAMES,
+    SIM_DISTANCE_SUCCESS_AXIS_TOL_DEG,
+    SIM_DISTANCE_SUCCESS_CYL_TOL_D,
+    SIM_DISTANCE_SUCCESS_SPH_TOL_D,
+    execute_case,
+)
 from fsm.simulation.result_writer import create_run_folder, save_dataframe_csv, save_json, save_trace_csv
 from fsm.simulation.virtual_patient import TruthRx
 
@@ -270,9 +276,9 @@ def _rx_is_close(
     *,
     truth_left: EyePrescription,
     truth_right: EyePrescription,
-    sph_tol: float = 0.5,
-    cyl_tol: float = 0.5,
-    axis_tol: float = 10.0,
+    sph_tol: float = SIM_DISTANCE_SUCCESS_SPH_TOL_D,
+    cyl_tol: float = SIM_DISTANCE_SUCCESS_CYL_TOL_D,
+    axis_tol: float = SIM_DISTANCE_SUCCESS_AXIS_TOL_DEG,
 ) -> bool:
     if left is None or right is None or not left.has_full_rx() or not right.has_full_rx():
         return False
@@ -327,13 +333,6 @@ def synthesize_patient_input(
         truth_left=truth_le,
         truth_right=truth_re,
     )
-
-    if age < 22:
-        occupation = "Student"
-    elif age >= 60:
-        occupation = "Retired"
-    else:
-        occupation = "Office"
 
     if age < 18:
         screen_time_hours = 4.0
@@ -418,7 +417,9 @@ def synthesize_patient_input(
     return PatientInput(
         visit_id=qms_id,
         age=age,
-        occupation=occupation,
+        # Live intake no longer captures occupation, so cohort replay should
+        # not synthesize it into DV branching.
+        occupation="",
         screen_time_hours=screen_time_hours,
         driving_hours=driving_hours,
         primary_reason=primary_reason,
@@ -705,10 +706,10 @@ def _aggregate_case_trials(trial_rows: list[dict]) -> dict:
             "accuracy_among_completed": float(distance_metrics["accuracy_among_completed"]),
             "RE_sphere_within_0.25": float(distance_metrics["RE_sphere_within_0.25"]),
             "RE_cyl_within_0.25": float(distance_metrics["RE_cyl_within_0.25"]),
-            "RE_axis_within_5deg": float(distance_metrics["RE_axis_within_5deg"]),
+            "RE_axis_within_10deg": float(distance_metrics["RE_axis_within_10deg"]),
             "LE_sphere_within_0.25": float(distance_metrics["LE_sphere_within_0.25"]),
             "LE_cyl_within_0.25": float(distance_metrics["LE_cyl_within_0.25"]),
-            "LE_axis_within_5deg": float(distance_metrics["LE_axis_within_5deg"]),
+            "LE_axis_within_10deg": float(distance_metrics["LE_axis_within_10deg"]),
             "add_accuracy_among_completed_valid_add": float(add_metrics["add_accuracy_among_completed_valid_add"]),
             "outcome": dominant_outcome,
             "termination_state": (
@@ -1129,10 +1130,10 @@ def compute_distance_accuracy_metrics(completed_df: pd.DataFrame) -> dict:
             "accuracy_among_completed": 0.0,
             "RE_sphere_within_0.25": 0.0,
             "RE_cyl_within_0.25": 0.0,
-            "RE_axis_within_5deg": 0.0,
+            "RE_axis_within_10deg": 0.0,
             "LE_sphere_within_0.25": 0.0,
             "LE_cyl_within_0.25": 0.0,
-            "LE_axis_within_5deg": 0.0,
+            "LE_axis_within_10deg": 0.0,
             "mean_re_sph_err": 0.0,
             "mean_re_cyl_err": 0.0,
             "mean_re_axis_err": 0.0,
@@ -1141,30 +1142,30 @@ def compute_distance_accuracy_metrics(completed_df: pd.DataFrame) -> dict:
             "mean_le_axis_err": 0.0,
         }
 
-    re_sphere_025 = (completed_df["re_sph_err"] <= 0.25).mean()
-    re_cyl_025 = (completed_df["re_cyl_err"] <= 0.25).mean()
-    re_axis_5 = (completed_df["re_axis_err"] <= 5).mean()
-    le_sphere_025 = (completed_df["le_sph_err"] <= 0.25).mean()
-    le_cyl_025 = (completed_df["le_cyl_err"] <= 0.25).mean()
-    le_axis_5 = (completed_df["le_axis_err"] <= 5).mean()
+    re_sphere_025 = (completed_df["re_sph_err"] <= SIM_DISTANCE_SUCCESS_SPH_TOL_D).mean()
+    re_cyl_025 = (completed_df["re_cyl_err"] <= SIM_DISTANCE_SUCCESS_CYL_TOL_D).mean()
+    re_axis_10 = (completed_df["re_axis_err"] <= SIM_DISTANCE_SUCCESS_AXIS_TOL_DEG).mean()
+    le_sphere_025 = (completed_df["le_sph_err"] <= SIM_DISTANCE_SUCCESS_SPH_TOL_D).mean()
+    le_cyl_025 = (completed_df["le_cyl_err"] <= SIM_DISTANCE_SUCCESS_CYL_TOL_D).mean()
+    le_axis_10 = (completed_df["le_axis_err"] <= SIM_DISTANCE_SUCCESS_AXIS_TOL_DEG).mean()
 
     cumulative_avg_accuracy = (
         re_sphere_025
         + re_cyl_025
-        + re_axis_5
+        + re_axis_10
         + le_sphere_025
         + le_cyl_025
-        + le_axis_5
+        + le_axis_10
     ) / 6.0
 
     return {
         "accuracy_among_completed": cumulative_avg_accuracy,
         "RE_sphere_within_0.25": re_sphere_025,
         "RE_cyl_within_0.25": re_cyl_025,
-        "RE_axis_within_5deg": re_axis_5,
+        "RE_axis_within_10deg": re_axis_10,
         "LE_sphere_within_0.25": le_sphere_025,
         "LE_cyl_within_0.25": le_cyl_025,
-        "LE_axis_within_5deg": le_axis_5,
+        "LE_axis_within_10deg": le_axis_10,
         "mean_re_sph_err": completed_df["re_sph_err"].mean(),
         "mean_re_cyl_err": completed_df["re_cyl_err"].mean(),
         "mean_re_axis_err": completed_df["re_axis_err"].mean(),

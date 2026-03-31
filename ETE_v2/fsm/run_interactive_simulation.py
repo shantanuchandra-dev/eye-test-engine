@@ -20,7 +20,11 @@ from fsm.models.prescription import EyePrescription
 from fsm.simulation.common import seed_final_compare_context
 from fsm.simulation.result_writer import create_run_folder, save_json, save_trace_csv
 
-RESULTS_ROOT = "results"
+APP_ROOT = Path(__file__).resolve().parents[1]
+RESULTS_ROOT = APP_ROOT / "results"
+DEFAULT_CALIBRATION_PATH = APP_ROOT / "config" / "calibration.csv"
+DEFAULT_HF_MODEL_PATH = APP_ROOT / "models" / "whisper-large-v3-turbo-hf"
+DEFAULT_CT2_MODEL_PATH = APP_ROOT / "models" / "whisper-large-v3-turbo-ct2"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -59,12 +63,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--hf-model-path",
-        default="models/whisper-large-v3-turbo-hf",
+        default=str(DEFAULT_HF_MODEL_PATH),
         help="Local path for the Hugging Face Whisper Turbo model.",
     )
     parser.add_argument(
         "--ct2-model-path",
-        default="models/whisper-large-v3-turbo-ct2",
+        default=str(DEFAULT_CT2_MODEL_PATH),
         help="Local path for the CTranslate2-converted Whisper Turbo model.",
     )
     parser.add_argument(
@@ -87,7 +91,7 @@ def default_interactive_patient(run_id: str) -> PatientInput:
         visit_id=run_id,
         patient_name="Interactive Simulation",
         age=44,
-        occupation="Office",
+        occupation="",
         screen_time_hours=7.0,
         driving_hours=1.0,
         primary_reason="Blurred distance",
@@ -316,7 +320,7 @@ def _play_beep() -> None:
 def main() -> None:
     args = build_parser().parse_args()
 
-    calibration = CalibrationLoader("config/calibration.csv")
+    calibration = CalibrationLoader(str(DEFAULT_CALIBRATION_PATH))
     engine = RefractionFSMEngine(calibration)
     dv_engine = DerivedVariablesEngine(calibration)
 

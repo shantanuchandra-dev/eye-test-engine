@@ -16,7 +16,9 @@ from fsm.simulation.population_runner import PopulationRunner
 from fsm.simulation.result_writer import create_run_folder, save_dataframe_csv, save_json
 
 
-RESULTS_ROOT = "results"
+APP_ROOT = Path(__file__).resolve().parents[1]
+RESULTS_ROOT = APP_ROOT / "results"
+DEFAULT_CALIBRATION_PATH = APP_ROOT / "config" / "calibration.csv"
 
 
 def build_single_case(run_id: str, calibration) -> SyntheticCase:
@@ -40,7 +42,7 @@ def build_single_case(run_id: str, calibration) -> SyntheticCase:
         visit_id=run_id,
         patient_name="Simulation Patient",
         age=46,
-        occupation="Office",
+        occupation="",
         screen_time_hours=7.0,
         driving_hours=1.0,
         primary_reason="Blurred distance",
@@ -84,7 +86,7 @@ def build_single_case(run_id: str, calibration) -> SyntheticCase:
 
 
 def main() -> None:
-    calibration = CalibrationLoader("config/calibration.csv")
+    calibration = CalibrationLoader(str(DEFAULT_CALIBRATION_PATH))
     results_folder, run_id = create_run_folder(RESULTS_ROOT, "single_patient")
     case = build_single_case(run_id, calibration)
     runner = PopulationRunner(calibration)

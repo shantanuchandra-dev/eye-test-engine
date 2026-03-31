@@ -10,6 +10,10 @@ from fsm.models.fsm_runtime import FSMRuntimeRow
 from fsm.models.patient import PatientInput
 from fsm.simulation.virtual_patient import TruthRx, VirtualPatient
 
+SIM_DISTANCE_SUCCESS_SPH_TOL_D = 0.25
+SIM_DISTANCE_SUCCESS_CYL_TOL_D = 0.25
+SIM_DISTANCE_SUCCESS_AXIS_TOL_DEG = 10.0
+
 
 STATE_NAMES = {
     "B": "Coarse Sphere RE",
@@ -246,12 +250,12 @@ def prescription_error_metrics(payload: dict, truth: TruthRx, truth_add_valid: b
     add_l_err = abs(float(left.get("add") or 0.0) - truth.add_l) if truth_add_valid else None
 
     distance_success = (
-        re_sph_err <= 0.25
-        and re_cyl_err <= 0.25
-        and re_axis_err <= 5.0
-        and le_sph_err <= 0.25
-        and le_cyl_err <= 0.25
-        and le_axis_err <= 5.0
+        re_sph_err <= SIM_DISTANCE_SUCCESS_SPH_TOL_D
+        and re_cyl_err <= SIM_DISTANCE_SUCCESS_CYL_TOL_D
+        and re_axis_err <= SIM_DISTANCE_SUCCESS_AXIS_TOL_DEG
+        and le_sph_err <= SIM_DISTANCE_SUCCESS_SPH_TOL_D
+        and le_cyl_err <= SIM_DISTANCE_SUCCESS_CYL_TOL_D
+        and le_axis_err <= SIM_DISTANCE_SUCCESS_AXIS_TOL_DEG
     )
     add_success = (
         (add_r_err is not None and add_r_err <= 0.25)

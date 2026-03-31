@@ -1,0 +1,16 @@
+profile_id,total_cases,completion_rate,escalation_rate,timeout_rate,distance_accuracy_among_completed,distance_success_rate_all_cases,avg_steps
+mild_anisometrope,2,1.0,0.0,0.0,0.8333,0.0,35.0
+dissatisfied_current_glasses,4,1.0,0.0,0.0,0.9167,0.5,33.0
+high_symptom_stable,2,1.0,0.0,0.0,0.9167,0.5,38.0
+high_myope_stable,3,1.0,0.0,0.0,0.9444,0.6667,31.67
+young_stable_myope,10,1.0,0.0,0.0,0.95,0.7,32.8
+adult_hyperope,4,1.0,0.0,0.0,1.0,1.0,31.25
+comfortable_current_glasses,3,1.0,0.0,0.0,1.0,1.0,28.67
+conservative_comfort_first,4,1.0,0.0,0.0,1.0,1.0,30.5
+driver_night_symptoms,1,1.0,0.0,0.0,1.0,1.0,34.0
+fluctuating_vision_adult,2,1.0,0.0,0.0,1.0,1.0,40.0
+moderate_anisometrope,1,1.0,0.0,0.0,1.0,1.0,33.0
+presbyope_distance_priority,6,1.0,0.0,0.0,1.0,1.0,34.67
+presbyope_near_priority,2,1.0,0.0,0.0,1.0,1.0,43.0
+screen_heavy_young_adult,2,1.0,0.0,0.0,1.0,1.0,31.5
+young_astigmat,4,1.0,0.0,0.0,1.0,1.0,34.0

@@ -1,0 +1,2 @@
+accuracy_among_completed,RE_sphere_within_0.25,RE_cyl_within_0.25,RE_axis_within_5deg,LE_sphere_within_0.25,LE_cyl_within_0.25,LE_axis_within_5deg,mean_re_sph_err,mean_re_cyl_err,mean_re_axis_err,mean_le_sph_err,mean_le_cyl_err,mean_le_axis_err,valid_add_truth_cases,add_accuracy_among_completed_valid_add,add_r_within_0.25,add_l_within_0.25
+0.9700000000000001,1.0,1.0,0.9,1.0,1.0,0.92,0.015,0.01,2.88,0.015,0.02,3.26,50,1.0,1.0,1.0

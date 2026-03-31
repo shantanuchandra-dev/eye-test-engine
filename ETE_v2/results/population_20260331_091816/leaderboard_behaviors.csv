@@ -1,0 +1,6 @@
+behavior_id,total_cases,completion_rate,escalation_rate,timeout_rate,distance_accuracy_among_completed,distance_success_rate_all_cases,avg_steps
+inconsistent,498,0.998,0.002,0.0,0.9879,0.9277,39.53
+noisy,1563,0.9974,0.0026,0.0,0.9895,0.9373,35.22
+hesitant,1487,1.0,0.0,0.0,0.9967,0.9812,35.51
+accommodative,1971,0.997,0.003,0.0,0.9976,0.9863,33.29
+ideal,4481,1.0,0.0,0.0,0.9985,0.9915,32.37

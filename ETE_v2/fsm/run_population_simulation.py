@@ -16,7 +16,9 @@ from fsm.simulation.real_patient_cohort import compute_add_accuracy_metrics, com
 from fsm.simulation.result_writer import create_run_folder, save_dataframe_csv, save_json
 
 
-RESULTS_ROOT = "results"
+APP_ROOT = Path(__file__).resolve().parents[1]
+RESULTS_ROOT = APP_ROOT / "results"
+DEFAULT_CALIBRATION_PATH = APP_ROOT / "config" / "calibration.csv"
 
 
 def summarize_group(df: pd.DataFrame, group_col: str) -> pd.DataFrame:
@@ -86,8 +88,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--n-truth", type=int, default=10000, help="Number of synthetic cases to simulate.")
     parser.add_argument("--seed-base", type=int, default=1000, help="Seed base for profile/case generation.")
     parser.add_argument("--max-steps", type=int, default=200, help="Maximum FSM steps per simulated case.")
-    parser.add_argument("--calibration-path", default="config/calibration.csv", help="Path to the live calibration CSV.")
-    parser.add_argument("--results-root", default=RESULTS_ROOT, help="Folder where simulation outputs should be written.")
+    parser.add_argument("--calibration-path", default=str(DEFAULT_CALIBRATION_PATH), help="Path to the live calibration CSV.")
+    parser.add_argument("--results-root", default=str(RESULTS_ROOT), help="Folder where simulation outputs should be written.")
     return parser
 
 

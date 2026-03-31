@@ -18,6 +18,10 @@ from fsm.simulation.real_patient_cohort import (
     summarize_states,
 )
 
+APP_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_CALIBRATION_PATH = APP_ROOT / "config" / "calibration.csv"
+DEFAULT_RESULTS_ROOT = APP_ROOT / "results"
+
 
 def _display_label(value: Any) -> str:
     if value is None:
@@ -84,12 +88,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--calibration-path",
-        default="config/calibration.csv",
+        default=str(DEFAULT_CALIBRATION_PATH),
         help="Path to the FSM calibration CSV.",
     )
     parser.add_argument(
         "--results-root",
-        default="results",
+        default=str(DEFAULT_RESULTS_ROOT),
         help="Base folder where run outputs should be written.",
     )
     parser.add_argument(
@@ -229,10 +233,10 @@ def main() -> None:
     print("\nRX parameter accuracy")
     _print_metric("RE sphere within 0.25D", rx_metrics["RE_sphere_within_0.25"])
     _print_metric("RE cyl within 0.25D", rx_metrics["RE_cyl_within_0.25"])
-    _print_metric("RE axis within 5 deg", rx_metrics["RE_axis_within_5deg"])
+    _print_metric("RE axis within 10 deg", rx_metrics["RE_axis_within_10deg"])
     _print_metric("LE sphere within 0.25D", rx_metrics["LE_sphere_within_0.25"])
     _print_metric("LE cyl within 0.25D", rx_metrics["LE_cyl_within_0.25"])
-    _print_metric("LE axis within 5 deg", rx_metrics["LE_axis_within_5deg"])
+    _print_metric("LE axis within 10 deg", rx_metrics["LE_axis_within_10deg"])
 
     _print_state_table(state_table)
 

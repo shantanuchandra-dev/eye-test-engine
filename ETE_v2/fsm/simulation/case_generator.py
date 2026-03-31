@@ -170,7 +170,9 @@ def build_patient_input(case_id, profile, truth, ar_re, ar_le, lenso_re, lenso_l
     return PatientInput(
         visit_id=case_id,
         age=profile["age_years"],
-        occupation=profile["occupation_type"],
+        # Live intake no longer collects occupation, so simulations should not
+        # inject a hidden occupation signal into derived-variable branching.
+        occupation="",
         screen_time_hours=profile["screen_time_hours"],
         driving_hours=profile["driving_time_hours"],
         primary_reason=profile["primary_reason"],
