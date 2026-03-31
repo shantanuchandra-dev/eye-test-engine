@@ -1014,6 +1014,7 @@ HINDI_QUESTION_TRANSLATIONS = {
     "First, second, or both same?": "पहला, दूसरा, या दोनों समान?",
     "First option, second option, both same, or repeat?": "पहला विकल्प, दूसरा विकल्प, दोनों समान, या फिर से?",
     "First option, second option, or both same?": "पहला विकल्प, दूसरा विकल्प, या दोनों समान?",
+    "Which is better, or are both same?": "कौन बेहतर है, या दोनों समान हैं?",
     "Please compare the green and red sides. Letters on which side look sharper and darker? Say green side, red side, both same, or repeat.": "कृपया हरे और लाल साइड की तुलना कीजिए। अक्षर किस साइड पर ज़्यादा शार्प और गहरे दिख रहे हैं? हरा साइड, लाल साइड, दोनों समान, या फिर से कहिए।",
     "Green side, red side, both same, or repeat?": "हरा साइड, लाल साइड, दोनों समान, या फिर से?",
     "Please compare the letters on the bottom and the top line. Which line looks sharper? Say bottom line, top line, both same, or repeat.": "कृपया नीचे और ऊपर की लाइन के अक्षरों की तुलना कीजिए। कौन सी लाइन ज़्यादा शार्प दिख रही है? नीचे की लाइन, ऊपर की लाइन, दोनों समान, या फिर से कहिए।",
@@ -3014,6 +3015,8 @@ def _compact_exact_phrase_fuzzy_match(
 
 
 def _comparison_token_label(normalized_text: str) -> Optional[str]:
+    if _is_ambiguous_bare_option_text(normalized_text):
+        return None
     tokens = set(normalized_text.split())
     one_terms = {"one", "first", "ek", "एक", "pehla", "पहला"}
     two_terms = {"two", "second", "do", "to", "too", "tu", "दो", "dusra", "दूसरा"}
@@ -3033,6 +3036,8 @@ def _comparison_token_label(normalized_text: str) -> Optional[str]:
 
 
 def _compact_comparison_token_label(normalized_text: str) -> Optional[str]:
+    if _is_ambiguous_bare_option_text(normalized_text):
+        return None
     tokens = set(normalized_text.split())
     one_terms = {"one", "first", "ek", "एक", "pehla", "पहला"}
     two_terms = {"two", "second", "do", "to", "too", "tu", "दो", "dusra", "दूसरा"}
@@ -3051,6 +3056,8 @@ def _compact_comparison_token_label(normalized_text: str) -> Optional[str]:
 
 
 def _compact_comparison_intent_match(normalized_text: str) -> Optional[str]:
+    if _is_ambiguous_bare_option_text(normalized_text):
+        return None
     if _compact_repeat_intent(normalized_text):
         return "REPEAT"
 
@@ -3341,7 +3348,17 @@ def _line_phase_clarity_override(*, transcript: str, normalized_text: str) -> Op
     return None
 
 
+def _is_ambiguous_bare_option_text(normalized_text: str) -> bool:
+    tokens = [token for token in normalized_text.split() if token]
+    if not tokens:
+        return False
+    allowed = {"option", "options", "vikalp", "विकल्प", "hai", "hey", "is", "the"}
+    return set(tokens).issubset(allowed) and any(token in {"option", "options", "vikalp", "विकल्प"} for token in tokens)
+
+
 def _comparison_intent_match(normalized_text: str) -> Optional[str]:
+    if _is_ambiguous_bare_option_text(normalized_text):
+        return None
     cant_tell_patterns = [
         r"\b(can'?t tell|cannot tell|cant tell)\b",
         r"\bhard to tell\b",

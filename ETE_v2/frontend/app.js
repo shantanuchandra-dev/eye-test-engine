@@ -159,12 +159,16 @@ function getStaticFlipPrompt(stage, baseQuestion = '') {
     prompt.includes('please compare the two dot patterns')
     || prompt.includes('please compare the two choices')
   );
+  const useCondensedSecondPrompt = _jccPromptExposureCount > 3;
 
   if (sessionLanguage === 'hi') {
     if (stage === 'flip1') {
       return useShortForm
         ? 'पहला विकल्प'
         : 'कृपया दोनों डॉट पैटर्न की तुलना कीजिए। कौन सा ज़्यादा साफ या शार्प दिख रहा है? यह पहला विकल्प है।';
+    }
+    if (useCondensedSecondPrompt) {
+      return 'दूसरा विकल्प। कौन बेहतर है, या दोनों समान हैं?';
     }
     return useShortForm
       ? 'दूसरा विकल्प। कौन बेहतर है? पहला विकल्प, दूसरा विकल्प, दोनों समान, या फिर से?'
@@ -175,6 +179,9 @@ function getStaticFlipPrompt(stage, baseQuestion = '') {
     return useShortForm
       ? 'First option'
       : 'Please compare the two dot patterns. Which one is clearer or sharper? This is the first option.';
+  }
+  if (useCondensedSecondPrompt) {
+    return 'Second option. Which is better, or are both same?';
   }
   return useShortForm
     ? 'Second option. Which is better? First option, second option, both same or repeat?'
@@ -1072,6 +1079,7 @@ let _examClockStartMs = null;
 let _langSelectPendingData = null; // Stores first-question data during language selection
 let _autoFlipTimer = null; // Timer for JCC auto-flip
 let _flipState = null; // 'flip1', 'flip2', or null
+let _jccPromptExposureCount = 0; // Counts JCC prompt exposures within the current session
 let _inputEnabled = false; // Global gate: voice, gamepad, keyboard only after beep
 
 // ── Gamepad ──
@@ -1083,6 +1091,7 @@ let _gamepadPollId = null;
 
 // ── Initialization ──
 document.addEventListener('DOMContentLoaded', () => {
+  _jccPromptExposureCount = 0;
   // Check for session from URL or sessionStorage
   const params = new URLSearchParams(window.location.search);
   sessionId = params.get('session_id') || sessionStorage.getItem('session_id');
@@ -2465,6 +2474,10 @@ function clientSideMatch(transcript, options) {
     t = 'dhundla hai';
   }
 
+  if (/^(option|options|vikalp|विकल्प)(\s+(hai|hey|is|the))?$/.test(t)) {
+    return null;
+  }
+
   // Direct keyword map + common Chrome misrecognitions for single-syllable words
   const KEYWORD_MAP = {
     // Clarity + misrecognitions
@@ -3678,6 +3691,8 @@ function handleAutoFlip(data) {
     setOptionsEnabled(true);
     return;
   }
+
+  _jccPromptExposureCount += 1;
 
   const questionToken = _questionTurnToken;
   const promptQuestion = (document.getElementById('questionText')?.textContent || data.question || '').trim();

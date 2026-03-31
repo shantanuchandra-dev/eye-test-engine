@@ -53,9 +53,9 @@ AXIS_POLICY,axis_fixed_step,5,deg,integer,FSM adaptive axis fallback,Legacy/defa
 AXIS_POLICY,axis_rounding_step,5,deg,integer,Start-Rx axis normalization,Axis rounding step used when normalizing AR-derived starting axes
 AXIS_POLICY,jcc_axis_same_required,1,count,integer,FSM axis convergence,Number of SAME confirmations required before exiting axis refinement
 AXIS_POLICY,jcc_axis_max_flips,3,count,integer,FSM axis convergence,Maximum BETTER_1 ↔ BETTER_2 reversals allowed in JCC axis
-AXIS_POLICY,axis_near_cardinal_threshold_deg,10,deg,float,FSM adaptive axis lane selection,Axis is treated as near-cardinal when within this many degrees of 0/90/180
-AXIS_POLICY,axis_low_cyl_threshold_d,0.5,D,float,FSM adaptive axis lane selection,Cylinder magnitude below this threshold is treated as low for axis confidence
-AXIS_POLICY,axis_meaningful_cyl_threshold_d,0.75,D,float,FSM adaptive axis lane selection,Cylinder magnitude at or above this threshold is treated as meaningful for stronger axis confidence
+AXIS_POLICY,axis_near_cardinal_threshold_deg,5,deg,float,FSM adaptive axis lane selection,Axis is treated as near-cardinal when within this many degrees of 0/90/180
+AXIS_POLICY,axis_low_cyl_threshold_d,0.25,D,float,FSM adaptive axis lane selection,Cylinder magnitude below this threshold is treated as low for axis confidence
+AXIS_POLICY,axis_meaningful_cyl_threshold_d,0.5,D,float,FSM adaptive axis lane selection,Cylinder magnitude at or above this threshold is treated as meaningful for stronger axis confidence
 AXIS_POLICY,lane_1_sequence_deg,10,deg sequence,text,FSM adaptive axis lane selection,Step sequence for high-confidence axis refinement
 AXIS_POLICY,lane_2_sequence_deg,"20,10",deg sequence,text,FSM adaptive axis lane selection,Step sequence for medium-confidence axis refinement
 AXIS_POLICY,lane_3_sequence_deg,"30,20,10",deg sequence,text,FSM adaptive axis lane selection,Step sequence for low-confidence axis refinement
@@ -66,22 +66,22 @@ AXIS_POLICY,axis_tol_relaxed,10,deg,integer,dv_axis_tolerance_deg,Implementable 
 
 CYL_POLICY,cyl_tol_conservative,0.25,D,float,dv_cyl_tolerance_D,Cylinder tolerance used in Conservative mode
 CYL_POLICY,cyl_tol_standard,0.25,D,float,dv_cyl_tolerance_D,Cylinder tolerance used in Standard mode
-CYL_POLICY,cyl_tol_aggressive,0.5,D,float,dv_cyl_tolerance_D,Cylinder tolerance used in Aggressive mode
+CYL_POLICY,cyl_tol_aggressive,0.25,D,float,dv_cyl_tolerance_D,Cylinder tolerance used in Aggressive mode
 CYL_POLICY,jcc_power_same_low,1,count,integer,FSM JCC power convergence,Number of SAME confirmations required in low confidence cases
 CYL_POLICY,jcc_power_same_medium,1,count,integer,FSM JCC power convergence,Number of SAME confirmations required in medium confidence cases
 CYL_POLICY,jcc_power_same_high,1,count,integer,FSM JCC power convergence,Number of SAME confirmations required in high confidence cases
 CYL_POLICY,jcc_power_max_flips,2,count,integer,FSM JCC power convergence,Maximum allowed BETTER_1 ↔ BETTER_2 flips in JCC power before forcing exit to duochrome
 
-FOGGING,low_fog_amount,0.5,D,float,dv_fogging_amount_D,Sphere shift added when low fogging is applied
-FOGGING,standard_fog_amount,0.75,D,float,dv_fogging_amount_D,Sphere fog amount used for standard fogging
-FOGGING,strong_fog_amount,1,D,float,dv_fogging_amount_D,Sphere fog amount used for strong fogging
+FOGGING,low_fog_amount,0.25,D,float,dv_fogging_amount_D,Sphere shift added when low fogging is applied
+FOGGING,standard_fog_amount,0.5,D,float,dv_fogging_amount_D,Sphere fog amount used for standard fogging
+FOGGING,strong_fog_amount,0.75,D,float,dv_fogging_amount_D,Sphere fog amount used for strong fogging
 
 DUOCHROME,duochrome_red_step,-0.25,D,float,FSM dS in duochrome,Sphere adjustment applied when red is clearer
 DUOCHROME,duochrome_green_step,0.25,D,float,FSM dS in duochrome,Sphere adjustment applied when green is clearer
 DUOCHROME,duochrome_equal_confirmations,1,count,integer,FSM duochrome convergence,Number of consecutive equal responses needed for duochrome convergence
 DUOCHROME,duochrome_max_flips_strict,2,count,integer,dv_duochrome_max_flips,Maximum red-green flips allowed in strict cases
-DUOCHROME,duochrome_max_flips_normal,3,count,integer,dv_duochrome_max_flips,Maximum red-green flips allowed in normal cases
-DUOCHROME,duochrome_max_flips_relaxed,5,count,integer,dv_duochrome_max_flips,Maximum red-green flips allowed in relaxed cases
+DUOCHROME,duochrome_max_flips_normal,2,count,integer,dv_duochrome_max_flips,Maximum red-green flips allowed in normal cases
+DUOCHROME,duochrome_max_flips_relaxed,3,count,integer,dv_duochrome_max_flips,Maximum red-green flips allowed in relaxed cases
 
 BINOC_BALANCE,bino_balance_step,0.25,D,float,FSM K phase,Sphere adjustment used during binocular balance
 BINOC_BALANCE,bino_balance_same_required,1,count,integer,FSM K convergence,Number of SAME confirmations needed before leaving binocular balance

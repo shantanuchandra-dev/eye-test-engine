@@ -164,7 +164,7 @@ class AxisLanePolicyTests(unittest.TestCase):
         dv = self._derive(
             self._patient(
                 visit_id="lane-3",
-                ar_re=self._rx(-1.50, -0.50, 55),
+                ar_re=self._rx(-1.50, -0.40, 55),
                 lenso_re=None,
             )
         )
@@ -176,7 +176,7 @@ class AxisLanePolicyTests(unittest.TestCase):
         dv = self._derive(
             self._patient(
                 visit_id="lane-4",
-                ar_re=self._rx(-1.50, -0.25, 4),
+                ar_re=self._rx(-1.50, -0.12, 4),
                 lenso_re=None,
             )
         )
@@ -244,8 +244,8 @@ class AxisLanePolicyTests(unittest.TestCase):
         cases = [
             ("LANE_1", self._rx(-2.00, -1.00, 45), self._rx(-2.25, -1.00, 40), [10.0, 0.0]),
             ("LANE_2", self._rx(-1.50, -1.25, 47), None, [20.0, 10.0, 0.0]),
-            ("LANE_3", self._rx(-1.50, -0.50, 55), None, [30.0, 20.0, 10.0, 0.0]),
-            ("LANE_4", self._rx(-1.50, -0.25, 4), None, [45.0, 30.0, 20.0, 10.0, 0.0]),
+            ("LANE_3", self._rx(-1.50, -0.40, 55), None, [30.0, 20.0, 10.0, 0.0]),
+            ("LANE_4", self._rx(-1.50, -0.12, 4), None, [45.0, 30.0, 20.0, 10.0, 0.0]),
         ]
 
         for lane_id, ar_re, lenso_re, expected_steps in cases:
@@ -366,8 +366,8 @@ class AxisLanePolicyTests(unittest.TestCase):
 
         self.assertTrue(orchestrator.session_history)
         last_row = orchestrator.session_history[-1]
-        self.assertEqual(last_row["axis_lane_id"], "LANE_4")
-        self.assertEqual(last_row["axis_step_sequence"], "45,30,20,10")
+        self.assertEqual(last_row["axis_lane_id"], "LANE_3")
+        self.assertEqual(last_row["axis_step_sequence"], "30,20,10")
         self.assertEqual(last_row["axis_source_used"], "AR")
         self.assertIn(
             "Axis lane selected",
@@ -407,8 +407,8 @@ class AxisLanePolicyTests(unittest.TestCase):
         self.assertNotIn("dv_quick_axis_search_RE", dv)
         self.assertNotIn("dv_quick_axis_search_LE", dv)
 
-        self.assertEqual(dv["dv_axis_lane_id_RE"], "LANE_4")
-        self.assertEqual(dv["dv_axis_step_sequence_RE"], "45,30,20,10")
+        self.assertEqual(dv["dv_axis_lane_id_RE"], "LANE_3")
+        self.assertEqual(dv["dv_axis_step_sequence_RE"], "30,20,10")
 
     def test_existing_start_source_and_start_rx_logic_is_preserved(self):
         dv = self._derive(
@@ -998,13 +998,14 @@ class AxisLanePolicyTests(unittest.TestCase):
         orchestrator._send_jcc = fake_send_jcc
         orchestrator._capture_screenshot = lambda: None
 
+        orchestrator.process_response("CLEAR")
         orchestrator.process_response("BLURRY")
         calls.clear()
         response = orchestrator.process_response("BLURRY")
 
         self.assertEqual(response["state"], "E")
         self.assertGreaterEqual(len(calls), 2)
-        self.assertEqual(calls[0], ("power", False, "E", -1.0))
+        self.assertEqual(calls[0], ("power", False, "E", -1.25))
         self.assertEqual(calls[1], ("chart", "Chart1", ("chart_19",)))
 
     def test_coarse_blurry_then_more_blurry_steps_back_and_exits_phase(self):
@@ -1017,22 +1018,59 @@ class AxisLanePolicyTests(unittest.TestCase):
         )
         engine = RefractionFSMEngine(self.calibration)
         current = engine.initialize_row("coarse-stepback", dv)
-        base_sphere = current.re_sph
+        blurred = engine.apply_response(current, "BLURRY", dv)
+        self.assertAlmostEqual(blurred.ds_re, -0.25)
+        self.assertFalse(blurred.coarse_compare_mode)
+        self.assertEqual(blurred.next_state, "B")
+
+        next_row = engine._build_next_row(blurred, dv)
+        self.assertIsNotNone(next_row)
+        self.assertEqual(next_row.state, "B")
+        self.assertEqual(next_row.chart_param, "70_60_50")
+        self.assertEqual(next_row.question, "Read the line, say blurry, or repeat.")
+
+    def test_coarse_compare_starts_only_from_20_25_chart(self):
+        dv = self._derive(
+            self._patient(
+                visit_id="coarse-compare-gated",
+                ar_re=self._rx(-1.50, -0.75, 45),
+                lenso_re=None,
+            )
+        )
+        engine = RefractionFSMEngine(self.calibration)
+        current = engine._row_for_state(
+            step=5,
+            visit_id="coarse-compare-gated",
+            state="B",
+            dv=dv,
+            re_sph=-1.50,
+            re_cyl=-0.75,
+            re_axis=45,
+            le_sph=-1.25,
+            le_cyl=-0.75,
+            le_axis=80,
+            add_r=0.0,
+            add_l=0.0,
+            chart_param="40_30_25",
+            phase_step_count=2,
+            same_streak=0,
+            prev_axis_response="",
+            duo_iter=0,
+            duo_flip=0,
+            axis_step=10.0,
+        )
 
         blurred = engine.apply_response(current, "BLURRY", dv)
         self.assertAlmostEqual(blurred.ds_re, -0.25)
         self.assertTrue(blurred.coarse_compare_mode)
-        self.assertEqual(blurred.next_state, "B")
-
         compare_row = engine._build_next_row(blurred, dv)
         self.assertIsNotNone(compare_row)
-        self.assertEqual(compare_row.state, "B")
         self.assertEqual(compare_row.question, "Did it get better than before? Say yes or no.")
 
         worse = engine.apply_response(compare_row, "BLURRY", dv)
         self.assertAlmostEqual(worse.ds_re, 0.25)
+        self.assertEqual(worse.coarse_last_confirmed_chart_re, "40_30_25")
         self.assertEqual(worse.next_state, "E")
-        self.assertAlmostEqual((compare_row.re_sph or 0.0) + worse.ds_re, base_sphere or 0.0)
 
     def test_coarse_clearer_branch_returns_to_reading_and_advances_chart(self):
         dv = self._derive(
@@ -1043,7 +1081,27 @@ class AxisLanePolicyTests(unittest.TestCase):
             )
         )
         engine = RefractionFSMEngine(self.calibration)
-        current = engine.initialize_row("coarse-clearer", dv)
+        current = engine._row_for_state(
+            step=5,
+            visit_id="coarse-clearer",
+            state="B",
+            dv=dv,
+            re_sph=-1.50,
+            re_cyl=-0.75,
+            re_axis=45,
+            le_sph=-1.25,
+            le_cyl=-0.75,
+            le_axis=80,
+            add_r=0.0,
+            add_l=0.0,
+            chart_param="40_30_25",
+            phase_step_count=2,
+            same_streak=0,
+            prev_axis_response="",
+            duo_iter=0,
+            duo_flip=0,
+            axis_step=10.0,
+        )
 
         blurred = engine.apply_response(current, "BLURRY", dv)
         compare_row = engine._build_next_row(blurred, dv)
@@ -1056,14 +1114,14 @@ class AxisLanePolicyTests(unittest.TestCase):
         self.assertFalse(reading_row.coarse_compare_mode)
         self.assertTrue(reading_row.coarse_recheck_mode)
         self.assertEqual(reading_row.question, "Can you read the line now, or is it still blurry?")
-        self.assertEqual(reading_row.chart_param, "70_60_50")
+        self.assertEqual(reading_row.chart_param, "40_30_25")
 
         confirmed = engine.apply_response(reading_row, "CLEAR", dv)
-        self.assertEqual(confirmed.coarse_last_confirmed_chart_re, "70_60_50")
+        self.assertEqual(confirmed.coarse_last_confirmed_chart_re, "40_30_25")
         advanced_row = engine._build_next_row(confirmed, dv)
         self.assertIsNotNone(advanced_row)
         self.assertFalse(advanced_row.coarse_recheck_mode)
-        self.assertEqual(advanced_row.chart_param, "40_30_25")
+        self.assertEqual(advanced_row.chart_param, "20_20_20")
 
     def test_coarse_recheck_prompt_shortens_after_first_followup(self):
         dv = self._derive(
@@ -1074,7 +1132,27 @@ class AxisLanePolicyTests(unittest.TestCase):
             )
         )
         engine = RefractionFSMEngine(self.calibration)
-        current = engine.initialize_row("coarse-recheck-short", dv)
+        current = engine._row_for_state(
+            step=5,
+            visit_id="coarse-recheck-short",
+            state="B",
+            dv=dv,
+            re_sph=-1.50,
+            re_cyl=-0.75,
+            re_axis=45,
+            le_sph=-1.25,
+            le_cyl=-0.75,
+            le_axis=80,
+            add_r=0.0,
+            add_l=0.0,
+            chart_param="40_30_25",
+            phase_step_count=2,
+            same_streak=0,
+            prev_axis_response="",
+            duo_iter=0,
+            duo_flip=0,
+            axis_step=10.0,
+        )
 
         blurred = engine.apply_response(current, "BLURRY", dv)
         compare_row = engine._build_next_row(blurred, dv)
@@ -1103,7 +1181,7 @@ class AxisLanePolicyTests(unittest.TestCase):
         first_repeat = engine.apply_response(current, "REPEAT", dv)
         second_row = engine._build_next_row(first_repeat, dv)
         self.assertIsNotNone(second_row)
-        self.assertEqual(second_row.question, "First option, second option, both same, or repeat?")
+        self.assertEqual(second_row.question, "Which is better, or are both same?")
 
     def test_jcc_power_prompt_is_short_after_axis_on_same_eye(self):
         dv = self._derive(
@@ -1127,7 +1205,17 @@ class AxisLanePolicyTests(unittest.TestCase):
         self.assertEqual(axis_done.next_state, "F")
         power_row = engine._build_next_row(axis_done, dv)
         self.assertIsNotNone(power_row)
-        self.assertEqual(power_row.question, "First option, second option, both same, or repeat?")
+        self.assertEqual(power_row.question, "Which is better, or are both same?")
+
+    def test_bare_option_does_not_map_in_comparison_phase(self):
+        result = match_response(
+            transcript="option",
+            state="E",
+            available_options=["ONE", "TWO", "SAME", "REPEAT"],
+            question="Which is better, or are both same?",
+            language="en",
+        )
+        self.assertFalse(result.accepted)
 
     def test_both_alone_maps_to_same_in_comparison_phases(self):
         for state, options in [
@@ -1724,9 +1812,9 @@ class HindiLocalizationTests(unittest.TestCase):
             state="F",
             language="hi",
             retry=False,
-            fallback_question="First option, second option, both same, or repeat?",
+            fallback_question="Which is better, or are both same?",
         )
-        self.assertEqual(prompt, "पहला विकल्प, दूसरा विकल्प, दोनों समान, या फिर से?")
+        self.assertEqual(prompt, "कौन बेहतर है, या दोनों समान हैं?")
 
     def test_hindi_localizes_duochrome_and_bino_short_prompts(self):
         duo_prompt = localized_voice_prompt(
