@@ -1141,10 +1141,13 @@ async function restoreSession() {
     if (!resp.ok) throw new Error('Session not found');
     const data = await resp.json();
 
-    // Check if language was already selected (page refresh)
+    // Prefer the locally saved selection, but fall back to the session-stored language
     const savedLang = sessionStorage.getItem('session_language');
-    if (savedLang) {
-      sessionLanguage = savedLang;
+    const statusLang = (data.language === 'hi' || data.language === 'en') ? data.language : '';
+    const resolvedLang = savedLang || statusLang;
+    if (resolvedLang) {
+      sessionLanguage = resolvedLang;
+      sessionStorage.setItem('session_language', resolvedLang);
       restoreCachedConversation();
 
       // Auto-resume: start immediately, enable TTS via a one-time user interaction listener

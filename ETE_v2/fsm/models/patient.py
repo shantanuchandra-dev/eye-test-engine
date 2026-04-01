@@ -10,6 +10,7 @@ from .prescription import EyePrescription
 class PatientInput:
     visit_id: str
     patient_name: str = ""
+    phone_number: str = ""
 
     age: Optional[int] = None
     occupation: str = ""

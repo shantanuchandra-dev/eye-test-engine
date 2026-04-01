@@ -350,7 +350,9 @@ def session_intake():
     """Accept patient data, derive variables, initialize FSM, return first question."""
     data = _request_payload()
     phoropter_id = data.get("phoropter_id", "")
-    patient = data.get("patient", data)
+    patient = dict(data.get("patient", data) or {})
+    if data.get("language") and not patient.get("language"):
+        patient["language"] = data.get("language")
     validation_error = _validate_objective_intake(patient)
     if validation_error:
         return jsonify({"error": validation_error}), 400
@@ -720,6 +722,7 @@ def session_end(session_id):
         duration_per_phase=orch.duration_per_phase,
         operator_name=data.get("operator_name", ""),
         customer_name=data.get("customer_name") or (orch.patient_input.patient_name if orch.patient_input else ""),
+        customer_phone=data.get("customer_phone") or (orch.patient_input.phone_number if orch.patient_input else ""),
         customer_age=data.get("customer_age", ""),
         customer_gender=data.get("customer_gender", ""),
         qualitative_feedback=data.get("qualitative_feedback", ""),

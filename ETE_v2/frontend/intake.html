@@ -676,6 +676,13 @@ body.loading-active {
   gap: 12px;
 }
 
+.voice-intake-selection {
+  min-height: 22px;
+  margin-top: 14px;
+  font: 600 0.88rem/1.5 var(--font-body);
+  color: var(--ink-secondary);
+}
+
 .voice-intake-option {
   display: flex;
   align-items: center;
@@ -801,13 +808,14 @@ body.loading-active {
   </div>
 
   <form id="intakeForm" class="accordion" autocomplete="off">
+    <input type="hidden" id="sessionLanguageInput" value="en">
 
     <!-- 1. Operator & Device -->
     <div class="section">
       <input type="checkbox" class="section-toggle" id="sec1" checked>
       <label class="section-header" for="sec1">
         <span class="section-number">1</span>
-        <div><div class="section-title">Operator & Device</div><div class="section-subtitle">Phoropter and operator identification</div></div>
+        <div><div class="section-title">Operator & Device</div><div class="section-subtitle">Operator, patient, and device identification</div></div>
         <svg class="section-chevron" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"/></svg>
       </label>
       <div class="section-body"><div class="section-content">
@@ -816,6 +824,14 @@ body.loading-active {
           <div class="form-group">
             <label class="form-label">Operator Name</label>
             <input type="text" class="form-input" id="operatorName" placeholder="Dr. / Optometrist name">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Patient Name</label>
+            <input type="text" class="form-input" id="patientName" placeholder="Full name">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Phone Number</label>
+            <input type="tel" class="form-input" id="patientPhone" placeholder="Mobile number">
           </div>
           <!-- Right: Phoropter Device -->
           <div class="form-group">
@@ -852,10 +868,6 @@ body.loading-active {
       </label>
       <div class="section-body"><div class="section-content">
         <div class="form-grid cols-4">
-          <div class="form-group full">
-            <label class="form-label">Patient Name</label>
-            <input type="text" class="form-input" id="patientName" placeholder="Full name">
-          </div>
           <div class="form-group">
             <label class="form-label">Age</label>
             <input type="number" class="form-input" id="age" min="3" max="120" placeholder="Years">
@@ -1206,8 +1218,8 @@ body.loading-active {
       <div class="voice-intake-title" id="voiceIntakeTitle">Patient Intake</div>
       <div class="voice-intake-progress" id="voiceIntakeProgress">Question 1</div>
     </div>
-    <div class="voice-intake-question" id="voiceIntakeQuestion">Please select your preferred language.</div>
-    <div class="voice-intake-note" id="voiceIntakeNote">Read the options on the screen and select the response below.</div>
+    <div class="voice-intake-question" id="voiceIntakeQuestion">Please choose your preferred language.</div>
+    <div class="voice-intake-note" id="voiceIntakeNote">Read the options on the screen and choose one.</div>
     <div class="voice-intake-status">
       <span class="voice-intake-dot" id="voiceIntakeStatusDot" aria-hidden="true"></span>
       <span id="voiceIntakeStatusText">Waiting to begin.</span>
@@ -1223,9 +1235,11 @@ body.loading-active {
       </div>
     </div>
     <div class="voice-intake-options" id="voiceIntakeOptions"></div>
+    <div class="voice-intake-selection" id="voiceIntakeSelectionSummary" hidden></div>
     <div class="voice-intake-actions">
       <button type="button" class="voice-intake-action" id="voiceIntakeCancelBtn">Cancel</button>
-      <button type="button" class="voice-intake-action primary" id="voiceIntakeRepeatBtn">Repeat Question</button>
+      <button type="button" class="voice-intake-action" id="voiceIntakeRepeatBtn">Repeat Question</button>
+      <button type="button" class="voice-intake-action primary" id="voiceIntakeDoneBtn" hidden>Done</button>
     </div>
   </div>
 </div>
@@ -1233,6 +1247,7 @@ body.loading-active {
 <script>
 const API = window.BACKEND_URL || '';
 const TTS_VOICE_STORAGE_KEY = 'ete_tts_voice_name';
+const DEFAULT_INTAKE_LANGUAGE = 'en';
 const GUIDED_INTAKE_MANUAL_ONLY = true;
 const ENGLISH_VOICE_PREFERENCE_ORDER = [
   'Samantha',
@@ -1476,12 +1491,12 @@ function buildVoiceIntakeQuestions() {
     {
       id: 'language',
       prompt: {
-        en: 'Please read the language options on the screen and choose one.',
-        hi: 'कृपया स्क्रीन पर दिए गए भाषा विकल्प पढ़िए और एक विकल्प चुनिए।',
+        en: 'Please choose your preferred language.',
+        hi: 'कृपया अपनी पसंदीदा भाषा चुनिए।',
       },
       note: {
-        en: 'Read the options on the screen and say one choice.',
-        hi: 'स्क्रीन पर दिए गए विकल्प पढ़िए और एक विकल्प बोलिए।',
+        en: 'Read the options on the screen and choose one.',
+        hi: 'स्क्रीन पर दिए गए विकल्प पढ़िए और एक विकल्प चुनिए।',
       },
       options: [
         intakeOption('en', { en: 'English', hi: 'English' }, [
@@ -1497,12 +1512,12 @@ function buildVoiceIntakeQuestions() {
     {
       id: 'age_group',
       prompt: {
-        en: 'Please read the age group options on the screen and choose one.',
-        hi: 'कृपया स्क्रीन पर दी गई आयु श्रेणी के विकल्प पढ़िए और एक विकल्प चुनिए।',
+        en: 'Please choose your age group.',
+        hi: 'कृपया अपनी आयु श्रेणी चुनिए।',
       },
       note: {
-        en: 'Read the options on the screen and say one choice.',
-        hi: 'स्क्रीन पर दिए गए विकल्प पढ़िए और एक विकल्प बोलिए।',
+        en: 'Read the options on the screen and choose one.',
+        hi: 'स्क्रीन पर दिए गए विकल्प पढ़िए और एक विकल्प चुनिए।',
       },
       options: [
         intakeOption('UNDER_18', { en: 'Below 18', hi: '18 से कम' }, [
@@ -1524,12 +1539,12 @@ function buildVoiceIntakeQuestions() {
     {
       id: 'visual_needs',
       prompt: {
-        en: 'Please read the options on the screen and choose the one that best describes your vision needs today.',
-        hi: 'कृपया स्क्रीन पर दिए गए विकल्प पढ़िए और आज आपकी दृष्टि की ज़रूरत को सबसे अच्छी तरह बताने वाला एक विकल्प चुनिए।',
+        en: 'What best describes your vision needs today?',
+        hi: 'आज आपकी देखने की ज़रूरतों को सबसे अच्छी तरह क्या बताता है?',
       },
       note: {
-        en: 'Read the options on the screen and say one choice.',
-        hi: 'स्क्रीन पर दिए गए विकल्प पढ़िए और एक विकल्प बोलिए।',
+        en: 'Read the options on the screen and choose one.',
+        hi: 'स्क्रीन पर दिए गए विकल्प पढ़िए और एक विकल्प चुनिए।',
       },
       options: [
         intakeOption('VISUAL_NEAR', { en: 'Mostly screens / near work', hi: 'ज़्यादातर स्क्रीन / पास का काम' }, [
@@ -1556,12 +1571,12 @@ function buildVoiceIntakeQuestions() {
     {
       id: 'current_glasses',
       prompt: {
-        en: 'Please read the options on the screen and choose the one that best describes your current glasses.',
-        hi: 'कृपया स्क्रीन पर दिए गए विकल्प पढ़िए और आपके वर्तमान चश्मे के बारे में सबसे सही एक विकल्प चुनिए।',
+        en: 'How would you describe your current glasses?',
+        hi: 'आप अपने वर्तमान चश्मे के बारे में क्या कहेंगे?',
       },
       note: {
-        en: 'Read the options on the screen and say one choice.',
-        hi: 'स्क्रीन पर दिए गए विकल्प पढ़िए और एक विकल्प बोलिए।',
+        en: 'Read the options on the screen and choose one.',
+        hi: 'स्क्रीन पर दिए गए विकल्प पढ़िए और एक विकल्प चुनिए।',
       },
       options: [
         intakeOption('GLASSES_NONE', { en: 'No current glasses', hi: 'अभी चश्मा नहीं है' }, [
@@ -1675,12 +1690,12 @@ function buildVoiceIntakeQuestions() {
       multiple: true,
       noneValue: 'NONE',
       prompt: {
-        en: 'Please read the options on the screen and choose all the relevant ones. When you are finished, say done.',
-        hi: 'कृपया स्क्रीन पर दिए गए विकल्प पढ़िए और जो भी लागू हों वे चुनिए। जब पूरा हो जाए, तब done या हो गया कहिए।',
+        en: 'Do you have any of the following symptoms or concerns?',
+        hi: 'क्या आपको इनमें से कोई लक्षण या परेशानी है?',
       },
       note: {
-        en: 'Read the options on the screen, say the relevant ones, then say done.',
-        hi: 'स्क्रीन पर दिए गए विकल्प पढ़िए, जो लागू हों वे बोलिए, फिर done या हो गया कहिए।',
+        en: 'Read the options on the screen, choose all that apply, then tap Done.',
+        hi: 'स्क्रीन पर दिए गए विकल्प पढ़िए, जो भी लागू हों उन्हें चुनिए, फिर Done दबाइए।',
       },
       options: [
         intakeOption('REASON_ROUTINE', { en: 'Routine check', hi: 'रूटीन चेक' }, [
@@ -1734,12 +1749,12 @@ function buildVoiceIntakeQuestions() {
       multiple: true,
       noneValue: 'NONE',
       prompt: {
-        en: 'Please read the options on the screen and choose all the ones that apply to your recent eye history. When you are finished, say done.',
-        hi: 'कृपया स्क्रीन पर दिए गए विकल्प पढ़िए और आपकी हाल की आँखों की हिस्ट्री में जो भी लागू हों वे चुनिए। जब पूरा हो जाए, तब done या हो गया कहिए।',
+        en: 'When was your last eye test done?',
+        hi: 'आपकी पिछली आँखों की जाँच कब हुई थी?',
       },
       note: {
-        en: 'Read the options on the screen, say the relevant ones, then say done.',
-        hi: 'स्क्रीन पर दिए गए विकल्प पढ़िए, जो लागू हों वे बोलिए, फिर done या हो गया कहिए।',
+        en: 'Read the options on the screen, choose all that apply, then tap Done.',
+        hi: 'स्क्रीन पर दिए गए विकल्प पढ़िए, जो भी लागू हों उन्हें चुनिए, फिर Done दबाइए।',
       },
       options: [
         intakeOption('LAST_RECENT', { en: 'Last test within 2 years', hi: 'पिछला टेस्ट 2 साल के भीतर' }, [
@@ -1768,12 +1783,12 @@ function buildVoiceIntakeQuestions() {
       multiple: true,
       noneValue: 'NONE',
       prompt: {
-        en: 'Please read the options on the screen and choose all the medical or eye history items that are relevant. When you are finished, say done.',
-        hi: 'कृपया स्क्रीन पर दिए गए विकल्प पढ़िए और जो भी मेडिकल या आँखों की हिस्ट्री लागू हो वे चुनिए। जब पूरा हो जाए, तब done या हो गया कहिए।',
+        en: 'Do you have any history of the following medical or eye conditions?',
+        hi: 'क्या आपको इनमें से किसी मेडिकल या आँखों से जुड़ी स्थिति का इतिहास है?',
       },
       note: {
-        en: 'Read the options on the screen, say the relevant ones, then say done.',
-        hi: 'स्क्रीन पर दिए गए विकल्प पढ़िए, जो लागू हों वे बोलिए, फिर done या हो गया कहिए।',
+        en: 'Read the options on the screen, choose all that apply, then tap Done.',
+        hi: 'स्क्रीन पर दिए गए विकल्प पढ़िए, जो भी लागू हों उन्हें चुनिए, फिर Done दबाइए।',
       },
       options: [
         intakeOption('MED_DIABETES', { en: 'Diabetes', hi: 'डायबिटीज' }, [
@@ -1820,9 +1835,24 @@ function voiceIntakeElements() {
     mappedLabel: document.getElementById('voiceIntakeMappedLabel'),
     mappedValue: document.getElementById('voiceIntakeMappedValue'),
     options: document.getElementById('voiceIntakeOptions'),
+    selectionSummary: document.getElementById('voiceIntakeSelectionSummary'),
     cancelBtn: document.getElementById('voiceIntakeCancelBtn'),
     repeatBtn: document.getElementById('voiceIntakeRepeatBtn'),
+    doneBtn: document.getElementById('voiceIntakeDoneBtn'),
   };
+}
+
+function setSelectedIntakeLanguage(lang) {
+  const normalized = lang === 'hi' ? 'hi' : DEFAULT_INTAKE_LANGUAGE;
+  const input = document.getElementById('sessionLanguageInput');
+  if (input) input.value = normalized;
+  return normalized;
+}
+
+function getSelectedIntakeLanguage() {
+  const input = document.getElementById('sessionLanguageInput');
+  const value = String(input?.value || DEFAULT_INTAKE_LANGUAGE).trim().toLowerCase();
+  return value === 'hi' ? 'hi' : DEFAULT_INTAKE_LANGUAGE;
 }
 
 function setVoiceIntakeStatus(state, text) {
@@ -1933,6 +1963,13 @@ function setVoiceIntakeTranscript(rawText = '', mappedText = '') {
   if (mappedValue) mappedValue.textContent = mappedText || '—';
 }
 
+function setVoiceIntakeSelectionSummary(text = '', { hidden = false } = {}) {
+  const { selectionSummary } = voiceIntakeElements();
+  if (!selectionSummary) return;
+  selectionSummary.hidden = !!hidden;
+  selectionSummary.textContent = hidden ? '' : (text || '');
+}
+
 function orderVoiceIntakeValues(question, values) {
   const order = new Map(question.options.map((option, index) => [option.value, index]));
   return Array.from(new Set(values || []))
@@ -1972,14 +2009,14 @@ function voiceIntakeSelectionSummary(question, values) {
   const labels = selected.map((value) => voiceIntakeOptionLabel(question, value)).join(', ');
   if (question.multiple && !selected.includes(question.noneValue)) {
     return lang === 'hi'
-      ? `चयनित: ${labels}. और विकल्प चुनिए या done कहिए।`
-      : `Selected: ${labels}. Add more options or say done.`;
+      ? `चयनित: ${labels}. और विकल्प चुनिए या Done दबाइए।`
+      : `Selected: ${labels}. Add more options or tap Done.`;
   }
   return lang === 'hi' ? `चयनित: ${labels}.` : `Selected: ${labels}.`;
 }
 
 function renderVoiceIntakeOptions(question) {
-  const { options } = voiceIntakeElements();
+  const { options, doneBtn } = voiceIntakeElements();
   if (!options) return;
   options.innerHTML = '';
   const selectedValues = new Set(getVoiceIntakeSelections(question));
@@ -2001,42 +2038,20 @@ function renderVoiceIntakeOptions(question) {
     button.onclick = () => acceptVoiceIntakeAnswer(option.value, option);
     options.appendChild(button);
   }
-
-  if (question.multiple) {
-    const doneButton = document.createElement('button');
-    doneButton.type = 'button';
-    doneButton.className = 'voice-intake-option';
-    doneButton.dataset.action = 'done';
-    doneButton.innerHTML = `
-      <span>${getVoiceIntakeLanguage() === 'hi' ? 'हो गया / Done' : 'Done'}</span>
-      <small>${getVoiceIntakeLanguage() === 'hi' ? 'इस प्रश्न को पूरा करें' : 'Finish this question'}</small>
-    `;
-    doneButton.onclick = () => completeVoiceIntakeMultiSelect();
-    options.appendChild(doneButton);
+  if (doneBtn) {
+    doneBtn.hidden = !question.multiple;
   }
+  setVoiceIntakeSelectionSummary(
+    question.multiple ? voiceIntakeSelectionSummary(question, getVoiceIntakeSelections(question)) : '',
+    { hidden: !question.multiple },
+  );
 }
 
 function voiceIntakeQuestionPrompt(question) {
-  if (GUIDED_INTAKE_MANUAL_ONLY && question?.multiple) {
-    return getVoiceIntakeLanguage() === 'hi'
-      ? 'कृपया स्क्रीन पर दिए गए विकल्प पढ़िए और जो भी लागू हों वे चुनिए। जब पूरा हो जाए, तब नीचे Done चुनिए।'
-      : 'Please read the options on the screen and choose all the relevant ones. When you are finished, select Done below.';
-  }
   return localizeVoiceIntakeText(question.prompt);
 }
 
 function voiceIntakeQuestionNote(question) {
-  if (GUIDED_INTAKE_MANUAL_ONLY) {
-    const lang = getVoiceIntakeLanguage();
-    if (question?.multiple) {
-      return lang === 'hi'
-        ? 'स्क्रीन पर दिए गए विकल्प पढ़िए और नीचे सभी लागू विकल्प चुनिए। जब पूरा हो जाए, तब Done दबाइए।'
-        : 'Read the options on the screen and select all that apply below. Tap Done when finished.';
-    }
-    return lang === 'hi'
-      ? 'स्क्रीन पर दिए गए विकल्प पढ़िए और नीचे एक विकल्प चुनिए।'
-      : 'Read the options on the screen and select one option below.';
-  }
   return localizeVoiceIntakeText(question.note) || INTAKE_COMMON_NOTES[getVoiceIntakeLanguage()];
 }
 
@@ -2045,7 +2060,7 @@ function setVoiceIntakeManualReadyState(question) {
   if (question?.multiple) {
     setVoiceIntakeStatus('', lang === 'hi'
       ? 'नीचे लागू विकल्प चुनिए, फिर Done दबाइए।'
-      : 'Select the relevant options below, then tap Done.');
+      : 'Select all relevant options below, then tap Done.');
     return;
   }
   setVoiceIntakeStatus('', lang === 'hi'
@@ -2141,6 +2156,7 @@ function applyVoiceIntakeAnswer(questionId, value) {
 
   switch (questionId) {
     case 'language':
+      setSelectedIntakeLanguage(values[0]);
       break;
     case 'age_group':
       setInputValue('age', ({
@@ -2256,7 +2272,7 @@ function finalizeVoiceIntakeAnswer(question, value, statusText) {
   activeVoiceIntake.answers[question.id] = value;
   applyVoiceIntakeAnswer(question.id, value);
   if (question.id === 'language') {
-    activeVoiceIntake.language = value === 'hi' ? 'hi' : 'en';
+    activeVoiceIntake.language = setSelectedIntakeLanguage(value);
   }
   setVoiceIntakeStatus('', statusText);
 
@@ -2314,7 +2330,9 @@ function acceptVoiceIntakeAnswer(value, option = null) {
     const ordered = orderVoiceIntakeValues(question, Array.from(next));
     setVoiceIntakeSelections(question.id, ordered);
     renderVoiceIntakeOptions(question);
-    setVoiceIntakeStatus('', voiceIntakeSelectionSummary(question, ordered));
+    const summary = voiceIntakeSelectionSummary(question, ordered);
+    setVoiceIntakeSelectionSummary(summary, { hidden: false });
+    setVoiceIntakeStatus('', summary);
     return;
   }
 
@@ -2547,6 +2565,10 @@ function askVoiceIntakeQuestion({ skipSpeech = false } = {}) {
   if (elements.transcript) elements.transcript.hidden = GUIDED_INTAKE_MANUAL_ONLY;
   setVoiceIntakeTranscript('', '');
   renderVoiceIntakeOptions(question);
+  setVoiceIntakeSelectionSummary(
+    question.multiple ? voiceIntakeSelectionSummary(question, getVoiceIntakeSelections(question)) : '',
+    { hidden: !question.multiple },
+  );
 
   if (GUIDED_INTAKE_MANUAL_ONLY) {
     if (skipSpeech) {
@@ -2567,14 +2589,14 @@ function askVoiceIntakeQuestion({ skipSpeech = false } = {}) {
 
 function runGuidedVoiceIntake() {
   return new Promise((resolve, reject) => {
-    const { overlay, cancelBtn, repeatBtn } = voiceIntakeElements();
+    const { overlay, cancelBtn, repeatBtn, doneBtn } = voiceIntakeElements();
     activeVoiceIntake = {
       resolve,
       reject,
       questions: buildVoiceIntakeQuestions(),
       answers: {},
       index: 0,
-      language: 'en',
+      language: getSelectedIntakeLanguage(),
       recognition: null,
       speechUtterance: null,
       ignoreRecognitionEnd: false,
@@ -2592,6 +2614,10 @@ function runGuidedVoiceIntake() {
     }
     if (repeatBtn) {
       repeatBtn.onclick = () => repeatVoiceIntakeQuestion();
+    }
+    if (doneBtn) {
+      doneBtn.onclick = () => completeVoiceIntakeMultiSelect();
+      doneBtn.hidden = true;
     }
 
     if (overlay) {
@@ -3238,6 +3264,7 @@ function fillDummy() {
   setAxisPresetHint(AXIS_PRESET_DEFAULT_HINT);
   // Keep whatever device is already selected in the dropdown
   document.getElementById('patientName').value = 'John Doe';
+  document.getElementById('patientPhone').value = '9876543210';
   document.getElementById('operatorName').value = 'Dr. Sharma';
   document.getElementById('age').value = '35';
   document.getElementById('screenTime').value = '8';
@@ -3279,6 +3306,7 @@ function clearAll() {
   document.getElementById('axisPresetSelect').value = '';
   setAxisPresetHint(AXIS_PRESET_DEFAULT_HINT);
   document.getElementById('intakeForm').reset();
+  setSelectedIntakeLanguage(DEFAULT_INTAKE_LANGUAGE);
   document.querySelectorAll('.stepper-val').forEach(el => {
     if (el.id === 'arPd') {
       el.value = '64.00';
@@ -3311,8 +3339,11 @@ function collectFormData() {
   return {
     phoropter_id: document.getElementById('phoropterId').value.trim(),
     operator_name: document.getElementById('operatorName').value.trim(),
+    language: getSelectedIntakeLanguage(),
     patient: {
       patient_name: document.getElementById('patientName').value.trim(),
+      phone_number: document.getElementById('patientPhone').value.trim(),
+      language: getSelectedIntakeLanguage(),
       age: parseInt(document.getElementById('age').value) || null,
       screen_time_hours: parseFloat(document.getElementById('screenTime').value) || 0,
       driving_hours: parseFloat(document.getElementById('drivingHours').value) || 0,
@@ -3362,6 +3393,12 @@ function validateSessionStartPrerequisites() {
   if (!data.operator_name) {
     throw new Error('Please enter the operator name before starting the test.');
   }
+  if (!patient.patient_name) {
+    throw new Error('Please enter the patient name before starting the test.');
+  }
+  if (!patient.phone_number) {
+    throw new Error('Please enter the phone number before starting the test.');
+  }
   if (!isTestMode && !data.phoropter_id) {
     throw new Error('Please select a device or choose Test Mode.');
   }
@@ -3409,6 +3446,7 @@ async function startSessionFromPreparedForm() {
 
     sessionStorage.removeItem('cached_state');
     sessionStorage.setItem('session_id', sessionId);
+    sessionStorage.setItem('session_language', result.language || data.patient.language || DEFAULT_INTAKE_LANGUAGE);
     sessionStorage.setItem('phoropter_id', selectedDeviceId === '__test__' ? '' : (data.phoropter_id || ''));
     sessionStorage.setItem('operator_name', data.operator_name);
     if (deviceAcquired && data.phoropter_id) {
@@ -3434,8 +3472,10 @@ document.getElementById('intakeForm').addEventListener('submit', async (e) => {
   try {
     validateSessionStartPrerequisites();
     sessionStorage.removeItem('session_language');
-    await runGuidedVoiceIntake();
-    sessionStorage.setItem('session_language', getVoiceIntakeLanguage());
+    const intakeAnswers = await runGuidedVoiceIntake();
+    const chosenLanguage = intakeAnswers?.language || getSelectedIntakeLanguage();
+    setSelectedIntakeLanguage(chosenLanguage);
+    sessionStorage.setItem('session_language', chosenLanguage);
     await startSessionFromPreparedForm();
   } catch (err) {
     document.getElementById('submitBtn').disabled = false;
@@ -3443,6 +3483,8 @@ document.getElementById('intakeForm').addEventListener('submit', async (e) => {
     alert('Failed to start session: ' + err.message);
   }
 });
+
+setSelectedIntakeLanguage(sessionStorage.getItem('session_language') || DEFAULT_INTAKE_LANGUAGE);
 </script>
 </body>
 </html>

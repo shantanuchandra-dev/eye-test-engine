@@ -250,6 +250,7 @@ class SessionOrchestrator:
         self.phoropter_id = phoropter_id
         self.session_start_time = ist_now()
         self.exam_clock_start = self.session_start_time
+        self.session_language = "hi" if str(patient_data.get("language", "en")).strip().lower() == "hi" else "en"
 
         # Build PatientInput from form data
         self.patient_input = self._build_patient_input(patient_data)
@@ -584,6 +585,7 @@ class SessionOrchestrator:
         return PatientInput(
             visit_id=self.session_id,
             patient_name=data.get("patient_name", ""),
+            phone_number=data.get("phone_number", ""),
             age=data.get("age"),
             occupation=data.get("occupation", ""),
             screen_time_hours=data.get("screen_time_hours"),
@@ -779,6 +781,7 @@ class SessionOrchestrator:
 
         response = {
             "session_id": self.session_id,
+            "language": self.session_language,
             "state": state,
             "phase_name": STATE_PHASE_DISPLAY.get(state, state),
             "phase_type": row.phase_type,

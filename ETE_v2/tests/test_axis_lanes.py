@@ -1716,6 +1716,28 @@ class AxisLanePolicyTests(unittest.TestCase):
             self.assertEqual(rows[0]["Match_Method"], "letter_reading_partial_repeat")
             self.assertEqual(rows[0]["Stimulus_Letters"], "E G N D H")
 
+    def test_metadata_includes_customer_phone_and_serialized_patient_phone(self):
+        patient = PatientInput(
+            visit_id="phone-meta",
+            patient_name="Asha",
+            phone_number="9876543210",
+        )
+        metadata = build_session_metadata(
+            session_id="phone-meta",
+            phoropter_id="stub",
+            session_start_time=datetime(2026, 3, 27, 12, 0, 0),
+            session_end_time=datetime(2026, 3, 27, 12, 10, 0),
+            completion_status="completed",
+            rows=[],
+            customer_name="Asha",
+            customer_phone="9876543210",
+            patient_input=patient,
+        )
+
+        self.assertEqual(metadata["customer_name"], "Asha")
+        self.assertEqual(metadata["customer_phone"], "9876543210")
+        self.assertEqual(metadata["patient_input"]["phone_number"], "9876543210")
+
 
 class ApiPathResolutionTests(unittest.TestCase):
     def setUp(self):
@@ -1768,6 +1790,35 @@ class ApiPathResolutionTests(unittest.TestCase):
             response.get_json()["error"],
             "Please enter AR and/or lensometry values before starting the test.",
         )
+
+    def test_session_intake_persists_language_and_phone_number(self):
+        response = self.client.post(
+            "/api/session/intake",
+            json={
+                "phoropter_id": "",
+                "language": "hi",
+                "patient": {
+                    "patient_name": "Asha",
+                    "phone_number": "9876543210",
+                    "language": "hi",
+                    "age": 29,
+                    "primary_reason": "Routine check",
+                    "priority": "Standard",
+                    "near_priority": "Medium",
+                    "ar_re_sph": -1.00,
+                    "ar_re_cyl": -0.50,
+                    "ar_re_axis": 45,
+                    "ar_le_sph": -1.25,
+                    "ar_le_cyl": -0.75,
+                    "ar_le_axis": 90,
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["language"], "hi")
+        self.assertEqual(sessions[payload["session_id"]].session_language, "hi")
+        self.assertEqual(sessions[payload["session_id"]].patient_input.phone_number, "9876543210")
 
 
 class HindiLocalizationTests(unittest.TestCase):
