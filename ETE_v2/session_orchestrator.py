@@ -877,20 +877,61 @@ class SessionOrchestrator:
         self.session_history.append(record)
 
     def _save_audio_blob(self, audio_base64: str, step: int, timestamp: str) -> str:
-        """Decode base64 audio and save to disk. Returns the filename."""
+        """Decode base64 audio and save under sessions/audio (Supabase batch-upload at session end)."""
         import base64
-        self.audio_dir.mkdir(parents=True, exist_ok=True)
-        # Clean timestamp for filename
+
         ts_clean = timestamp.replace(":", "").replace("-", "").replace("T", "_").split(".")[0]
         filename = f"{self.session_id}_step{step}_{ts_clean}.webm"
-        filepath = self.audio_dir / filename
         try:
             raw = base64.b64decode(audio_base64)
+        except Exception as e:
+            self._log_conversation("system", f"Audio decode failed: {e}")
+            return ""
+
+        self.audio_dir.mkdir(parents=True, exist_ok=True)
+        filepath = self.audio_dir / filename
+        try:
             filepath.write_bytes(raw)
+            return filename
         except Exception as e:
             self._log_conversation("system", f"Audio save failed: {e}")
             return ""
-        return filename
+
+    def save_failed_voice_clip(
+        self,
+        audio_base64: str,
+        *,
+        audio_format: str = "webm",
+        state: str = "",
+        step: int = 0,
+        attempt_number: int = 0,
+    ) -> str:
+        """Save a non-matching / error clip to sessions/audio for batch Supabase upload at session end."""
+        import base64
+        import time
+
+        try:
+            raw = base64.b64decode(audio_base64, validate=False)
+        except Exception as e:
+            self._log_conversation("system", f"Failed voice decode: {e}")
+            return ""
+        if not raw:
+            return ""
+
+        ext = (audio_format or "webm").strip().lower().lstrip(".")
+        if ext not in ("webm", "wav", "ogg", "mp3", "m4a"):
+            ext = "webm"
+        ms = int(time.time() * 1000)
+        safe_state = "".join(c if c.isalnum() else "_" for c in (state or "na"))[:24]
+        filename = f"{self.session_id}_failed_{ms}_s{int(step)}_a{int(attempt_number)}_{safe_state}.{ext}"
+
+        self.audio_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            (self.audio_dir / filename).write_bytes(raw)
+            return filename
+        except Exception as e:
+            self._log_conversation("system", f"Failed voice clip save: {e}")
+            return ""
 
     def _update_phoropter_prev_state(self) -> None:
         """Update prev-state tracking from current row."""
@@ -1222,9 +1263,23 @@ class SessionOrchestrator:
                 data = resp.text
             result = {"status": resp.status_code, "data": data}
             logger.info(f"Phoropter POST {url} → {resp.status_code}")
+            if self.curl_log:
+                self.curl_log[-1]["response_status"] = resp.status_code
+            if not resp.ok:
+                logger.warning(
+                    "Phoropter POST non-success: status=%s url=%s body_keys=%s",
+                    resp.status_code,
+                    url,
+                    list(body.keys()) if isinstance(body, dict) else type(body).__name__,
+                )
+                if self.curl_log:
+                    self.curl_log[-1]["response_error_preview"] = str(data)[:500]
             return result
         except http_requests.exceptions.RequestException as e:
             logger.warning(f"Phoropter POST {url} failed: {e}")
+            if self.curl_log:
+                self.curl_log[-1]["response_status"] = 0
+                self.curl_log[-1]["response_error_preview"] = str(e)[:500]
             return {"status": 0, "error": str(e)}
 
     def _send_jcc(self, action: str) -> dict:
