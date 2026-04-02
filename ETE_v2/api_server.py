@@ -18,7 +18,10 @@ from typing import Optional
 
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parent / ".env")
+# Repo-root .env (eye-test-engine/.env) then ETE_v2/.env — latter wins on conflicts.
+_APP_DIR = Path(__file__).resolve().parent
+load_dotenv(_APP_DIR.parent / ".env")
+load_dotenv(_APP_DIR / ".env", override=True)
 
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
@@ -37,7 +40,11 @@ from ete_io.outputs import (
     append_to_combined_log,
     append_to_combined_metadata,
 )
-from ete_io.remote_storage import remote_supabase_remote_only, upload_session
+from ete_io.remote_storage import (
+    batch_upload_session_voice_clips,
+    remote_supabase_remote_only,
+    upload_session,
+)
 from ete_io.dashboard_data import (
     load_metadata_rows,
     filter_rows,
@@ -595,6 +602,30 @@ def session_respond(session_id):
     return jsonify(result)
 
 
+@app.route("/api/session/<session_id>/voice-failed-audio", methods=["POST"])
+def session_voice_failed_audio(session_id):
+    """Spool a non-matching or error voice clip to disk; Supabase upload runs at session end."""
+    if session_id not in sessions:
+        return jsonify({"error": "Session not found"}), 404
+
+    data = _request_payload()
+    audio_b64 = data.get("audio", "") or data.get("audio_base64", "")
+    if not audio_b64:
+        return jsonify({"ok": True, "skipped": True})
+
+    orch = sessions[session_id]
+    saved = orch.save_failed_voice_clip(
+        audio_b64,
+        audio_format=str(data.get("audio_format", "webm")),
+        state=str(data.get("state", "")),
+        step=int(data.get("step", 0) or 0),
+        attempt_number=int(data.get("attempt_number", 0) or 0),
+    )
+    if not saved:
+        return jsonify({"ok": False, "error": "Could not save failed voice clip"}), 500
+    return jsonify({"ok": True, "audio_file": saved})
+
+
 @app.route("/api/session/<session_id>/status")
 def session_status(session_id):
     """Return full session state for UI restore."""
@@ -800,9 +831,15 @@ def session_end(session_id):
         combined_metadata_merge=metadata if remote_only else None,
     )
 
+    voice_batch_err = batch_upload_session_voice_clips(
+        session_id, orch.audio_dir, orch.session_history
+    )
+
     result = {"status": "stored", "session_id": session_id}
     if upload_err:
         result["remote_upload_error"] = upload_err
+    if voice_batch_err:
+        result["voice_batch_upload_error"] = voice_batch_err
 
     return jsonify(result)
 
@@ -938,7 +975,15 @@ def dashboard_export():
 # ═══════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
+    from ete_io.remote_storage import _supabase_client_optional, supabase_voice_upload_enabled
+
     host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", 5050))
     debug = os.environ.get("FLASK_ENV", "development") == "development"
+    vu = supabase_voice_upload_enabled()
+    _c, cred_err = _supabase_client_optional()
+    print(
+        f"[env] voice→Supabase: {'on' if vu else 'off'}; "
+        f"credentials: {'ok' if _c else (cred_err or 'missing')}"
+    )
     app.run(host=host, port=port, debug=debug)

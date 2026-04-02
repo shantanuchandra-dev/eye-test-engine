@@ -653,6 +653,101 @@ let mediaRecorder = null;
 let audioChunks = [];
 let micStream = null;
 
+// Parallel mic capture while Web Speech API runs (browser mode → Supabase webm, same as Whisper)
+let browserCaptureRecorder = null;
+let browserCaptureStream = null;
+let browserCaptureChunks = [];
+let browserCaptureMimeType = 'audio/webm';
+
+function discardBrowserParallelCapture() {
+  if (browserCaptureRecorder) {
+    try {
+      browserCaptureRecorder.ondataavailable = null;
+      browserCaptureRecorder.onstop = null;
+      if (browserCaptureRecorder.state === 'recording') {
+        browserCaptureRecorder.stop();
+      }
+    } catch (e) { /* ignore */ }
+    browserCaptureRecorder = null;
+  }
+  browserCaptureChunks = [];
+  if (browserCaptureStream) {
+    try {
+      browserCaptureStream.getTracks().forEach((t) => t.stop());
+    } catch (e) { /* ignore */ }
+    browserCaptureStream = null;
+  }
+}
+
+async function startBrowserParallelCaptureForSession() {
+  if (voiceMode !== 'browser') return;
+  discardBrowserParallelCapture();
+  try {
+    browserCaptureStream = await navigator.mediaDevices.getUserMedia({
+      audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true },
+    });
+    browserCaptureMimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+      ? 'audio/webm;codecs=opus'
+      : 'audio/webm';
+    browserCaptureRecorder = new MediaRecorder(browserCaptureStream, {
+      mimeType: browserCaptureMimeType,
+    });
+    browserCaptureChunks = [];
+    browserCaptureRecorder.ondataavailable = (ev) => {
+      if (ev.data && ev.data.size > 0) browserCaptureChunks.push(ev.data);
+    };
+    browserCaptureRecorder.start();
+  } catch (e) {
+    console.warn('[Voice] Browser parallel mic capture failed:', e);
+    discardBrowserParallelCapture();
+  }
+}
+
+function stopBrowserParallelCaptureAndEncodeBase64() {
+  return new Promise((resolve) => {
+    const finishEmpty = () => {
+      discardBrowserParallelCapture();
+      resolve('');
+    };
+    if (!browserCaptureRecorder || browserCaptureRecorder.state === 'inactive') {
+      finishEmpty();
+      return;
+    }
+    const rec = browserCaptureRecorder;
+    const mime = browserCaptureMimeType;
+    rec.onstop = async () => {
+      const chunks = browserCaptureChunks.slice();
+      browserCaptureRecorder = null;
+      browserCaptureChunks = [];
+      if (browserCaptureStream) {
+        try {
+          browserCaptureStream.getTracks().forEach((t) => t.stop());
+        } catch (e) { /* ignore */ }
+        browserCaptureStream = null;
+      }
+      if (!chunks.length) {
+        resolve('');
+        return;
+      }
+      try {
+        const blob = new Blob(chunks, { type: mime });
+        const arrayBuf = await blob.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuf);
+        let binary = '';
+        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+        resolve(btoa(binary));
+      } catch (e) {
+        resolve('');
+      }
+    };
+    try {
+      rec.stop();
+    } catch (e) {
+      finishEmpty();
+    }
+  });
+}
+
 function invalidatePendingVoiceStart() {
   _voiceStartGeneration += 1;
   if (_voiceStartTimer) {
@@ -814,6 +909,7 @@ async function startDuplexBargeInMonitor({ state, options, step, questionText, q
         try { recognition.abort(); } catch (e) {}
         recognition = null;
       }
+      discardBrowserParallelCapture();
       _duplexRecognitionFlush = null;
       _inputEnabled = true;
       if (isTtsActive()) {
@@ -856,6 +952,7 @@ function stopActiveVoiceCapture({ resetVoiceSubmitting = false } = {}) {
     micStream = null;
   }
   mediaRecorder = null;
+  discardBrowserParallelCapture();
   voiceRecording = false;
   if (resetVoiceSubmitting) voiceSubmitting = false;
 }
@@ -1585,6 +1682,7 @@ function startVoiceCapture(state, options, step, runtime = {}) {
     try { recognition.abort(); } catch (e) {}
     recognition = null;
   }
+  discardBrowserParallelCapture();
 
   voiceRecording = false;
 
@@ -1629,11 +1727,26 @@ function startVoiceCapture(state, options, step, runtime = {}) {
     const isDeferredDuplexMode = () => capturedDuplexArmOnly && !isDuplexSpeechDetected(capturedQuestionToken);
     const processFinalTranscript = (trimmed, alts = []) => {
       alreadyProcessed = true;
-      try { recognition.stop(); } catch(e) {}
+      try { recognition.stop(); } catch (e) {}
       voiceRecording = false;
       console.log(`[Voice] Final: "${trimmed}" | Alternatives: ${JSON.stringify(alts)}`);
-      updateVoiceStatus(`Processing: "${trimmed}"`);
-      matchVoiceResponseWithAlternatives(trimmed, alts, capturedState, capturedOptions, capturedQuestionToken);
+      voiceSubmitting = true;
+      void (async () => {
+        let audioB64 = '';
+        if (capturedState !== 'LANG_SELECT') {
+          audioB64 = await stopBrowserParallelCaptureAndEncodeBase64();
+        } else {
+          discardBrowserParallelCapture();
+        }
+        if (!isCurrentQuestionTurn(capturedQuestionToken)) {
+          voiceSubmitting = false;
+          return;
+        }
+        updateVoiceStatus(`Processing: "${trimmed}"`);
+        await matchVoiceResponseWithAlternatives(
+          trimmed, alts, capturedState, capturedOptions, capturedQuestionToken, audioB64,
+        );
+      })();
     };
     const flushDeferredDuplexRecognition = () => {
       if (!isCurrentQuestionTurn(capturedQuestionToken)) return;
@@ -1655,6 +1768,9 @@ function startVoiceCapture(state, options, step, runtime = {}) {
         return;
       }
       voiceRecording = true;
+      if (capturedState !== 'LANG_SELECT') {
+        void startBrowserParallelCaptureForSession();
+      }
       if (!capturedDuplexArmOnly) {
         updateVoiceStatus('🎙 Listening...');
       }
@@ -1704,17 +1820,28 @@ function startVoiceCapture(state, options, step, runtime = {}) {
       try { recognition.stop(); } catch (e) {}
       voiceRecording = false;
       console.log(`[Voice] Line-reading final: "${combinedTranscript}"`);
-      updateVoiceStatus(`Processing: "${combinedTranscript}"`);
-      const altSet = new Set();
-      if (accumulatedFinalTranscript.trim()) altSet.add(accumulatedFinalTranscript.trim());
-      if (lastInterimTranscript.trim()) altSet.add(lastInterimTranscript.trim());
-      matchVoiceResponseWithAlternatives(
-        combinedTranscript,
-        Array.from(altSet).filter(t => t && t !== combinedTranscript),
-        capturedState,
-        capturedOptions,
-        capturedQuestionToken,
-      );
+      voiceSubmitting = true;
+      void (async () => {
+        const audioB64 = capturedState === 'LANG_SELECT'
+          ? (discardBrowserParallelCapture(), '')
+          : await stopBrowserParallelCaptureAndEncodeBase64();
+        if (!isCurrentQuestionTurn(capturedQuestionToken)) {
+          voiceSubmitting = false;
+          return;
+        }
+        updateVoiceStatus(`Processing: "${combinedTranscript}"`);
+        const altSet = new Set();
+        if (accumulatedFinalTranscript.trim()) altSet.add(accumulatedFinalTranscript.trim());
+        if (lastInterimTranscript.trim()) altSet.add(lastInterimTranscript.trim());
+        await matchVoiceResponseWithAlternatives(
+          combinedTranscript,
+          Array.from(altSet).filter(t => t && t !== combinedTranscript),
+          capturedState,
+          capturedOptions,
+          capturedQuestionToken,
+          audioB64,
+        );
+      })();
     }
 
     function scheduleLineReadingFinalize(delayMs = 1600) {
@@ -1728,14 +1855,26 @@ function startVoiceCapture(state, options, step, runtime = {}) {
       if (isDeferredDuplexMode()) return;
       if (alreadyProcessed || !lastInterimTranscript) return;
       alreadyProcessed = true;
-      try { recognition.stop(); } catch(e) {}
+      try { recognition.stop(); } catch (e) {}
       voiceRecording = false;
       // Try both raw and cleaned versions
       const cleaned = lastInterimTranscript.replace(/[^a-z0-9]/gi, '').toLowerCase();
       const alts = cleaned !== lastInterimTranscript.toLowerCase() ? [cleaned] : [];
       console.log(`[Voice] Quick-match: forcing "${lastInterimTranscript}" (cleaned: "${cleaned}")`);
-      updateVoiceStatus(`Processing: "${lastInterimTranscript}"`);
-      matchVoiceResponseWithAlternatives(lastInterimTranscript, alts, capturedState, capturedOptions, capturedQuestionToken);
+      voiceSubmitting = true;
+      void (async () => {
+        const audioB64 = capturedState === 'LANG_SELECT'
+          ? (discardBrowserParallelCapture(), '')
+          : await stopBrowserParallelCaptureAndEncodeBase64();
+        if (!isCurrentQuestionTurn(capturedQuestionToken)) {
+          voiceSubmitting = false;
+          return;
+        }
+        updateVoiceStatus(`Processing: "${lastInterimTranscript}"`);
+        await matchVoiceResponseWithAlternatives(
+          lastInterimTranscript, alts, capturedState, capturedOptions, capturedQuestionToken, audioB64,
+        );
+      })();
     }
 
     recognition.onresult = (event) => {
@@ -1832,6 +1971,19 @@ function startVoiceCapture(state, options, step, runtime = {}) {
       }
       if (event.error === 'no-speech') {
         updateVoiceStatus('No speech detected. Repeating question...');
+        void stopBrowserParallelCaptureAndEncodeBase64().then((b64) => {
+          if (!b64 || !sessionId) return;
+          postFailedVoiceAudioToSupabase({
+            audio: b64,
+            audio_format: 'webm',
+            state: capturedState,
+            step: capturedStep,
+            transcript: '',
+            reason: 'browser_no_speech',
+            attempt_number: voiceAttemptCount,
+            language: sessionLanguage,
+          });
+        });
         // Re-speak the question (like FSMv3.1_R2 retry=True reprompt)
         if (voiceEnabled && !voiceSubmitting) {
           const questionEl = document.getElementById('questionText');
@@ -1845,9 +1997,10 @@ function startVoiceCapture(state, options, step, runtime = {}) {
           }, 'retry');
         }
       } else if (event.error === 'aborted') {
-        // Intentional abort — don't restart
+        discardBrowserParallelCapture();
       } else {
         updateVoiceStatus(`Mic error: ${event.error}`);
+        discardBrowserParallelCapture();
       }
     };
 
@@ -1884,9 +2037,20 @@ function startVoiceCapture(state, options, step, runtime = {}) {
         if (alreadyProcessed || gotError || voiceSubmitting) return;
         const combinedTranscript = buildLineReadingTranscript();
         if (combinedTranscript) {
+          alreadyProcessed = true;
           console.log(`[Voice] Using line-reading buffer on end: "${combinedTranscript}"`);
-          updateVoiceStatus(`Processing: "${combinedTranscript}"`);
-          matchVoiceResponseWithAlternatives(combinedTranscript, [], capturedState, capturedOptions, capturedQuestionToken);
+          voiceSubmitting = true;
+          void (async () => {
+            const audioB64 = await stopBrowserParallelCaptureAndEncodeBase64();
+            if (!isCurrentQuestionTurn(capturedQuestionToken)) {
+              voiceSubmitting = false;
+              return;
+            }
+            updateVoiceStatus(`Processing: "${combinedTranscript}"`);
+            await matchVoiceResponseWithAlternatives(
+              combinedTranscript, [], capturedState, capturedOptions, capturedQuestionToken, audioB64,
+            );
+          })();
           return;
         }
       }
@@ -1900,15 +2064,39 @@ function startVoiceCapture(state, options, step, runtime = {}) {
 
       // Fix 2: Try interim transcript as fallback for single-syllable words
       if (lastInterimTranscript) {
+        alreadyProcessed = true;
         console.log(`[Voice] Using interim as fallback: "${lastInterimTranscript}"`);
-        updateVoiceStatus(`Processing interim: "${lastInterimTranscript}"`);
-        matchVoiceResponseWithAlternatives(lastInterimTranscript, [], capturedState, capturedOptions, capturedQuestionToken);
+        voiceSubmitting = true;
+        void (async () => {
+          const audioB64 = await stopBrowserParallelCaptureAndEncodeBase64();
+          if (!isCurrentQuestionTurn(capturedQuestionToken)) {
+            voiceSubmitting = false;
+            return;
+          }
+          updateVoiceStatus(`Processing interim: "${lastInterimTranscript}"`);
+          await matchVoiceResponseWithAlternatives(
+            lastInterimTranscript, [], capturedState, capturedOptions, capturedQuestionToken, audioB64,
+          );
+        })();
         return;
       }
 
       // No interim either — speech wasn't picked up
       console.log('[Voice] Recognition ended without result — repeating question');
       updateVoiceStatus('Could not hear clearly. Repeating...');
+      void stopBrowserParallelCaptureAndEncodeBase64().then((b64) => {
+        if (!b64 || !sessionId) return;
+        postFailedVoiceAudioToSupabase({
+          audio: b64,
+          audio_format: 'webm',
+          state: capturedState,
+          step: capturedStep,
+          transcript: '',
+          reason: 'browser_recognition_end_empty',
+          attempt_number: voiceAttemptCount,
+          language: sessionLanguage,
+        });
+      });
 
       if (voiceEnabled && !voiceSubmitting) {
         const questionEl = document.getElementById('questionText');
@@ -1930,6 +2118,16 @@ function startVoiceCapture(state, options, step, runtime = {}) {
       updateVoiceStatus('Mic start failed. Click Mic: ON to retry.');
     }
   }, setupDelayMs);
+}
+
+/** Best-effort upload of failed / non-matching voice audio to Supabase (Whisper or browser parallel capture). */
+function postFailedVoiceAudioToSupabase(payload) {
+  if (!sessionId || !payload || !payload.audio) return;
+  fetch(`${API}/api/session/${sessionId}/voice-failed-audio`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).catch(() => {});
 }
 
 // ── Faster-whisper recording pipeline ──
@@ -2067,12 +2265,13 @@ async function startWhisperCapture(state, options, step, questionToken = _questi
 
     // Send raw WebM blob directly — backend decodes it via ffmpeg/faster-whisper
     const blob = new Blob(audioChunks, { type: mimeType });
+    let audioBase64 = '';
     try {
       const arrayBuf = await blob.arrayBuffer();
       const bytes = new Uint8Array(arrayBuf);
       let binary = '';
       for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-      const audioBase64 = btoa(binary);
+      audioBase64 = btoa(binary);
 
       console.log(`[Whisper] Sending ${(bytes.length / 1024).toFixed(1)}KB of ${mimeType} audio`);
 
@@ -2127,6 +2326,16 @@ async function startWhisperCapture(state, options, step, questionToken = _questi
       if (errMsg.includes('No speech') || errMsg.includes('too short') || errMsg.includes('too small') || !result.transcript) {
         voiceSubmitting = false;
         updateVoiceStatus('No speech detected. Repeating...');
+        postFailedVoiceAudioToSupabase({
+          audio: audioBase64,
+          audio_format: 'webm',
+          state,
+          step,
+          transcript: result.transcript || '',
+          reason: result.error || 'no_speech',
+          attempt_number: voiceAttemptCount,
+          language: sessionLanguage,
+        });
         repeatAndListen(state, options, step, questionToken);
         return;
       }
@@ -2151,6 +2360,17 @@ async function startWhisperCapture(state, options, step, questionToken = _questi
         stt_seconds: result.stt_seconds,
       });
 
+      postFailedVoiceAudioToSupabase({
+        audio: audioBase64,
+        audio_format: 'webm',
+        state,
+        step,
+        transcript,
+        reason: result.reason || result.error || 'no_match',
+        attempt_number: voiceAttemptCount,
+        language: sessionLanguage,
+      });
+
       if (voiceAttemptCount >= VOICE_REPROMPT_LIMIT) {
         updateVoiceStatus(`✗ Failed ${voiceAttemptCount}x. Use buttons below.`);
       } else {
@@ -2161,6 +2381,18 @@ async function startWhisperCapture(state, options, step, questionToken = _questi
       console.error('[Whisper] Processing error:', e);
       voiceSubmitting = false;
       updateVoiceStatus(`Whisper error: ${e.message}`);
+      if (audioBase64) {
+        postFailedVoiceAudioToSupabase({
+          audio: audioBase64,
+          audio_format: 'webm',
+          state,
+          step,
+          transcript: '',
+          reason: `client_error:${e.message || e}`,
+          attempt_number: voiceAttemptCount,
+          language: sessionLanguage,
+        });
+      }
       repeatAndListen(state, options, step, questionToken);
     }
   };
@@ -2243,7 +2475,14 @@ function getWhisperSTTLanguageHint(state, questionText) {
 
 let _currentVoiceAlternatives = []; // Stored for inclusion in voiceMeta
 
-async function matchVoiceResponseWithAlternatives(primary, alternatives, state, options, questionToken = _questionTurnToken) {
+async function matchVoiceResponseWithAlternatives(
+  primary,
+  alternatives,
+  state,
+  options,
+  questionToken = _questionTurnToken,
+  browserAudioBase64 = '',
+) {
   if (!isCurrentQuestionTurn(questionToken)) return;
   _currentVoiceAlternatives = alternatives || [];
   // Special handling for language selection
@@ -2281,7 +2520,9 @@ async function matchVoiceResponseWithAlternatives(primary, alternatives, state, 
   let lastFailure = null;
 
   for (const transcript of transcriptsToTry) {
-    const result = await matchVoiceResponse(transcript, state, options, questionToken);
+    const result = await matchVoiceResponse(
+      transcript, state, options, questionToken, browserAudioBase64,
+    );
     if (!isCurrentQuestionTurn(questionToken)) return;
     if (result && result.matched) return; // Matched and submitted
     if (result && result.stale) return;
@@ -2292,6 +2533,19 @@ async function matchVoiceResponseWithAlternatives(primary, alternatives, state, 
   if (!isCurrentQuestionTurn(questionToken)) return;
   voiceSubmitting = false;
   voiceAttemptCount++;
+
+  if (browserAudioBase64 && sessionId) {
+    postFailedVoiceAudioToSupabase({
+      audio: browserAudioBase64,
+      audio_format: 'webm',
+      state,
+      step: currentState ? currentState.step : 0,
+      transcript: primary,
+      reason: lastFailure ? (lastFailure.reason || 'no_match') : 'no_match',
+      attempt_number: voiceAttemptCount,
+      language: sessionLanguage,
+    });
+  }
 
   // Log structured failed attempt
   failedVoiceAttempts.push({
@@ -2318,7 +2572,8 @@ async function matchVoiceResponseWithAlternatives(primary, alternatives, state, 
     // Reached reprompt limit — show keyboard fallback message
     updateVoiceStatus(`✗ Voice failed ${voiceAttemptCount}x. Use the buttons below.`);
     // Stop voice for this question
-    if (recognition) { try { recognition.abort(); } catch(e) {} }
+    if (recognition) { try { recognition.abort(); } catch (e) {} }
+    discardBrowserParallelCapture();
     voiceRecording = false;
   } else {
     // Retry with voice — re-speak the question (like FSMv3.1_R2 reprompt with retry=True)
@@ -2337,7 +2592,13 @@ async function matchVoiceResponseWithAlternatives(primary, alternatives, state, 
   }
 }
 
-async function matchVoiceResponse(transcript, state, options, questionToken = _questionTurnToken) {
+async function matchVoiceResponse(
+  transcript,
+  state,
+  options,
+  questionToken = _questionTurnToken,
+  browserAudioBase64 = '',
+) {
   if (!isCurrentQuestionTurn(questionToken)) {
     voiceSubmitting = false;
     return { matched: false, stale: true, reason: 'stale_question' };
@@ -2395,6 +2656,9 @@ async function matchVoiceResponse(transcript, state, options, questionToken = _q
           stimulus_letters: getCurrentStimulusLetters(),
           session_language: sessionLanguage,
         };
+        if (browserAudioBase64) {
+          voiceMeta.audio_base64 = browserAudioBase64;
+        }
         updateVoiceStatus(`✓ "${transcript}" → ${matched} (${(result.confidence * 100).toFixed(0)}%)`);
         addVoiceToConversation(transcript, matched, result.confidence);
       } else {
@@ -2433,6 +2697,9 @@ async function matchVoiceResponse(transcript, state, options, questionToken = _q
         stimulus_letters: getCurrentStimulusLetters(),
         session_language: sessionLanguage,
       };
+      if (browserAudioBase64) {
+        voiceMeta.audio_base64 = browserAudioBase64;
+      }
       updateVoiceStatus(`✓ "${transcript}" → ${matched}`);
       addVoiceToConversation(transcript, matched, 0.8);
     }
