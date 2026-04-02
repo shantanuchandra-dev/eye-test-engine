@@ -17,6 +17,438 @@ const EARLY_VOICE_BARGE_IN_ENABLED = false;
 // ── TTS (Browser SpeechSynthesis) ──
 let ttsEnabled = true;
 let ttsSelectedVoiceName = null; // null = auto; string = pinned voice name
+let _ttsHtmlAudio = null;
+
+/** Sarvam bulbul cloud voice (must match fsm_tts_phrases.SARVAM_AI_OPTUM_VOICES / API speaker ids). */
+const SARVAM_CLOUD_VOICES = [
+  { id: 'shruti', label: 'AI Optum: Shruti' },
+  { id: 'ishita', label: 'AI Optum: Ishita' },
+];
+const SARVAM_DEFAULT_SPEAKER_ID = 'ishita';
+const LS_SARVAM_CLOUD_SPEAKER = 'eteSarvamCloudSpeaker';
+
+function loadSarvamCloudSpeaker() {
+  try {
+    const v = localStorage.getItem(LS_SARVAM_CLOUD_SPEAKER);
+    if (v && SARVAM_CLOUD_VOICES.some((x) => x.id === v)) return v;
+  } catch (e) { /* ignore */ }
+  return SARVAM_DEFAULT_SPEAKER_ID;
+}
+
+let sarvamCloudSpeaker = loadSarvamCloudSpeaker();
+
+function syncSarvamCloudVoiceSelect() {
+  const sel = document.getElementById('sarvamCloudVoiceSelect');
+  if (!sel) return;
+  if (SARVAM_CLOUD_VOICES.some((x) => x.id === sarvamCloudSpeaker)) {
+    sel.value = sarvamCloudSpeaker;
+  } else {
+    sarvamCloudSpeaker = SARVAM_DEFAULT_SPEAKER_ID;
+    sel.value = sarvamCloudSpeaker;
+  }
+}
+
+function setSarvamCloudSpeaker(id) {
+  if (!SARVAM_CLOUD_VOICES.some((x) => x.id === id)) return;
+  sarvamCloudSpeaker = id;
+  try {
+    localStorage.setItem(LS_SARVAM_CLOUD_SPEAKER, id);
+  } catch (e) { /* ignore */ }
+  syncSarvamCloudVoiceSelect();
+  console.log(`[TTS] Sarvam cloud voice: ${id}`);
+}
+
+function ttsClipUrl(hash) {
+  const sp = encodeURIComponent(sarvamCloudSpeaker);
+  return `${API}/api/tts-sarvam/${hash}.mp3?speaker=${sp}`;
+}
+
+/** Load MP3 from Sarvam: GET by hash (cache or server-resolved phrase), then POST /synthesize for any text. */
+async function fetchSarvamSpeechBlob(text, sinceGen) {
+  if (_ttsStale(sinceGen)) return null;
+  const hash = await sha256Hex(text);
+  if (hash) {
+    try {
+      const r = await fetch(ttsClipUrl(hash));
+      if (r.ok) {
+        const blob = await r.blob();
+        if (!_ttsStale(sinceGen)) return blob;
+      }
+    } catch (e) { /* try POST */ }
+  }
+  if (_ttsStale(sinceGen)) return null;
+  try {
+    const r = await fetch(`${API}/api/tts-sarvam/synthesize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: (text || '').normalize('NFC'),
+        speaker: sarvamCloudSpeaker,
+      }),
+    });
+    if (!r.ok) return null;
+    const blob = await r.blob();
+    return _ttsStale(sinceGen) ? null : blob;
+  } catch (e) {
+    return null;
+  }
+}
+
+const TTS_RETRY_PREFIXES_EN = ['Let me repeat. ', 'I could not hear you. ', "I didn't catch that. "];
+const TTS_RETRY_PREFIXES_HI = ['फिर से सुनिए। ', 'सुनाई नहीं दिया। ', 'समझ नहीं आया। '];
+
+function stopHtmlTtsAudio() {
+  if (_ttsHtmlAudio) {
+    try {
+      _ttsHtmlAudio.onended = null;
+      _ttsHtmlAudio.onerror = null;
+      _ttsHtmlAudio.pause();
+      _ttsHtmlAudio.currentTime = 0;
+      _ttsHtmlAudio.removeAttribute('src');
+      _ttsHtmlAudio.load();
+    } catch (e) { /* ignore */ }
+    _ttsHtmlAudio = null;
+  }
+}
+
+/** True if this TTS request was invalidated by stopExamTtsAndTimers() (terminal / reset). */
+function _ttsStale(sinceGen) {
+  return sinceGen != null && sinceGen !== _ttsAbortGeneration;
+}
+
+/** True while browser or cloud (HTMLAudio) TTS is active (do not start mic / shortcuts). */
+function isTtsActive() {
+  return (
+    ('speechSynthesis' in window && speechSynthesis.speaking)
+    || !!_ttsHtmlAudio
+  );
+}
+
+/** Mic may commit a response only after the post-beep gate; JCC flip1 is observation-only (TTS says "first option", etc.). */
+function voiceSubmissionAllowed(state) {
+  if (state === 'LANG_SELECT') return !isTtsActive();
+  return _inputEnabled && _flipState !== 'flip1' && !isTtsActive();
+}
+
+/** Abort browser STT and stop Whisper recording so stale callbacks cannot submit after a new prompt. */
+function stopVoiceCaptureHard() {
+  voiceRecording = false;
+  if (recognition) {
+    try { recognition.abort(); } catch (e) { /* ignore */ }
+    recognition = null;
+  }
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    try { mediaRecorder.stop(); } catch (e) { /* ignore */ }
+  }
+}
+
+/** Invalidates in-flight speakQuestion callbacks when the exam hits a terminal state. */
+let _ttsAbortGeneration = 0;
+const _ttsGestureAbortCallbacks = [];
+
+function registerTtsGestureAbort(cleanup) {
+  _ttsGestureAbortCallbacks.push(cleanup);
+}
+
+/** Stop all exam TTS, pending gesture retries, and JCC auto-flip timers (call when test ends or session resets). */
+function stopExamTtsAndTimers() {
+  _ttsAbortGeneration += 1;
+  const pending = _ttsGestureAbortCallbacks.splice(0);
+  for (const cb of pending) {
+    try { cb(); } catch (e) { /* ignore */ }
+  }
+  stopHtmlTtsAudio();
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+  stopVoiceCaptureHard();
+  if (_autoFlipTimer) {
+    clearTimeout(_autoFlipTimer);
+    _autoFlipTimer = null;
+  }
+  _flipState = null;
+  updateFlipIndicator(null);
+}
+
+async function sha256Hex(str) {
+  if (!crypto || !crypto.subtle) return null;
+  const normalized = (str || '').normalize('NFC');
+  const buf = new TextEncoder().encode(normalized);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', buf);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function splitRetryPrefix(text) {
+  const all = [...TTS_RETRY_PREFIXES_EN, ...TTS_RETRY_PREFIXES_HI];
+  for (const p of all) {
+    if (text.startsWith(p)) return [p, text.slice(p.length)];
+  }
+  return null;
+}
+
+/** Same strings as handleAutoFlip baseFlip1Text — used with transition preface compound cache. */
+const FLIP1_TTS_BODY_EN = 'Here is the first option. Take your time and look carefully.';
+const FLIP1_TTS_BODY_HI = 'यह पहला विकल्प है। आराम से ध्यान से देखिए।';
+const FLIP2_PREFIX_EN = 'And now the second option.';
+const FLIP2_PREFIX_HI = 'अब दूसरा विकल्प है।';
+
+function _escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Split session_orchestrator transition preface (no patient name) + JCC flip 1 body for two-part cloud TTS play. */
+function splitTransitionPrefaceFlipBody(text) {
+  const t = (text || '').replace(/\s+/g, ' ').trim();
+  const enRe = new RegExp(
+    `^(You are doing great\\. Please blink a few times\\. About \\d+ (?:minute|minutes) left\\.)\\s+${_escapeRegExp(FLIP1_TTS_BODY_EN)}$`,
+  );
+  let m = t.match(enRe);
+  if (m) return [m[1].trim(), FLIP1_TTS_BODY_EN];
+  const hiRe = new RegExp(
+    `^(आप बहुत अच्छा कर रहे हैं। कृपया कुछ बार पलक झपकाइए। लगभग \\d+ मिनट बाकी हैं।)\\s+${_escapeRegExp(FLIP1_TTS_BODY_HI)}$`,
+    'u',
+  );
+  m = t.match(hiRe);
+  if (m) return [m[1].trim(), FLIP1_TTS_BODY_HI];
+  return null;
+}
+
+/**
+ * Transition preface may include a patient name (uncached). Split into generic preface + body
+ * so we play two cached clips (same strings as fsm_tts_phrases preface-only + question).
+ */
+function splitGenericTransitionPrefaceAndBody(text) {
+  const t = (text || '').replace(/\s+/g, ' ').trim();
+  // Optional patient name between "great" / "हैं" and the period (must also match generic, no-name preface).
+  const enRe =
+    /^You are doing great(?:\s+(.+?))?\. Please blink a few times\. About (\d+) (?:minute|minutes) left\.\s+([\s\S]+)$/;
+  let m = t.match(enRe);
+  if (m) {
+    const n = parseInt(m[2], 10);
+    const body = m[3].trim();
+    const lab = n === 1 ? 'minute' : 'minutes';
+    const genericPreface = `You are doing great. Please blink a few times. About ${n} ${lab} left.`;
+    return [genericPreface, body];
+  }
+  const hiRe =
+    /^आप बहुत अच्छा कर रहे हैं(?:\s+(.+?))?। कृपया कुछ बार पलक झपकाइए। लगभग (\d+) मिनट बाकी हैं।\s+([\s\S]+)$/u;
+  m = t.match(hiRe);
+  if (m) {
+    const n = parseInt(m[2], 10);
+    const body = m[3].trim();
+    const genericPreface = `आप बहुत अच्छा कर रहे हैं। कृपया कुछ बार पलक झपकाइए। लगभग ${n} मिनट बाकी हैं।`;
+    return [genericPreface, body];
+  }
+  return null;
+}
+
+/** JCC flip 2: prefix + question (DOM often shows short "First option…" while cache uses normalized EN). */
+function splitFlip2PrefixAndBody(text) {
+  const t = (text || '').replace(/\s+/g, ' ').trim();
+  const enRe = new RegExp(`^${_escapeRegExp(FLIP2_PREFIX_EN)}\\s+([\\s\\S]+)$`);
+  let m = t.match(enRe);
+  if (m) return [FLIP2_PREFIX_EN, m[1].trim()];
+  const hiRe = new RegExp(`^${_escapeRegExp(FLIP2_PREFIX_HI)}\\s+([\\s\\S]+)$`, 'u');
+  m = t.match(hiRe);
+  if (m) return [FLIP2_PREFIX_HI, m[1].trim()];
+  return null;
+}
+
+function playBlobAudio(blob, onEnd) {
+  return new Promise((resolve, reject) => {
+    stopHtmlTtsAudio();
+    speechSynthesis.cancel();
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    _ttsHtmlAudio = audio;
+    let urlRevoked = false;
+    const revoke = () => {
+      if (urlRevoked) return;
+      urlRevoked = true;
+      URL.revokeObjectURL(url);
+    };
+    audio.onended = () => {
+      revoke();
+      if (_ttsHtmlAudio === audio) _ttsHtmlAudio = null;
+      if (onEnd) onEnd();
+      resolve();
+    };
+    audio.onerror = (e) => {
+      revoke();
+      if (_ttsHtmlAudio === audio) _ttsHtmlAudio = null;
+      reject(e);
+    };
+
+    const tryPlay = () => {
+      audio.play().catch((err) => {
+        // Without a prior user gesture, HTMLAudio often rejects with NotAllowedError while
+        // speechSynthesis still works — which caused browser TTS first, then cached MP3 on a later step.
+        if (err && err.name === 'NotAllowedError') {
+          let gestureCleaned = false;
+          let gestureTo = null;
+          function cleanupWait() {
+            if (gestureCleaned) return;
+            gestureCleaned = true;
+            if (gestureTo) clearTimeout(gestureTo);
+            document.removeEventListener('pointerdown', resume, true);
+            document.removeEventListener('keydown', resume, true);
+          }
+          function resume() {
+            cleanupWait();
+            audio.play().catch(reject);
+          }
+          registerTtsGestureAbort(cleanupWait);
+          document.addEventListener('pointerdown', resume, { once: true, capture: true });
+          document.addEventListener('keydown', resume, { once: true, capture: true });
+          // If the user never interacts, fall back to browser TTS after a delay (tryPlayCached → speakQuestionBrowserFallback).
+          gestureTo = setTimeout(() => {
+            cleanupWait();
+            revoke();
+            if (_ttsHtmlAudio === audio) _ttsHtmlAudio = null;
+            reject(err);
+          }, 8000);
+          return;
+        }
+        reject(err);
+      });
+    };
+    tryPlay();
+  });
+}
+
+async function tryPlayCachedCloudExactTTS(text, onEnd, sinceGen = null) {
+  if (_ttsStale(sinceGen)) return false;
+  const blob = await fetchSarvamSpeechBlob(text, sinceGen);
+  if (!blob) return false;
+  try {
+    await playBlobAudio(blob, onEnd);
+    console.log('[TTS] Sarvam (exact)');
+    return true;
+  } catch (e) {
+    console.warn('[TTS] Sarvam clip failed:', e);
+    return false;
+  }
+}
+
+async function tryPlayCachedCompoundTTS(text, onEnd, sinceGen = null) {
+  if (_ttsStale(sinceGen)) return false;
+  const sp = splitRetryPrefix(text);
+  if (!sp) return false;
+  const [prefix, rawBody] = sp;
+  let body = rawBody.trim();
+  if (!body) return false;
+  // DOM question is often the short FSM line; cloud cache uses buildSpokenQuestionText() normalization.
+  if ((sessionLanguage || 'en') !== 'hi') {
+    body = buildSpokenQuestionText(currentState || {}, body, '');
+  }
+  if (_ttsStale(sinceGen)) return false;
+  const [b1, b2] = await Promise.all([
+    fetchSarvamSpeechBlob(prefix, sinceGen),
+    fetchSarvamSpeechBlob(body, sinceGen),
+  ]);
+  if (!b1 || !b2) return false;
+  if (_ttsStale(sinceGen)) return false;
+  try {
+    await playBlobAudio(b1, null);
+    if (_ttsStale(sinceGen)) return false;
+    await playBlobAudio(b2, onEnd);
+    console.log('[TTS] Sarvam (retry prefix + question)');
+    return true;
+  } catch (e) {
+    console.warn('[TTS] Sarvam compound failed:', e);
+    return false;
+  }
+}
+
+async function tryPlayCachedTransitionFlipTTS(text, onEnd, sinceGen = null) {
+  if (_ttsStale(sinceGen)) return false;
+  const sp = splitTransitionPrefaceFlipBody(text);
+  if (!sp) return false;
+  const [preface, body] = sp;
+  if (_ttsStale(sinceGen)) return false;
+  const [b1, b2] = await Promise.all([
+    fetchSarvamSpeechBlob(preface, sinceGen),
+    fetchSarvamSpeechBlob(body, sinceGen),
+  ]);
+  if (!b1 || !b2) return false;
+  if (_ttsStale(sinceGen)) return false;
+  try {
+    await playBlobAudio(b1, null);
+    if (_ttsStale(sinceGen)) return false;
+    await playBlobAudio(b2, onEnd);
+    console.log('[TTS] Sarvam (transition preface + flip 1)');
+    return true;
+  } catch (e) {
+    console.warn('[TTS] Transition+flip compound failed:', e);
+    return false;
+  }
+}
+
+async function tryPlayCachedGenericTransitionCompoundTTS(text, onEnd, sinceGen = null) {
+  if (_ttsStale(sinceGen)) return false;
+  const sp = splitGenericTransitionPrefaceAndBody(text);
+  if (!sp) return false;
+  const [preface, rawBody] = sp;
+  let body = rawBody.trim();
+  if (!body) return false;
+  if ((sessionLanguage || 'en') !== 'hi') {
+    body = buildSpokenQuestionText(currentState || {}, body, '');
+  }
+  if (_ttsStale(sinceGen)) return false;
+  const [b1, b2] = await Promise.all([
+    fetchSarvamSpeechBlob(preface, sinceGen),
+    fetchSarvamSpeechBlob(body, sinceGen),
+  ]);
+  if (!b1 || !b2) return false;
+  if (_ttsStale(sinceGen)) return false;
+  try {
+    await playBlobAudio(b1, null);
+    if (_ttsStale(sinceGen)) return false;
+    await playBlobAudio(b2, onEnd);
+    console.log('[TTS] Sarvam (generic transition preface + question)');
+    return true;
+  } catch (e) {
+    console.warn('[TTS] Generic transition compound failed:', e);
+    return false;
+  }
+}
+
+async function tryPlayCachedFlip2CompoundTTS(text, onEnd, sinceGen = null) {
+  if (_ttsStale(sinceGen)) return false;
+  const sp = splitFlip2PrefixAndBody(text);
+  if (!sp) return false;
+  const [prefix, rawBody] = sp;
+  let body = rawBody.trim();
+  if (!body) return false;
+  if ((sessionLanguage || 'en') !== 'hi') {
+    body = buildSpokenQuestionText(currentState || {}, body, '');
+  }
+  if (_ttsStale(sinceGen)) return false;
+  const [b1, b2] = await Promise.all([
+    fetchSarvamSpeechBlob(prefix, sinceGen),
+    fetchSarvamSpeechBlob(body, sinceGen),
+  ]);
+  if (!b1 || !b2) return false;
+  if (_ttsStale(sinceGen)) return false;
+  try {
+    await playBlobAudio(b1, null);
+    if (_ttsStale(sinceGen)) return false;
+    await playBlobAudio(b2, onEnd);
+    console.log('[TTS] Sarvam (flip 2 prefix + question)');
+    return true;
+  } catch (e) {
+    console.warn('[TTS] Flip2 compound failed:', e);
+    return false;
+  }
+}
+
+async function tryPlayCachedTTS(text, onEnd, sinceGen = null) {
+  if (await tryPlayCachedCloudExactTTS(text, onEnd, sinceGen)) return true;
+  if (await tryPlayCachedCompoundTTS(text, onEnd, sinceGen)) return true;
+  if (await tryPlayCachedTransitionFlipTTS(text, onEnd, sinceGen)) return true;
+  if (await tryPlayCachedFlip2CompoundTTS(text, onEnd, sinceGen)) return true;
+  if (await tryPlayCachedGenericTransitionCompoundTTS(text, onEnd, sinceGen)) return true;
+  return false;
 
 try {
   ttsSelectedVoiceName = localStorage.getItem(TTS_VOICE_STORAGE_KEY) || null;

@@ -193,6 +193,146 @@ def serve_calibration():
     return send_from_directory(FRONTEND_DIR, "calibration.html")
 
 
+# Sarvam TTS: on-disk cache per speaker (see fsm_tts_phrases.sarvam_cache_dir_basename) + live API.
+_sarvam_hash_to_phrase: dict[str, str] | None = None
+
+
+def _sarvam_cache_dir(speaker_id: str) -> Path:
+    return Path(__file__).resolve().parent / sarvam_cache_dir_basename(speaker_id)
+
+
+def _sarvam_speaker_from_request() -> str:
+    raw = (request.args.get("speaker") or "").strip().lower()
+    if not raw:
+        return DEFAULT_SARVAM_TTS_SPEAKER_ID
+    if raw not in SARVAM_TTS_SPEAKER_IDS:
+        abort(400)
+    return raw
+
+
+def _sarvam_speaker_from_json(data: dict) -> str:
+    raw = (data.get("speaker") or "").strip().lower()
+    if not raw:
+        return DEFAULT_SARVAM_TTS_SPEAKER_ID
+    if raw not in SARVAM_TTS_SPEAKER_IDS:
+        abort(400)
+    return raw
+
+
+def _sarvam_phrase_for_hash(hex_id: str) -> str | None:
+    """Map SHA-256 hex (lowercase) to phrase text from fsm_tts_phrases."""
+    global _sarvam_hash_to_phrase
+    if _sarvam_hash_to_phrase is None:
+        from fsm_tts_phrases import collect_all_tts_phrases
+        from sarvam_tts_cache import phrase_hash
+
+        _sarvam_hash_to_phrase = {
+            phrase_hash(t): t for t in collect_all_tts_phrases()
+        }
+    return _sarvam_hash_to_phrase.get(hex_id.lower())
+
+
+def _validate_phrase_id(phrase_id: str) -> str:
+    if (
+        len(phrase_id) != 64
+        or any(c not in "0123456789abcdefABCDEF" for c in phrase_id)
+    ):
+        abort(400)
+    return phrase_id.lower()
+
+
+def _with_sarvam_mp3_cache_headers(resp: Response) -> Response:
+    """Content is keyed by SHA-256; safe to cache immutably in browsers and CDNs."""
+    resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return resp
+
+
+@app.route("/api/tts-sarvam/<phrase_id>.mp3")
+def serve_sarvam_tts_audio(phrase_id: str):
+    """Serve Sarvam MP3 from disk cache, or synthesize via Sarvam API (requires SARVAM_API_KEY).
+
+    Query: speaker=ishita | shruti (default: fsm_tts_phrases.DEFAULT_SARVAM_TTS_SPEAKER_ID).
+    """
+    safe = _validate_phrase_id(phrase_id)
+    speaker_id = _sarvam_speaker_from_request()
+    cache_dir = _sarvam_cache_dir(speaker_id)
+    path = cache_dir / f"{safe}.mp3"
+    if path.is_file():
+        return _with_sarvam_mp3_cache_headers(
+            send_from_directory(cache_dir, f"{safe}.mp3", mimetype="audio/mpeg")
+        )
+
+    api_key = os.environ.get("SARVAM_API_KEY", "").strip()
+    if not api_key:
+        abort(404)
+
+    text = _sarvam_phrase_for_hash(safe)
+    if not text:
+        abort(404)
+
+    from sarvam_tts_cache import postprocess_sarvam_mp3_bytes, synthesize_sarvam_mp3_bytes
+
+    try:
+        raw = synthesize_sarvam_mp3_bytes(text, api_key, speaker=speaker_id)
+        raw = postprocess_sarvam_mp3_bytes(raw)
+    except Exception as e:
+        app.logger.warning("Sarvam live TTS failed: %s", e)
+        abort(503)
+
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(raw)
+    except OSError:
+        pass
+
+    return _with_sarvam_mp3_cache_headers(Response(raw, mimetype="audio/mpeg"))
+
+
+@app.route("/api/tts-sarvam/synthesize", methods=["POST"])
+def synthesize_sarvam_tts_post():
+    """Synthesize arbitrary exam speech text (Sarvam). Used when phrase hash is not in the static phrase set.
+
+    JSON body may include speaker: ishita | shruti (default: DEFAULT_SARVAM_TTS_SPEAKER_ID).
+    """
+    data = request.get_json(silent=True) or {}
+    text = (data.get("text") or "").strip()
+    if not text:
+        abort(400)
+    if len(text) > 12000:
+        abort(400)
+
+    speaker_id = _sarvam_speaker_from_json(data)
+
+    from sarvam_tts_cache import phrase_hash, postprocess_sarvam_mp3_bytes, synthesize_sarvam_mp3_bytes
+
+    cache_dir = _sarvam_cache_dir(speaker_id)
+    h = phrase_hash(text)
+    path = cache_dir / f"{h}.mp3"
+    if path.is_file():
+        return _with_sarvam_mp3_cache_headers(
+            send_from_directory(cache_dir, f"{h}.mp3", mimetype="audio/mpeg")
+        )
+
+    api_key = os.environ.get("SARVAM_API_KEY", "").strip()
+    if not api_key:
+        abort(503)
+
+    try:
+        raw = synthesize_sarvam_mp3_bytes(text, api_key, speaker=speaker_id)
+        raw = postprocess_sarvam_mp3_bytes(raw)
+    except Exception as e:
+        app.logger.warning("Sarvam POST TTS failed: %s", e)
+        abort(503)
+
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(raw)
+    except OSError:
+        pass
+
+    return _with_sarvam_mp3_cache_headers(Response(raw, mimetype="audio/mpeg"))
+
+
 @app.route("/<path:path>")
 def serve_static(path):
     return send_from_directory(FRONTEND_DIR, path)
