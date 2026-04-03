@@ -1704,7 +1704,7 @@ function startVoiceCapture(state, options, step, runtime = {}) {
     try {
       const SpeechGrammarList = window.SpeechGrammarList || window.webkitSpeechGrammarList;
       if (SpeechGrammarList && !recognition.lang.startsWith('hi')) {
-        const grammar = '#JSGF V1.0; grammar r; public <r> = clear | blurry | repeat | first option | second option | both same | red side | green side | top line | bottom line | clearer | more blurry ;';
+        const grammar = '#JSGF V1.0; grammar r; public <r> = clear | blurry | repeat | first option | second option | both same | red side | green side | right side | left side | top line | bottom line | clearer | more blurry ;';
         const list = new SpeechGrammarList();
         list.addFromString(grammar, 1);
         recognition.grammars = list;
@@ -2776,9 +2776,9 @@ function clientSideMatch(transcript, options) {
     "can't tell": 'SAME', 'cant tell': 'SAME',
     'sane': 'SAME', 'saint': 'SAME', 'shame': 'SAME', 'came': 'SAME',
     // Duochrome + misrecognitions
-    'red': 'RED', 'red one': 'RED', 'red side': 'RED', 'laal': 'RED', 'लाल': 'RED', 'लाल साइड': 'RED', 'redside': 'RED', 'readside': 'RED', 'lal side': 'RED',
+    'red': 'RED', 'red one': 'RED', 'red side': 'RED', 'right side': 'RED', 'rightside': 'RED', 'right one': 'RED', 'rite side': 'RED', 'riteside': 'RED', 'rite one': 'RED', 'write side': 'RED', 'writeside': 'RED', 'laal': 'RED', 'लाल': 'RED', 'लाल साइड': 'RED', 'redside': 'RED', 'readside': 'RED', 'lal side': 'RED',
     'read': 'RED', 'bread': 'RED', 'wed': 'RED', 'said': 'RED', 'bed': 'RED', 'dead': 'RED',
-    'green': 'GREEN', 'green one': 'GREEN', 'green side': 'GREEN', 'hara': 'GREEN', 'har': 'GREEN', 'hari': 'GREEN', 'हरा': 'GREEN', 'हरा साइड': 'GREEN', 'greenside': 'GREEN', 'hara side': 'GREEN',
+    'green': 'GREEN', 'green one': 'GREEN', 'green side': 'GREEN', 'left side': 'GREEN', 'leftside': 'GREEN', 'left one': 'GREEN', 'hara': 'GREEN', 'har': 'GREEN', 'hari': 'GREEN', 'हरा': 'GREEN', 'हरा साइड': 'GREEN', 'greenside': 'GREEN', 'hara side': 'GREEN',
     'queen': 'GREEN', 'cream': 'GREEN', 'gene': 'GREEN', 'lean': 'GREEN', 'mean': 'GREEN',
     // Binocular + misrecognitions
     'top': 'TOP', 'top one': 'TOP', 'top line': 'TOP', 'upar': 'TOP', 'ऊपर': 'TOP', 'ऊपर की लाइन': 'TOP', 'topline': 'TOP', 'upper line': 'TOP',
