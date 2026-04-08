@@ -260,6 +260,35 @@ class RefractionFSMEngine:
             normalized_response,
         )
 
+    def _jcc_power_terminal_negative_reversal(
+        self,
+        current: FSMRuntimeRow,
+        normalized_response: str,
+    ) -> bool:
+        if current.state not in ("F", "I"):
+            return False
+        if normalized_response != "TWO":
+            return False
+        if current.response_value != "ONE":
+            return False
+        next_flip_count = int(current.duo_flip) + 1
+        return next_flip_count >= int(self.cal.get("jcc_power_max_flips", 4))
+
+    def _duochrome_terminal_negative_reversal(
+        self,
+        current: FSMRuntimeRow,
+        dv,
+        normalized_response: str,
+    ) -> bool:
+        if current.state not in ("G", "J"):
+            return False
+        if normalized_response != "RED":
+            return False
+        if current.response_value != "GREEN":
+            return False
+        next_flip_count = int(current.duo_flip) + 1
+        return next_flip_count >= int(dv.dv_duochrome_max_flips)
+
     @staticmethod
     def _final_compare_outcome(choice_1: str, choice_2: str) -> str:
         if choice_1 == "ONE" and choice_2 == "ONE":
@@ -1362,46 +1391,60 @@ class RefractionFSMEngine:
                 ) = self._axis_lane_delta(current, normalized_response)
 
         elif current.state == "F":
-            proposed_dc = jcc_power_cyl_delta(normalized_response, current.cyl_step)
-            row.dc_re = clamp_cyl_delta_at_zero(current.re_cyl, proposed_dc)
-            row.ds_re = jcc_power_sphere_compensation(
-                current_cyl=current.re_cyl,
-                proposed_cyl_delta=row.dc_re,
-                start_cyl=current.jcc_power_start_re_cyl,
-            )
+            if self._jcc_power_terminal_negative_reversal(current, normalized_response):
+                row.dc_re = 0.0
+                row.ds_re = 0.0
+            else:
+                proposed_dc = jcc_power_cyl_delta(normalized_response, current.cyl_step)
+                row.dc_re = clamp_cyl_delta_at_zero(current.re_cyl, proposed_dc)
+                row.ds_re = jcc_power_sphere_compensation(
+                    current_cyl=current.re_cyl,
+                    proposed_cyl_delta=row.dc_re,
+                    start_cyl=current.jcc_power_start_re_cyl,
+                )
 
         elif current.state == "I":
-            proposed_dc = jcc_power_cyl_delta(normalized_response, current.cyl_step)
-            row.dc_le = clamp_cyl_delta_at_zero(current.le_cyl, proposed_dc)
-            row.ds_le = jcc_power_sphere_compensation(
-                current_cyl=current.le_cyl,
-                proposed_cyl_delta=row.dc_le,
-                start_cyl=current.jcc_power_start_le_cyl,
-            )
+            if self._jcc_power_terminal_negative_reversal(current, normalized_response):
+                row.dc_le = 0.0
+                row.ds_le = 0.0
+            else:
+                proposed_dc = jcc_power_cyl_delta(normalized_response, current.cyl_step)
+                row.dc_le = clamp_cyl_delta_at_zero(current.le_cyl, proposed_dc)
+                row.ds_le = jcc_power_sphere_compensation(
+                    current_cyl=current.le_cyl,
+                    proposed_cyl_delta=row.dc_le,
+                    start_cyl=current.jcc_power_start_le_cyl,
+                )
 
         elif current.state == "G":
             equal_reached = False
             if normalized_response == "SAME":
                 equal_reached = (current.same_streak + 1) >= int(self.cal.get("duochrome_equal_confirmations", 2))
 
-            row.ds_re = duochrome_sphere_delta(
-                response_value=normalized_response,
-                endpoint_bias_policy=dv.dv_endpoint_bias_policy,
-                equal_confirmation_reached=equal_reached,
-                calibration=self.cal,
-            )
+            if self._duochrome_terminal_negative_reversal(current, dv, normalized_response):
+                row.ds_re = 0.0
+            else:
+                row.ds_re = duochrome_sphere_delta(
+                    response_value=normalized_response,
+                    endpoint_bias_policy=dv.dv_endpoint_bias_policy,
+                    equal_confirmation_reached=equal_reached,
+                    calibration=self.cal,
+                )
 
         elif current.state == "J":
             equal_reached = False
             if normalized_response == "SAME":
                 equal_reached = (current.same_streak + 1) >= int(self.cal.get("duochrome_equal_confirmations", 2))
 
-            row.ds_le = duochrome_sphere_delta(
-                response_value=normalized_response,
-                endpoint_bias_policy=dv.dv_endpoint_bias_policy,
-                equal_confirmation_reached=equal_reached,
-                calibration=self.cal,
-            )
+            if self._duochrome_terminal_negative_reversal(current, dv, normalized_response):
+                row.ds_le = 0.0
+            else:
+                row.ds_le = duochrome_sphere_delta(
+                    response_value=normalized_response,
+                    endpoint_bias_policy=dv.dv_endpoint_bias_policy,
+                    equal_confirmation_reached=equal_reached,
+                    calibration=self.cal,
+                )
 
         elif current.state == "C":
             row.next_chart_param = str(current.chart_param)

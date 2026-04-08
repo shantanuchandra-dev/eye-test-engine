@@ -104,7 +104,8 @@
       "Bash(ln -s /Users/shantanuchandra/Downloads/eye_test_engine_Claude/FSMv3.1_R2/models/whisper-large-v3-turbo-ct2 /Users/shantanuchandra/Downloads/eye_test_engine_Claude/ETE_v2/models/whisper-large-v3-turbo-ct2)",
       "Skill(update-config)",
       "Bash(python:*)",
-      "Bash(/Users/shantanuchandra/Downloads/eye_test_engine_Claude/ETE_v2/frontend/favicon.svg:*)"
+      "Bash(/Users/shantanuchandra/Downloads/eye_test_engine_Claude/ETE_v2/frontend/favicon.svg:*)",
+      "Bash(SARVAM_API_KEY=sk_lzylhlt3_x1Q7aDvCYcn11ZHdbI12G7KA python sarvam_tts_cache.py generate --speaker ishita)"
     ]
   },
   "syntaxHighlightingDisabled": true

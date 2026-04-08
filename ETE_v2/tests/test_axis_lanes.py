@@ -338,6 +338,96 @@ class AxisLanePolicyTests(unittest.TestCase):
         power_response = engine.apply_response(power_row, "ONE", dv)
         self.assertAlmostEqual(power_response.dc_re, 0.25)
 
+    def test_jcc_power_terminal_negative_reversal_keeps_previous_power(self):
+        dv = self._derive(
+            self._patient(
+                visit_id="power-terminal-negative-reversal",
+                ar_re=self._rx(-2.00, -1.25, 47),
+                lenso_re=None,
+            )
+        )
+        engine = RefractionFSMEngine(self.calibration)
+        current = engine._row_for_state(
+            step=12,
+            visit_id="power-terminal-negative-reversal",
+            state="F",
+            dv=dv,
+            re_sph=-1.50,
+            re_cyl=-1.25,
+            re_axis=45,
+            le_sph=-1.25,
+            le_cyl=-0.75,
+            le_axis=80,
+            add_r=0.0,
+            add_l=0.0,
+            chart_param="20_20_20",
+            phase_step_count=2,
+            same_streak=0,
+            prev_axis_response="",
+            duo_iter=0,
+            duo_flip=1,
+            axis_step=10.0,
+            jcc_power_start_re_cyl=-1.0,
+        )
+        current.response_value = "ONE"
+
+        finalized = engine.apply_response(current, "TWO", dv)
+
+        self.assertEqual(finalized.next_state, "G")
+        self.assertEqual(finalized.duo_flip, 2)
+        self.assertAlmostEqual(finalized.dc_re, 0.0)
+        self.assertAlmostEqual(finalized.ds_re, 0.0)
+
+        next_row = engine._build_next_row(finalized, dv)
+        self.assertIsNotNone(next_row)
+        self.assertEqual(next_row.state, "G")
+        self.assertAlmostEqual(next_row.re_cyl, -1.25)
+        self.assertAlmostEqual(next_row.re_sph, -1.50)
+
+    def test_duochrome_terminal_red_reversal_keeps_previous_power(self):
+        dv = self._derive(
+            self._patient(
+                visit_id="duochrome-terminal-red-reversal",
+                ar_re=self._rx(-2.00, -1.25, 47),
+                lenso_re=None,
+            )
+        )
+        engine = RefractionFSMEngine(self.calibration)
+        terminal_flip_count = int(dv.dv_duochrome_max_flips) - 1
+        current = engine._row_for_state(
+            step=15,
+            visit_id="duochrome-terminal-red-reversal",
+            state="G",
+            dv=dv,
+            re_sph=-1.25,
+            re_cyl=-1.25,
+            re_axis=45,
+            le_sph=-1.25,
+            le_cyl=-0.75,
+            le_axis=80,
+            add_r=0.0,
+            add_l=0.0,
+            chart_param="20_20_20",
+            phase_step_count=2,
+            same_streak=0,
+            prev_axis_response="",
+            duo_iter=1,
+            duo_flip=terminal_flip_count,
+            axis_step=10.0,
+        )
+        current.response_value = "GREEN"
+
+        finalized = engine.apply_response(current, "RED", dv)
+
+        self.assertEqual(finalized.next_state, "C")
+        self.assertEqual(finalized.duo_flip, terminal_flip_count + 1)
+        self.assertAlmostEqual(finalized.ds_re, 0.0)
+
+        next_row = engine._build_next_row(finalized, dv)
+        self.assertIsNotNone(next_row)
+        self.assertEqual(next_row.state, "C")
+        self.assertAlmostEqual(next_row.re_sph, -1.25)
+
     def test_logging_contains_axis_lane_metadata(self):
         orchestrator = SessionOrchestrator(calibration_path=str(CALIBRATION_PATH))
         orchestrator.phoropter_auto_dispatch = False
@@ -724,6 +814,27 @@ class AxisLanePolicyTests(unittest.TestCase):
         self.assertEqual(red.response_value, "RED")
         self.assertTrue(bottom.accepted)
         self.assertEqual(bottom.response_value, "BOTTOM")
+
+    def test_duochrome_spatial_side_variants_map_correctly(self):
+        right_side = match_response(
+            transcript="right side",
+            state="G",
+            available_options=["GREEN", "RED", "SAME", "REPEAT"],
+            question="Green side, red side, both same, or repeat?",
+            language="en",
+        )
+        left_side = match_response(
+            transcript="left side better",
+            state="G",
+            available_options=["GREEN", "RED", "SAME", "REPEAT"],
+            question="Green side, red side, both same, or repeat?",
+            language="en",
+        )
+
+        self.assertTrue(right_side.accepted)
+        self.assertEqual(right_side.response_value, "RED")
+        self.assertTrue(left_side.accepted)
+        self.assertEqual(left_side.response_value, "GREEN")
 
     def test_logged_compressed_english_variants_map_correctly(self):
         green = match_response(

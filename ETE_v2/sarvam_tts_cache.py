@@ -94,8 +94,8 @@ def default_sarvam_cache_dir() -> Path:
 DEFAULT_SARVAM_CACHE_DIR = _ETE_ROOT / "sarvam_tts_cache"
 
 MODEL = os.environ.get("SARVAM_TTS_MODEL", "bulbul:v3").strip()
-# Default 1.1× speed, 48 kHz output (bulbul:v3 REST); override via env if needed.
-SARVAM_TTS_PACE = float(os.environ.get("SARVAM_TTS_PACE", "1.1").strip() or "1.1")
+# Default 1.05× speed (clear, not rushed), 48 kHz output; override via env if needed.
+SARVAM_TTS_PACE = float(os.environ.get("SARVAM_TTS_PACE", "1.05").strip() or "1.05")
 SARVAM_SPEECH_SAMPLE_RATE = os.environ.get("SARVAM_SPEECH_SAMPLE_RATE", "48000").strip() or "48000"
 
 
@@ -165,18 +165,30 @@ def postprocess_sarvam_mp3_bytes(mp3_bytes: bytes) -> bytes:
     if not ffmpeg:
         return mp3_bytes
 
-    # Gentler than -35 dB / 0.08 s — those settings often ate the tail of words (fricatives, Hindi endings).
-    min_dur = os.environ.get("SARVAM_MP3_TRIM_MIN_DURATION", "0.15").strip()
-    thr = os.environ.get("SARVAM_MP3_TRIM_THRESHOLD_DB", "-50").strip()
+    # Gentle trim: only remove truly silent tail, keep word endings intact.
+    # -55 dB threshold is very conservative (barely audible noise only).
+    # 0.20s min silence before cutting ensures trailing consonants aren't clipped.
+    min_dur = os.environ.get("SARVAM_MP3_TRIM_MIN_DURATION", "0.20").strip()
+    thr = os.environ.get("SARVAM_MP3_TRIM_THRESHOLD_DB", "-55").strip()
     if not thr.endswith("dB"):
         thr = f"{thr}dB"
-    pad_raw = os.environ.get("SARVAM_MP3_END_PAD_SEC", "0.12").strip()
+    pad_raw = os.environ.get("SARVAM_MP3_END_PAD_SEC", "0.25").strip()
     try:
         pad_sec = max(0.0, float(pad_raw or "0"))
     except ValueError:
-        pad_sec = 0.12
+        pad_sec = 0.25
+    fade_raw = os.environ.get("SARVAM_MP3_FADE_OUT_MS", "100").strip()
+    try:
+        fade_ms = max(0, int(fade_raw or "0"))
+    except ValueError:
+        fade_ms = 100
 
-    # Reverse → trim leading silence (tail of original) → reverse → optional short silence pad
+    # Reverse → trim leading silence (tail of original) → reverse
+    # → fade out last N ms (smooth ending) → pad with silence (natural pause)
+    #
+    # For the fade-out: we use a two-pass approach.
+    # Pass 1 (this filter): trim + pad only.
+    # Pass 2 (separate ffmpeg call): detect duration, apply fade to last N ms.
     af = (
         f"areverse,silenceremove=start_periods=1:start_duration={min_dur}:"
         f"start_threshold={thr}:detection=peak,areverse"
@@ -185,37 +197,66 @@ def postprocess_sarvam_mp3_bytes(mp3_bytes: bytes) -> bytes:
         af = f"{af},apad=pad_dur={pad_sec}"
     in_path: str | None = None
     out_path: str | None = None
+    fade_path: str | None = None
     try:
         with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as fin:
             fin.write(mp3_bytes)
             in_path = fin.name
         with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as fout:
             out_path = fout.name
+
+        # Pass 1: trim trailing silence + add pad
         cmd = [
-            ffmpeg,
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-y",
-            "-i",
-            in_path,
-            "-af",
-            af,
-            "-c:a",
-            "libmp3lame",
-            "-q:a",
-            "3",
+            ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
+            "-i", in_path, "-af", af,
+            "-c:a", "libmp3lame", "-q:a", "2",  # VBR ~190kbps for sharper audio
             out_path,
         ]
         r = subprocess.run(cmd, capture_output=True, timeout=120)
         if r.returncode != 0:
             return mp3_bytes
-        out = Path(out_path).read_bytes()
-        return out if len(out) > 100 else mp3_bytes
+        trimmed = Path(out_path).read_bytes()
+        if len(trimmed) < 100:
+            return mp3_bytes
+
+        # Pass 2: apply fade-out to last N ms for smooth ending (no abrupt cut)
+        if fade_ms > 0:
+            # Get duration of trimmed file
+            probe = subprocess.run(
+                [ffmpeg, "-hide_banner", "-i", out_path, "-f", "null", "-"],
+                capture_output=True, text=True, timeout=30,
+            )
+            dur = 0.0
+            for line in (probe.stderr or "").split("\n"):
+                if "Duration:" in line:
+                    parts = line.split("Duration:")[1].split(",")[0].strip()
+                    h, m, s = parts.split(":")
+                    dur = int(h) * 3600 + int(m) * 60 + float(s)
+                    break
+
+            if dur > 0:
+                fade_sec = fade_ms / 1000.0
+                fade_start = max(0, dur - pad_sec - fade_sec)
+                with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as ffade:
+                    fade_path = ffade.name
+                fade_af = f"afade=t=out:st={fade_start:.3f}:d={fade_sec:.3f}:curve=log"
+                cmd2 = [
+                    ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
+                    "-i", out_path, "-af", fade_af,
+                    "-c:a", "libmp3lame", "-q:a", "2",
+                    fade_path,
+                ]
+                r2 = subprocess.run(cmd2, capture_output=True, timeout=120)
+                if r2.returncode == 0:
+                    faded = Path(fade_path).read_bytes()
+                    if len(faded) > 100:
+                        return faded
+            return trimmed
+        return trimmed
     except (OSError, subprocess.SubprocessError):
         return mp3_bytes
     finally:
-        for p in (in_path, out_path):
+        for p in (in_path, out_path, fade_path):
             if p:
                 try:
                     Path(p).unlink(missing_ok=True)
