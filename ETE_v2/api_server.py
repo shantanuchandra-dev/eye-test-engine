@@ -762,6 +762,23 @@ def session_end(session_id):
         calibration_snapshot=orch.calibration.get_snapshot(),
     )
 
+    # Test time: from first question asked (exam_clock_start) to session end
+    if orch.exam_clock_start:
+        test_duration_secs = round((end_time - orch.exam_clock_start).total_seconds(), 1)
+    else:
+        test_duration_secs = metadata.get("session_duration_seconds", 0)
+    test_mins, test_secs = divmod(int(test_duration_secs), 60)
+    metadata["test_duration_seconds"] = test_duration_secs
+    metadata["test_duration_display"] = f"{test_mins}m {test_secs}s"
+
+    # History-taking time: passed from frontend
+    history_duration = data.get("history_taking_duration_seconds")
+    if history_duration is not None:
+        history_duration = round(float(history_duration), 1)
+        h_mins, h_secs = divmod(int(history_duration), 60)
+        metadata["history_taking_duration_seconds"] = history_duration
+        metadata["history_taking_duration_display"] = f"{h_mins}m {h_secs}s"
+
     # Enrich metadata with voice/language stats (matching FSMv3.1_R2 summary.json)
     duration_secs = metadata.get("session_duration_seconds", 0)
     mins, secs = divmod(int(duration_secs), 60)

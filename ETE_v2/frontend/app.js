@@ -3272,6 +3272,7 @@ async function signOff() {
         operator_name: sessionStorage.getItem('operator_name') || '',
         qualitative_feedback: document.getElementById('feedbackArea').value,
         language: sessionLanguage,
+        history_taking_duration_seconds: parseFloat(sessionStorage.getItem('history_taking_duration_seconds')) || undefined,
       }),
     });
     const data = await resp.json();

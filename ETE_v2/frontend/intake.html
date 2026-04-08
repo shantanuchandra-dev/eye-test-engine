@@ -3472,7 +3472,10 @@ document.getElementById('intakeForm').addEventListener('submit', async (e) => {
   try {
     validateSessionStartPrerequisites();
     sessionStorage.removeItem('session_language');
+    const historyStartMs = Date.now();
     const intakeAnswers = await runGuidedVoiceIntake();
+    const historyDurationSecs = ((Date.now() - historyStartMs) / 1000).toFixed(1);
+    sessionStorage.setItem('history_taking_duration_seconds', historyDurationSecs);
     const chosenLanguage = intakeAnswers?.language || getSelectedIntakeLanguage();
     setSelectedIntakeLanguage(chosenLanguage);
     sessionStorage.setItem('session_language', chosenLanguage);
