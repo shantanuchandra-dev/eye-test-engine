@@ -1617,6 +1617,9 @@ function startVoiceCapture(state, options, step, runtime = {}) {
     if (!isCurrentQuestionTurn(questionToken)) return;
     if (!voiceEnabled || voiceSubmitting || responseSubmitting) return;
 
+    // Start parallel MediaRecorder capture so audio blobs are saved for Supabase upload
+    startBrowserParallelCaptureForSession();
+
     recognition = new SpeechRecognition();
     const currentQuestionText = getCurrentQuestionText();
     recognition.lang = getBrowserRecognitionLang(state, currentQuestionText);
