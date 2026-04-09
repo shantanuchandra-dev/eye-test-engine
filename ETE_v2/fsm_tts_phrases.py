@@ -67,6 +67,13 @@ APP_UI_TTS_PHRASES: tuple[str, ...] = (
     "अब दूसरा विकल्प है।",
     "And now the second option. Say first option, second option, both same, or repeat.",
     "अब दूसरा विकल्प है। पहला, दूसरा, समान, या फिर से कहिए।",
+    # JCC flip short/condensed prompts (getStaticFlipPrompt in app.js)
+    "First option",
+    "Second option. Which is better, or are both same?",
+    "Second option. Which is better? First option, second option, both same or repeat?",
+    "पहला विकल्प",
+    "दूसरा विकल्प। कौन बेहतर है, या दोनों समान हैं?",
+    "दूसरा विकल्प। कौन बेहतर है? पहला विकल्प, दूसरा विकल्प, दोनों समान, या फिर से?",
 )
 
 # After frontend/app.js buildSpokenQuestionText() normalization (English TTS path)

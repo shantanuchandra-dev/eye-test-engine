@@ -1251,15 +1251,24 @@ function bargeInFiredFor(questionToken) {
   return _bargeInFired && _bargeInToken === questionToken;
 }
 
-/** Arm barge-in state tracking. STT is NOT started here — it starts
- *  after TTS ends (in the onEnd callback). This prevents STT from
- *  picking up TTS audio output as patient speech. */
+/** Arm barge-in and start STT during TTS.
+ *  Headphones prevent TTS audio from reaching the mic, so STT
+ *  only hears the patient. Barge-in triggers when STT gets a result. */
 function bargeInStart(questionToken, state, data, options, step) {
   _bargeInActive = bargeInIsEligible(state, data);
   _bargeInStartedAt = performance.now();
   _bargeInFired = false;
   _bargeInToken = questionToken;
-  console.log(`[BargeIn] Armed for state ${state} — STT deferred until TTS ends`);
+
+  // Start STT during TTS — headphones prevent echo from reaching mic
+  if (voiceEnabled && (voiceMode === 'browser' ? SpeechRecognition : voiceMode === 'whisper')) {
+    startVoiceCapture(state, options || [], step, {
+      skipTtsCheck: true,
+      questionToken,
+      setupDelayMs: 0,
+    });
+    console.log(`[BargeIn] STT started during TTS for state ${state}`);
+  }
 }
 
 /** Stop barge-in monitoring (STT keeps running). */
