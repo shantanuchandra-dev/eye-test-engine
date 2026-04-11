@@ -12,8 +12,8 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-# Path to the ETE_v2 sibling directory
-_ETE_ROOT = Path(__file__).resolve().parent.parent / "ETE_v2"
+# Path to the ETE_v2 app root (parent of this booking/ package)
+_ETE_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _metadata_csv_path() -> Path:
