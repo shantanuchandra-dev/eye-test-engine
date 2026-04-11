@@ -1239,12 +1239,19 @@ class SessionOrchestrator:
                 self._send_jcc("handle")
 
         # Duochrome (G, J): decrease for RED, increase for GREEN
-        # REPEAT/SAME: no CURL commands
+        # SAME after a GREEN anchor triggers the FSM3.3 plus-search (+0.25 D),
+        # so it also needs an "increase" dispatch. Other SAME/REPEAT: no CURL.
         elif state in ("G", "J"):
             if resp in ("RED", "RED_CLEARER"):
                 self._send_jcc("decrease")  # RAM: Red Add Minus
             elif resp in ("GREEN", "GREEN_CLEARER"):
                 self._send_jcc("increase")  # GAP: Green Add Plus
+            elif (
+                resp == "SAME"
+                and applied_row is not None
+                and applied_row.duo_same_anchor_response == "GREEN"
+            ):
+                self._send_jcc("increase")  # FSM3.3 plus-search: SAME after GREEN
 
         # All other states: no response-level CURL commands
         # B/D coarse, K binocular, P/Q/R near: power updates handled by dispatch_phoropter_commands
