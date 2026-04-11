@@ -35,6 +35,10 @@ Eye_test_engine_v2/voice/models/piper/
 Eye_test_engine_v2/voice/models/silero/
 !Eye_test_engine_v2/voice/models/.gitkeep
 
+# Google service account credentials
+config/google-service-account.json
+booking/*.json
+
 # Claude local
 .claude/plans/
 *metadata.json

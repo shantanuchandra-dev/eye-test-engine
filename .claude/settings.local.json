@@ -104,7 +104,16 @@
       "Bash(ln -s /Users/shantanuchandra/Downloads/eye_test_engine_Claude/FSMv3.1_R2/models/whisper-large-v3-turbo-ct2 /Users/shantanuchandra/Downloads/eye_test_engine_Claude/ETE_v2/models/whisper-large-v3-turbo-ct2)",
       "Skill(update-config)",
       "Bash(python:*)",
-      "Bash(/Users/shantanuchandra/Downloads/eye_test_engine_Claude/ETE_v2/frontend/favicon.svg:*)"
+      "Bash(/Users/shantanuchandra/Downloads/eye_test_engine_Claude/ETE_v2/frontend/favicon.svg:*)",
+      "mcp__claude_ai_Supabase__list_projects",
+      "mcp__claude_ai_Supabase__apply_migration",
+      "Bash(pip3 install:*)",
+      "Bash(conda info:*)",
+      "Bash(pipx list:*)",
+      "Bash(xargs -I{} echo \"Group markup occurrences: {}\")",
+      "Bash(xargs -I{} echo \"New code markers: {}\")",
+      "Bash(xargs -I{} echo \"Toolbar markers: {}\")",
+      "Bash(xargs -I{} echo \"Found {} marker\\(s\\)\")"
     ]
   },
   "syntaxHighlightingDisabled": true
