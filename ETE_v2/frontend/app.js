@@ -1097,6 +1097,11 @@ let completedPhases = new Set();
 let heartbeatInterval = null;
 let _examTimerIntervalId = null;
 let _examClockStartMs = null;
+// Pause/resume state. _totalPausedMs accumulates time spent in pause so the
+// exam timer display can be offset accordingly.
+let _isPaused = false;
+let _pauseStartMs = null;
+let _totalPausedMs = 0;
 let _langSelectPendingData = null; // Stores first-question data during language selection
 let _autoFlipTimer = null; // Timer for JCC auto-flip
 let _flipState = null; // 'flip1', 'flip2', or null
@@ -1118,7 +1123,11 @@ document.addEventListener('DOMContentLoaded', () => {
   sessionId = params.get('session_id') || sessionStorage.getItem('session_id');
 
   if (sessionId) {
-    restoreSession();
+    // Show the start splash first. The operator's click on the splash is the
+    // user gesture Safari needs in order to grant the screen wake lock — and
+    // it also kicks off restoreSession(), so the test only begins after the
+    // wake lock is held.
+    showStartSplash();
   } else {
     document.getElementById('questionText').textContent = 'No session active. Go to /intake to start.';
   }
@@ -1297,7 +1306,13 @@ function updateExamTimerDisplay() {
     el.textContent = '—';
     return;
   }
-  el.textContent = `Exam ${formatExamElapsed(Date.now() - _examClockStartMs)}`;
+  // Subtract any paused duration so the displayed exam time excludes pauses.
+  // While currently paused, also subtract the in-progress pause window.
+  let pausedMs = _totalPausedMs;
+  if (_isPaused && _pauseStartMs != null) {
+    pausedMs += Date.now() - _pauseStartMs;
+  }
+  el.textContent = `Exam ${formatExamElapsed(Date.now() - _examClockStartMs - pausedMs)}`;
 }
 
 function startExamTimer() {
@@ -1325,6 +1340,9 @@ function syncExamClockFromSessionData(data) {
 function resetExamTimer() {
   stopExamTimer();
   _examClockStartMs = null;
+  _isPaused = false;
+  _pauseStartMs = null;
+  _totalPausedMs = 0;
   updateExamTimerDisplay();
 }
 
@@ -3152,6 +3170,19 @@ async function submitResponse(responseValue, voiceMeta, overrides = {}) {
 
 // ── Keyboard shortcuts ──
 function handleKeyboard(e) {
+  // Spacebar toggles pause/resume — handled BEFORE the input-enabled gate
+  // so the operator can pause during TTS playback or auto-advance windows.
+  if (e.key === ' ' || e.code === 'Space') {
+    const tag = (e.target && e.target.tagName) || '';
+    const isTextField = tag === 'INPUT' || tag === 'TEXTAREA'
+      || (e.target && e.target.isContentEditable);
+    if (!isTextField && sessionId) {
+      e.preventDefault();
+      togglePauseSession();
+      return;
+    }
+  }
+
   if (!_inputEnabled || (!isDuplexTurnMode() && isTtsActive())) return;
   if (e.key >= '1' && e.key <= '4') {
     const slot = parseInt(e.key, 10);
@@ -3254,6 +3285,74 @@ async function endSession() {
   document.getElementById('questionCard').style.display = 'none';
 }
 
+// ── Pause / Resume ──
+// Pauses the active test: stops TTS, voice capture, observe-advance auto-tick,
+// and the exam timer interval. Resume re-fetches the current state from the
+// backend and re-renders/re-speaks the last question via handleSessionUpdate.
+function togglePauseSession() {
+  if (_isPaused) {
+    resumeSession();
+  } else {
+    pauseSession();
+  }
+}
+
+function pauseSession() {
+  if (!sessionId || _isPaused) return;
+  _isPaused = true;
+  _pauseStartMs = Date.now();
+  _inputEnabled = false;
+
+  // Stop the auto-advance timer (e.g. observation phases)
+  if (_observeAdvanceTimer) {
+    clearTimeout(_observeAdvanceTimer);
+    _observeAdvanceTimer = null;
+  }
+
+  // Cancel any in-progress TTS so the next question read doesn't overlap
+  if ('speechSynthesis' in window && (speechSynthesis.speaking || speechSynthesis.pending)) {
+    _ttsSessionId += 1;
+    try { speechSynthesis.cancel(); } catch (_) {}
+  }
+
+  // Stop voice capture cleanly
+  try { stopActiveVoiceCapture({ resetVoiceSubmitting: true }); } catch (_) {}
+
+  // Freeze the exam timer interval (display will keep showing the offset value)
+  stopExamTimer();
+  updateExamTimerDisplay();
+
+  document.getElementById('pauseOverlay').style.display = 'flex';
+  console.log('[Pause] Session paused');
+}
+
+async function resumeSession() {
+  if (!sessionId || !_isPaused) return;
+  // Accumulate this pause window into the total before clearing the flag
+  if (_pauseStartMs != null) {
+    _totalPausedMs += Date.now() - _pauseStartMs;
+  }
+  _isPaused = false;
+  _pauseStartMs = null;
+
+  document.getElementById('pauseOverlay').style.display = 'none';
+
+  // Restart the timer interval (the offset bakes in the just-ended pause)
+  startExamTimer();
+
+  // Re-fetch current state and re-render the last question (re-speaks + re-arms mic)
+  try {
+    const resp = await fetch(`${API}/api/session/${sessionId}/status`);
+    if (!resp.ok) throw new Error(`status HTTP ${resp.status}`);
+    const data = await resp.json();
+    await handleSessionUpdate(data);
+    console.log('[Pause] Session resumed — last question re-asked');
+  } catch (e) {
+    console.error('[Pause] Resume failed:', e);
+    alert('Could not resume session: ' + e.message);
+  }
+}
+
 async function signOff() {
   if (!sessionId) return;
   try {
@@ -3268,6 +3367,13 @@ async function signOff() {
       } catch (e) { console.warn('Could not save failed voice attempts:', e); }
     }
 
+    // Sum any pause time spent so far. If the operator hits Sign Off while still
+    // paused, include the in-progress pause window too.
+    let totalPausedMs = _totalPausedMs;
+    if (_isPaused && _pauseStartMs != null) {
+      totalPausedMs += Date.now() - _pauseStartMs;
+    }
+
     const resp = await fetch(`${API}/api/session/${sessionId}/end`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -3276,6 +3382,7 @@ async function signOff() {
         qualitative_feedback: document.getElementById('feedbackArea').value,
         language: sessionLanguage,
         history_taking_duration_seconds: parseFloat(sessionStorage.getItem('history_taking_duration_seconds')) || undefined,
+        total_paused_ms: totalPausedMs,
       }),
     });
     const data = await resp.json();
@@ -3328,6 +3435,93 @@ window.addEventListener('pagehide', () => {
   } catch (_) {}
 });
 
+// ── Screen Wake Lock ──
+// Prevents the screen from sleeping while a test is in progress.
+// Browsers automatically release the lock when the tab is hidden, so we
+// re-acquire on visibilitychange.
+let _wakeLockSentinel = null;
+let _wakeLockDesired = false;
+
+async function acquireScreenWakeLock() {
+  _wakeLockDesired = true;
+  if (!('wakeLock' in navigator)) {
+    console.warn('[WakeLock] Screen Wake Lock API not supported in this browser');
+    return;
+  }
+  if (_wakeLockSentinel) return;
+  try {
+    _wakeLockSentinel = await navigator.wakeLock.request('screen');
+    console.log('[WakeLock] Screen wake lock acquired');
+    _wakeLockSentinel.addEventListener('release', () => {
+      console.log('[WakeLock] Screen wake lock released by browser');
+      _wakeLockSentinel = null;
+    });
+  } catch (e) {
+    _wakeLockSentinel = null;
+    console.warn('[WakeLock] Failed to acquire screen wake lock:', e);
+  }
+}
+
+// Start splash: requires a real user click before restoreSession() runs, so
+// Safari grants the screen wake lock from inside a true user gesture.
+let _startSplashShown = false;
+let _startSplashDismissed = false;
+
+function showStartSplash() {
+  const el = document.getElementById('startSplash');
+  if (!el) {
+    // Defensive fallback: if the splash markup is missing, just start the test.
+    restoreSession();
+    acquireScreenWakeLock();
+    return;
+  }
+  _startSplashShown = true;
+  el.style.display = 'flex';
+  // Any keypress also dismisses the splash (since the operator may not click).
+  document.addEventListener('keydown', _startSplashKeyHandler, true);
+}
+
+function _startSplashKeyHandler(e) {
+  // Spacebar / Enter / any printable key dismisses the splash. The keydown
+  // event itself counts as a user gesture, so the wake lock will be granted.
+  if (_startSplashShown && !_startSplashDismissed) {
+    e.preventDefault();
+    dismissStartSplash();
+  }
+}
+
+function dismissStartSplash() {
+  if (_startSplashDismissed) return;
+  _startSplashDismissed = true;
+  _startSplashShown = false;
+  document.removeEventListener('keydown', _startSplashKeyHandler, true);
+  const el = document.getElementById('startSplash');
+  if (el) el.style.display = 'none';
+  // We are now inside a real user gesture (click or keydown). Acquire the
+  // wake lock immediately — Safari should grant it.
+  acquireScreenWakeLock();
+  // Now actually start the test.
+  restoreSession();
+}
+
+async function releaseScreenWakeLock() {
+  _wakeLockDesired = false;
+  if (_wakeLockSentinel) {
+    try { await _wakeLockSentinel.release(); } catch (_) {}
+    _wakeLockSentinel = null;
+    console.log('[WakeLock] Screen wake lock released');
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && _wakeLockDesired && !_wakeLockSentinel) {
+    // Re-acquire on tab focus return. Safari may grant or deny depending on
+    // whether it considers the visibility change a user gesture; either way
+    // the next operator click / keypress (e.g. spacebar pause) re-acquires.
+    acquireScreenWakeLock();
+  }
+});
+
 async function cleanup() {
   if (heartbeatInterval) clearInterval(heartbeatInterval);
   if (_observeAdvanceTimer) {
@@ -3335,6 +3529,9 @@ async function cleanup() {
     _observeAdvanceTimer = null;
   }
   resetExamTimer();
+  const pauseOverlay = document.getElementById('pauseOverlay');
+  if (pauseOverlay) pauseOverlay.style.display = 'none';
+  await releaseScreenWakeLock();
   await releaseDevice();
   sessionStorage.removeItem('session_id');
   sessionStorage.removeItem('session_language');
