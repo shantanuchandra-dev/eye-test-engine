@@ -1,0 +1,8 @@
+state_code,state_name,escalations,timeouts,non_completions,pct_of_non_completions
+B,Coarse Sphere RE,107,0,107,0.5722
+D,Coarse Sphere LE,52,0,52,0.2781
+J,Duochrome LE,9,0,9,0.0481
+R,Near Binocular,8,0,8,0.0428
+G,Duochrome RE,7,0,7,0.0374
+P,Near Add RE,2,0,2,0.0107
+Q,Near Add LE,2,0,2,0.0107
