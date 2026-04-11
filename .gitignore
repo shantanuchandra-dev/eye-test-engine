@@ -37,7 +37,7 @@ Eye_test_engine_v2/voice/models/silero/
 
 # Google service account credentials
 config/google-service-account.json
-booking/*.json
+ETE_v2/booking/*.json
 
 # Claude local
 .claude/plans/

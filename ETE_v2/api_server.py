@@ -70,8 +70,6 @@ app = Flask(__name__, static_folder=str(FRONTEND_DIR), static_url_path="")
 CORS(app)
 
 # ── Booking system blueprint ──
-import sys
-sys.path.insert(0, str(APP_ROOT.parent))  # Allow importing booking/ package
 from booking.routes import booking_bp
 app.register_blueprint(booking_bp)
 
