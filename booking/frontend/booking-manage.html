@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manage Booking</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ink: #0f172a; --ink-secondary: #475569; --ink-muted: #94a3b8;
+  --surface: #f8fafc; --surface-card: #ffffff; --surface-hover: #f1f5f9;
+  --border: #e2e8f0; --border-focus: #3b82f6;
+  --accent: #2563eb; --accent-hover: #1d4ed8; --accent-glow: rgba(37,99,235,0.12);
+  --success: #059669; --success-bg: #ecfdf5;
+  --warning: #d97706; --danger: #dc2626; --danger-bg: #fef2f2;
+  --radius-sm: 6px; --radius-md: 10px; --radius-lg: 14px;
+  --shadow-sm: 0 1px 2px rgba(15,23,42,0.06); --shadow-md: 0 4px 12px rgba(15,23,42,0.08);
+  --font-body: 'DM Sans', system-ui, -apple-system, sans-serif;
+}
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+html { font-size: 15px; }
+body { font-family: var(--font-body); background: var(--surface); color: var(--ink); min-height: 100vh; -webkit-font-smoothing: antialiased; }
+
+.header { background: var(--ink); color: white; padding: 1.5rem; text-align: center; }
+.header h1 { font-size: 1.2rem; font-weight: 600; }
+
+.container { max-width: 480px; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+
+.loading { text-align: center; padding: 3rem; color: var(--ink-muted); }
+.spinner { width: 32px; height: 32px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 1rem; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.card {
+  background: var(--surface-card); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 1.2rem; margin-bottom: 1rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.status-badge {
+  display: inline-block; padding: 3px 12px; border-radius: 20px;
+  font-size: 0.8rem; font-weight: 600; text-transform: uppercase;
+}
+.status-confirmed { background: var(--success-bg); color: var(--success); }
+.status-cancelled { background: var(--danger-bg); color: var(--danger); }
+
+.detail-row { display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid var(--border); }
+.detail-row:last-child { border-bottom: none; }
+.detail-label { font-size: 0.85rem; color: var(--ink-secondary); }
+.detail-value { font-size: 0.85rem; font-weight: 500; }
+
+.actions { display: flex; gap: 0.6rem; margin-top: 1rem; }
+.btn {
+  flex: 1; padding: 10px; border: none; border-radius: var(--radius-sm);
+  font: 600 0.85rem var(--font-body); cursor: pointer; transition: all 0.15s; text-align: center;
+}
+.btn-cancel { background: var(--danger-bg); color: var(--danger); border: 1px solid #fecaca; }
+.btn-cancel:hover { background: #fee2e2; }
+.btn-reschedule { background: var(--accent-glow); color: var(--accent); border: 1px solid #bfdbfe; }
+.btn-reschedule:hover { background: #dbeafe; }
+
+.reschedule-panel {
+  display: none; margin-top: 1rem;
+}
+.reschedule-panel.visible { display: block; }
+
+.day-option {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 0.7rem 0.8rem; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  margin-bottom: 0.4rem; cursor: pointer; transition: all 0.15s;
+}
+.day-option:hover { background: var(--surface-hover); }
+.day-option.disabled { opacity: 0.4; cursor: not-allowed; }
+
+.slot-pills { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.5rem; display: none; }
+.slot-pills.visible { display: flex; }
+.slot-pill {
+  padding: 5px 12px; border-radius: var(--radius-sm);
+  font-size: 0.8rem; font-weight: 500; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface-card); transition: all 0.15s;
+}
+.slot-pill:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-glow); }
+.slot-pill.selected { background: var(--accent); color: white; border-color: var(--accent); }
+.slot-pill.full { opacity: 0.4; cursor: not-allowed; text-decoration: line-through; }
+
+.btn-confirm-reschedule {
+  width: 100%; padding: 10px; margin-top: 0.8rem;
+  background: var(--accent); color: white; border: none;
+  border-radius: var(--radius-sm); font: 600 0.85rem var(--font-body);
+  cursor: pointer; display: none;
+}
+.btn-confirm-reschedule.visible { display: block; }
+.btn-confirm-reschedule:hover { background: var(--accent-hover); }
+
+.msg { padding: 0.8rem; border-radius: var(--radius-md); font-size: 0.9rem; margin-top: 1rem; text-align: center; }
+.msg-success { background: var(--success-bg); color: var(--success); }
+.msg-error { background: var(--danger-bg); color: var(--danger); }
+</style>
+</head>
+<body>
+
+<div class="header"><h1>Manage Your Booking</h1></div>
+
+<div class="container">
+  <div class="loading" id="loadingState"><div class="spinner"></div><div>Loading booking details...</div></div>
+
+  <div id="bookingDetails" style="display:none">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem">
+        <strong style="font-size:1rem" id="detailName"></strong>
+        <span class="status-badge" id="detailStatus"></span>
+      </div>
+      <div class="detail-row"><span class="detail-label">Location</span><span class="detail-value" id="detailLocation"></span></div>
+      <div class="detail-row"><span class="detail-label">Date</span><span class="detail-value" id="detailDate"></span></div>
+      <div class="detail-row"><span class="detail-label">Time</span><span class="detail-value" id="detailTime"></span></div>
+      <div class="detail-row"><span class="detail-label">Email</span><span class="detail-value" id="detailEmail"></span></div>
+      <div class="detail-row"><span class="detail-label">Phone</span><span class="detail-value" id="detailPhone"></span></div>
+
+      <div class="actions" id="actionBtns">
+        <button class="btn btn-cancel" onclick="cancelBooking()">Cancel Booking</button>
+        <button class="btn btn-reschedule" onclick="toggleReschedule()">Reschedule</button>
+      </div>
+    </div>
+
+    <div class="reschedule-panel" id="reschedulePanel">
+      <div class="card">
+        <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:0.8rem">Pick a new time</h3>
+        <div id="rescheduleDays"></div>
+        <div id="rescheduleSlots" class="slot-pills"></div>
+        <button class="btn-confirm-reschedule" id="btnConfirmReschedule" onclick="confirmReschedule()">Confirm Reschedule</button>
+      </div>
+    </div>
+
+    <div id="messageArea"></div>
+  </div>
+
+  <div id="errorState" style="display:none"></div>
+</div>
+
+<script>
+const token = window.location.pathname.split('/').pop();
+let booking = null;
+let locationSlug = null;
+let rescheduleDate = null;
+let rescheduleSlot = null;
+
+async function init() {
+  try {
+    const resp = await fetch(`/api/booking/manage/${token}`);
+    if (!resp.ok) throw new Error('Booking not found');
+    booking = await resp.json();
+    locationSlug = booking.locations ? booking.locations.slug : null;
+    renderBooking();
+  } catch (e) {
+    document.getElementById('loadingState').style.display = 'none';
+    document.getElementById('errorState').style.display = 'block';
+    document.getElementById('errorState').innerHTML = `<div class="msg msg-error">${e.message}</div>`;
+  }
+}
+
+function renderBooking() {
+  document.getElementById('loadingState').style.display = 'none';
+  document.getElementById('bookingDetails').style.display = 'block';
+
+  document.getElementById('detailName').textContent = booking.patient_name;
+  document.getElementById('detailLocation').textContent = booking.location_name;
+  document.getElementById('detailEmail').textContent = booking.patient_email;
+  document.getElementById('detailPhone').textContent = booking.patient_phone;
+
+  const d = new Date(booking.booking_date + 'T00:00:00');
+  document.getElementById('detailDate').textContent = d.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  document.getElementById('detailTime').textContent = formatTime(booking.slot_start.slice(0, 5));
+
+  const statusEl = document.getElementById('detailStatus');
+  statusEl.textContent = booking.status;
+  statusEl.className = 'status-badge status-' + booking.status;
+
+  if (booking.status !== 'confirmed') {
+    document.getElementById('actionBtns').style.display = 'none';
+  }
+}
+
+async function cancelBooking() {
+  if (!confirm('Are you sure you want to cancel this booking?')) return;
+
+  try {
+    const resp = await fetch(`/api/booking/manage/${token}/cancel`, { method: 'POST' });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Cancel failed');
+    showMessage('Booking cancelled. A cancellation email has been sent.', 'success');
+    booking.status = 'cancelled';
+    renderBooking();
+  } catch (e) {
+    showMessage(e.message, 'error');
+  }
+}
+
+function toggleReschedule() {
+  const panel = document.getElementById('reschedulePanel');
+  if (panel.classList.contains('visible')) {
+    panel.classList.remove('visible');
+    return;
+  }
+  panel.classList.add('visible');
+  loadRescheduleDays();
+}
+
+async function loadRescheduleDays() {
+  if (!locationSlug) { showMessage('Cannot determine location for rescheduling', 'error'); return; }
+  const container = document.getElementById('rescheduleDays');
+  container.innerHTML = '<div style="color:var(--ink-muted);font-size:0.85rem;padding:0.5rem 0">Loading...</div>';
+
+  try {
+    const resp = await fetch(`/api/booking/${locationSlug}/availability`);
+    const data = await resp.json();
+    container.innerHTML = '';
+
+    data.days.forEach(day => {
+      const d = new Date(day.date + 'T00:00:00');
+      const label = d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
+      const disabled = !day.is_working_day || day.available_slots === 0;
+
+      const el = document.createElement('div');
+      el.className = 'day-option' + (disabled ? ' disabled' : '');
+      el.innerHTML = `<span>${label}</span><span style="font-size:0.8rem;color:var(--ink-muted)">${disabled ? (day.is_working_day ? 'Full' : 'Closed') : day.available_slots + ' slots'}</span>`;
+      if (!disabled) el.onclick = () => loadRescheduleSlots(day.date, el);
+      container.appendChild(el);
+    });
+  } catch (e) {
+    container.innerHTML = '<div class="msg msg-error">Failed to load available days</div>';
+  }
+}
+
+async function loadRescheduleSlots(date, dayEl) {
+  rescheduleDate = date;
+  rescheduleSlot = null;
+  document.getElementById('btnConfirmReschedule').classList.remove('visible');
+
+  // Highlight selected day
+  document.querySelectorAll('.day-option').forEach(d => d.style.background = '');
+  dayEl.style.background = 'var(--accent-glow)';
+
+  const slotsEl = document.getElementById('rescheduleSlots');
+  slotsEl.innerHTML = '<div style="color:var(--ink-muted);font-size:0.85rem">Loading...</div>';
+  slotsEl.classList.add('visible');
+
+  try {
+    const resp = await fetch(`/api/booking/${locationSlug}/slots?date=${date}`);
+    const data = await resp.json();
+    slotsEl.innerHTML = '';
+    data.slots.forEach(slot => {
+      const pill = document.createElement('button');
+      pill.className = 'slot-pill' + (slot.is_available ? '' : ' full');
+      pill.textContent = formatTime(slot.start);
+      if (slot.is_available) {
+        pill.onclick = () => {
+          document.querySelectorAll('#rescheduleSlots .slot-pill').forEach(p => p.classList.remove('selected'));
+          pill.classList.add('selected');
+          rescheduleSlot = slot.start;
+          document.getElementById('btnConfirmReschedule').classList.add('visible');
+        };
+      }
+      slotsEl.appendChild(pill);
+    });
+  } catch (e) {
+    slotsEl.innerHTML = '<div class="msg msg-error">Failed to load slots</div>';
+  }
+}
+
+async function confirmReschedule() {
+  if (!rescheduleDate || !rescheduleSlot) return;
+
+  const btn = document.getElementById('btnConfirmReschedule');
+  btn.disabled = true;
+  btn.textContent = 'Rescheduling...';
+
+  try {
+    const resp = await fetch(`/api/booking/manage/${token}/reschedule`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date: rescheduleDate, slot_start: rescheduleSlot }),
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) throw new Error(data.error || 'Reschedule failed');
+
+    // Redirect to new manage URL
+    window.location.href = data.new_manage_url;
+  } catch (e) {
+    showMessage(e.message, 'error');
+    btn.disabled = false;
+    btn.textContent = 'Confirm Reschedule';
+  }
+}
+
+function formatTime(t) {
+  const [h, m] = t.split(':').map(Number);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${ampm}`;
+}
+
+function showMessage(msg, type) {
+  document.getElementById('messageArea').innerHTML = `<div class="msg msg-${type}">${msg}</div>`;
+}
+
+init();
+</script>
+</body>
+</html>
