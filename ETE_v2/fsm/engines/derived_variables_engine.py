@@ -89,7 +89,6 @@ class DerivedVariablesEngine:
             medical_risk=medical_risk,
             stability=stability,
         )
-        axis_tolerance = self._derive_axis_tolerance(branching_guardrails)
         cyl_tolerance = self._derive_cyl_tolerance(step_size_policy)
         requires_review = self._derive_requires_optom_review(
             patient=patient,
@@ -160,15 +159,20 @@ class DerivedVariablesEngine:
             lenso=patient.lenso_re,
             policy=start_policy,
             start_rx=start_re,
-            axis_tolerance=axis_tolerance,
         )
         axis_lane_le = self._derive_axis_lane_metadata(
             ar=patient.autorefractor_le,
             lenso=patient.lenso_le,
             policy=start_policy,
             start_rx=start_le,
-            axis_tolerance=axis_tolerance,
         )
+        axis_tolerance_re = float(axis_lane_re["axis_tolerance"])
+        axis_tolerance_le = float(axis_lane_le["axis_tolerance"])
+        # Compatibility field for older exports; live FSM uses the per-eye values.
+        axis_tolerance = min(axis_tolerance_re, axis_tolerance_le)
+
+        near_start_add_r = self._normalize_lenso_start_add(patient.lenso_add_r)
+        near_start_add_l = self._normalize_lenso_start_add(patient.lenso_add_l)
 
         near_binoc_step = float(
             self.cal.get("near_binoc_step_D", 0.25)
@@ -206,6 +210,8 @@ class DerivedVariablesEngine:
             dv_max_delta_from_start_sph=max_delta_start,
             dv_max_delta_from_ar_sph=max_delta_ar,
             dv_axis_tolerance_deg=axis_tolerance,
+            dv_axis_tolerance_deg_RE=axis_tolerance_re,
+            dv_axis_tolerance_deg_LE=axis_tolerance_le,
             dv_cyl_tolerance_D=cyl_tolerance,
             dv_requires_optom_review=requires_review,
             dv_anomaly_watch=anomaly_watch,
@@ -237,6 +243,8 @@ class DerivedVariablesEngine:
             dv_axis_source_used_LE=axis_lane_le["source_used"],
             dv_axis_cyl_magnitude_for_lane_RE=axis_lane_re["cyl_magnitude"],
             dv_axis_cyl_magnitude_for_lane_LE=axis_lane_le["cyl_magnitude"],
+            dv_axis_cyl_magnitude_for_tolerance_RE=axis_lane_re["tolerance_cyl_magnitude"],
+            dv_axis_cyl_magnitude_for_tolerance_LE=axis_lane_le["tolerance_cyl_magnitude"],
             dv_axis_is_near_cardinal_RE=axis_lane_re["is_near_cardinal"],
             dv_axis_is_near_cardinal_LE=axis_lane_le["is_near_cardinal"],
             dv_axis_lane_id_RE=axis_lane_re["lane_id"],
@@ -250,6 +258,8 @@ class DerivedVariablesEngine:
             dv_axis_selection_reason_RE=axis_lane_re["selection_reason"],
             dv_axis_selection_reason_LE=axis_lane_le["selection_reason"],
 
+            dv_near_start_add_r=near_start_add_r,
+            dv_near_start_add_l=near_start_add_l,
             dv_near_binoc_step_D=near_binoc_step,
             dv_near_binoc_max_plus_steps=near_binoc_max_plus,
             dv_near_binoc_max_minus_steps=near_binoc_max_minus,
@@ -519,15 +529,18 @@ class DerivedVariablesEngine:
             return float(self.cal.get("max_delta_ar_high_medical", 2))
         return float(self.cal.get("max_delta_ar_standard", 3))
 
-    def _derive_axis_tolerance(self, branching_guardrails: str) -> float:
-        if branching_guardrails == "Strict":
-            raw = self.cal.get("axis_tol_strict", 10)
-        elif branching_guardrails == "Relaxed":
-            raw = self.cal.get("axis_tol_relaxed", 10)
-        else:
-            raw = self.cal.get("axis_tol_normal", 10)
-
+    def _derive_axis_tolerance_for_cyl_magnitude(self, cyl_magnitude: float) -> float:
+        meaningful_cyl_threshold = float(self.cal.get("axis_meaningful_cyl_threshold_d", 0.5))
+        raw = 5.0 if abs(float(cyl_magnitude or 0.0)) >= meaningful_cyl_threshold else 10.0
         return self._normalize_axis_tolerance(raw)
+
+    @staticmethod
+    def _normalize_lenso_start_add(raw_add: Optional[float]) -> float:
+        try:
+            value = float(raw_add)
+        except (TypeError, ValueError):
+            return 0.0
+        return max(0.0, value)
 
     def _derive_cyl_tolerance(self, step_size_policy: str) -> float:
         if step_size_policy == "Aggressive":
@@ -695,11 +708,10 @@ class DerivedVariablesEngine:
         lenso: Optional[EyePrescription],
         policy: str,
         start_rx: EyePrescription,
-        axis_tolerance: float,
     ) -> dict:
         near_cardinal_threshold = float(self.cal.get("axis_near_cardinal_threshold_deg", 10))
         low_cyl_threshold = float(self.cal.get("axis_low_cyl_threshold_d", 0.50))
-        meaningful_cyl_threshold = float(self.cal.get("axis_meaningful_cyl_threshold_d", 0.75))
+        meaningful_cyl_threshold = float(self.cal.get("axis_meaningful_cyl_threshold_d", 0.5))
 
         source_used = self._derive_axis_source_used(ar=ar, lenso=lenso, policy=policy)
         axis_for_start = self._axis_value_for_source(
@@ -715,6 +727,8 @@ class DerivedVariablesEngine:
         decision_cyl_mag = lenso_cyl_mag if lenso_axis_available else ar_cyl_mag
         if not lenso_axis_available and not ar_axis_available:
             decision_cyl_mag = abs(float(start_rx.cylinder or 0.0))
+        tolerance_cyl_mag = abs(float(start_rx.cylinder or 0.0))
+        axis_tolerance = self._derive_axis_tolerance_for_cyl_magnitude(tolerance_cyl_mag)
 
         is_near_cardinal = self._is_near_cardinal_axis(
             axis_for_start,
@@ -732,6 +746,8 @@ class DerivedVariablesEngine:
             reasons.append("low_cylinder")
         else:
             reasons.append("intermediate_cylinder")
+        reasons.append(f"axis_tolerance_cyl={tolerance_cyl_mag:g}D")
+        reasons.append(f"axis_tolerance={axis_tolerance:g}deg")
         reasons.append("near_cardinal_axis" if is_near_cardinal else "non_cardinal_axis")
 
         if lenso_axis_available and lenso_cyl_mag >= meaningful_cyl_threshold:
@@ -764,6 +780,8 @@ class DerivedVariablesEngine:
         return {
             "source_used": source_used,
             "cyl_magnitude": round(float(decision_cyl_mag), 4),
+            "tolerance_cyl_magnitude": round(float(tolerance_cyl_mag), 4),
+            "axis_tolerance": float(axis_tolerance),
             "is_near_cardinal": is_near_cardinal,
             "lane_id": lane_id,
             "lane_name": lane_name,
@@ -838,7 +856,7 @@ class DerivedVariablesEngine:
                 sequence.append(value)
 
         terminal = self._normalize_axis_tolerance(
-            terminal_tolerance if terminal_tolerance is not None else self.cal.get("axis_tol_normal", 10)
+            terminal_tolerance if terminal_tolerance is not None else 10
         )
         if sequence and terminal > 0 and terminal < min(sequence) - 1e-9:
             sequence.append(terminal)

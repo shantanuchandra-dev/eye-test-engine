@@ -1,0 +1,5 @@
+behavior_id,total_replays,pct_of_replays,completion_rate,escalation_rate,timeout_rate,distance_success_rate_all_cases,avg_steps
+hesitant,2,0.4,1.0,0.0,0.0,1.0,26.5
+accommodative,1,0.2,1.0,0.0,0.0,1.0,28.0
+inconsistent,1,0.2,0.0,1.0,0.0,0.0,40.0
+noisy,1,0.2,1.0,0.0,0.0,0.0,23.0

@@ -85,6 +85,7 @@ class FSMRuntimeRow:
     prompt_memory: dict[str, int] = field(default_factory=dict)
     duo_iter: int = 0
     duo_flip: int = 0
+    duo_same_anchor_response: str = ""
     coarse_compare_mode: bool = False
     coarse_recheck_mode: bool = False
     coarse_last_confirmed_chart_re: str = ""

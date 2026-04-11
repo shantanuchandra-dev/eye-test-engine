@@ -1,0 +1,4 @@
+gender,total_cases,completion_rate,escalation_rate,timeout_rate,distance_accuracy_among_completed,distance_success_rate_all_cases,avg_steps
+male,459,0.7211,0.2789,0.0,0.695,0.6623,30.62
+others,106,0.7453,0.2547,0.0,0.7296,0.7264,28.49
+female,383,0.7572,0.2428,0.0,0.7298,0.6893,32.05

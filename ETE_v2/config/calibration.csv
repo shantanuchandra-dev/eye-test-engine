@@ -60,9 +60,6 @@ AXIS_POLICY,lane_1_sequence_deg,10,deg sequence,text,FSM adaptive axis lane sele
 AXIS_POLICY,lane_2_sequence_deg,"20,10",deg sequence,text,FSM adaptive axis lane selection,Step sequence for medium-confidence axis refinement
 AXIS_POLICY,lane_3_sequence_deg,"30,20,10",deg sequence,text,FSM adaptive axis lane selection,Step sequence for low-confidence axis refinement
 AXIS_POLICY,lane_4_sequence_deg,"45,30,20,10",deg sequence,text,FSM adaptive axis lane selection,Step sequence for very low-confidence axis refinement
-AXIS_POLICY,axis_tol_strict,10,deg,integer,dv_axis_tolerance_deg,Implementable terminal reversal stage used for adaptive axis convergence in strict cases; if set to 5 the lane gains a live 5-degree terminal step
-AXIS_POLICY,axis_tol_normal,10,deg,integer,dv_axis_tolerance_deg,Implementable terminal reversal stage used for adaptive axis convergence in normal cases; if set to 5 the lane gains a live 5-degree terminal step
-AXIS_POLICY,axis_tol_relaxed,10,deg,integer,dv_axis_tolerance_deg,Implementable terminal reversal stage used for adaptive axis convergence in relaxed cases; if set to 5 the lane gains a live 5-degree terminal step
 
 CYL_POLICY,cyl_tol_conservative,0.25,D,float,dv_cyl_tolerance_D,Cylinder tolerance used in Conservative mode
 CYL_POLICY,cyl_tol_standard,0.25,D,float,dv_cyl_tolerance_D,Cylinder tolerance used in Standard mode

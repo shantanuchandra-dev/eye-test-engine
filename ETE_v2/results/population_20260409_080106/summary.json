@@ -1,0 +1,15 @@
+{
+  "run_id": "population_20260409_080106",
+  "simulation_type": "population",
+  "n_truth": 25,
+  "seed_base": 1000,
+  "max_steps": 200,
+  "total_simulations": 25,
+  "completion_rate": 0.96,
+  "escalation_rate": 0.04,
+  "timeout_rate": 0.0,
+  "distance_accuracy_among_completed": 1.0,
+  "distance_success_rate_all_cases": 1.0,
+  "add_accuracy_among_completed_valid_add": 1.0,
+  "average_steps": 30.12
+}
