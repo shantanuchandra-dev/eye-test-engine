@@ -186,13 +186,31 @@ class RefractionFSMEngine:
             "selection_reason": getattr(dv, f"dv_axis_selection_reason_{suffix}", ""),
             "is_near_cardinal": bool(getattr(dv, f"dv_axis_is_near_cardinal_{suffix}", False)),
             "cyl_magnitude_for_lane": float(getattr(dv, f"dv_axis_cyl_magnitude_for_lane_{suffix}", 0.0) or 0.0),
+            "cyl_magnitude_for_tolerance": float(
+                getattr(dv, f"dv_axis_cyl_magnitude_for_tolerance_{suffix}", 0.0) or 0.0
+            ),
             "step_sequence": getattr(dv, f"dv_axis_step_sequence_{suffix}", ""),
+            "axis_tolerance": float(getattr(dv, f"dv_axis_tolerance_deg_{suffix}", 10.0) or 10.0),
         }
 
     def _axis_nominal_step(self, sequence_text: str, step_index: int) -> float:
         sequence = self._parse_axis_step_sequence_text(sequence_text)
         bounded_index = min(max(int(step_index), 0), len(sequence) - 1)
         return float(sequence[bounded_index])
+
+    @staticmethod
+    def _axis_suffix_for_state(state: str) -> str:
+        if state == "E":
+            return "RE"
+        if state == "H":
+            return "LE"
+        return ""
+
+    def _axis_tolerance_for_state(self, state: str, dv) -> float:
+        suffix = self._axis_suffix_for_state(state)
+        per_eye_key = f"dv_axis_tolerance_deg_{suffix}" if suffix else ""
+        tolerance = getattr(dv, per_eye_key, getattr(dv, "dv_axis_tolerance_deg", 10.0))
+        return float(tolerance or 10.0)
 
     def _axis_converges_on_terminal_reversal(
         self,
@@ -210,7 +228,7 @@ class RefractionFSMEngine:
         if normalized_response == last_directional:
             return False
         current_step = self._axis_nominal_step(current.axis_step_sequence, current.axis_step_index)
-        tolerance = float(getattr(dv, "dv_axis_tolerance_deg", 10.0) or 10.0)
+        tolerance = self._axis_tolerance_for_state(current.state, dv)
         return current_step <= tolerance + 1e-9
 
     def _axis_lane_delta(
@@ -288,6 +306,53 @@ class RefractionFSMEngine:
             return False
         next_flip_count = int(current.duo_flip) + 1
         return next_flip_count >= int(dv.dv_duochrome_max_flips)
+
+    @staticmethod
+    def _duochrome_next_same_anchor(current: FSMRuntimeRow, normalized_response: str) -> str:
+        if normalized_response == "SAME":
+            if current.duo_same_anchor_response in ("RED", "GREEN"):
+                return current.duo_same_anchor_response
+            if current.response_value in ("RED", "GREEN"):
+                return current.response_value
+            return ""
+        if normalized_response in ("RED", "GREEN"):
+            return ""
+        return current.duo_same_anchor_response
+
+    @staticmethod
+    def _duochrome_same_can_converge(current: FSMRuntimeRow, normalized_response: str) -> bool:
+        if normalized_response != "SAME":
+            return False
+        anchor = RefractionFSMEngine._duochrome_next_same_anchor(current, normalized_response)
+        # Initial SAME has no directional anchor; keep legacy behavior and allow
+        # convergence. SAME after GREEN enters a plus search instead.
+        return anchor != "GREEN"
+
+    @staticmethod
+    def _duochrome_green_same_red_recovery_converged(
+        current: FSMRuntimeRow,
+        normalized_response: str,
+    ) -> bool:
+        return current.duo_same_anchor_response == "GREEN" and normalized_response == "RED"
+
+    def _near_monocular_add_delta(
+        self,
+        current: FSMRuntimeRow,
+        dv,
+        normalized_response: str,
+    ) -> float:
+        if normalized_response not in ("BLURRY", "NOT_CLEAR"):
+            return 0.0
+
+        default_delta = near_add_delta(normalized_response, self.cal)
+        if getattr(dv, "dv_age_bucket", "") != "Presbyope":
+            return default_delta
+
+        current_add = float(current.add_r or 0.0) if current.state == "P" else float(current.add_l or 0.0)
+        presbyope_floor = 0.75
+        if current_add < presbyope_floor:
+            return presbyope_floor - current_add
+        return default_delta
 
     @staticmethod
     def _final_compare_outcome(choice_1: str, choice_2: str) -> str:
@@ -557,6 +622,7 @@ class RefractionFSMEngine:
         duo_iter: int,
         duo_flip: int,
         axis_step: float,
+        duo_same_anchor_response: str = "",
         coarse_compare_mode: bool = False,
         coarse_recheck_mode: bool = False,
         coarse_last_confirmed_chart_re: str = "",
@@ -684,6 +750,7 @@ class RefractionFSMEngine:
             prompt_memory=dict(prompt_memory or {}),
             duo_iter=duo_iter,
             duo_flip=duo_flip,
+            duo_same_anchor_response=duo_same_anchor_response,
             coarse_compare_mode=coarse_compare_mode,
             coarse_recheck_mode=coarse_recheck_mode,
             coarse_last_confirmed_chart_re=coarse_last_confirmed_chart_re,
@@ -1010,6 +1077,7 @@ class RefractionFSMEngine:
 
         next_duo_iter = row.duo_iter if row.next_state == row.state else 0
         next_duo_flip = row.duo_flip if row.next_state == row.state else 0
+        next_duo_same_anchor_response = row.duo_same_anchor_response if row.next_state == row.state else ""
         next_coarse_compare_mode = row.coarse_compare_mode if row.next_state == row.state else False
         next_coarse_recheck_mode = row.coarse_recheck_mode if row.next_state == row.state else False
         next_prompt_memory = dict(row.prompt_memory or {})
@@ -1120,6 +1188,10 @@ class RefractionFSMEngine:
             next_near_bino_direction = ""
             next_near_bino_reversed = False
 
+        if row.next_state == "P" and row.state != "P":
+            next_add_r = float(getattr(dv, "dv_near_start_add_r", 0.0) or 0.0)
+            next_add_l = float(getattr(dv, "dv_near_start_add_l", 0.0) or 0.0)
+
         if row.next_state == "S":
             if row.state != "S":
                 if row.state == "U" and row.response_value == "REPEAT":
@@ -1218,6 +1290,7 @@ class RefractionFSMEngine:
             prev_axis_response=next_prev_axis_response,
             duo_iter=next_duo_iter,
             duo_flip=next_duo_flip,
+            duo_same_anchor_response=next_duo_same_anchor_response,
             coarse_compare_mode=next_coarse_compare_mode,
             coarse_recheck_mode=next_coarse_recheck_mode,
             coarse_last_confirmed_chart_re=next_coarse_last_confirmed_chart_re,
@@ -1419,9 +1492,17 @@ class RefractionFSMEngine:
         elif current.state == "G":
             equal_reached = False
             if normalized_response == "SAME":
-                equal_reached = (current.same_streak + 1) >= int(self.cal.get("duochrome_equal_confirmations", 2))
+                equal_reached = (
+                    self._duochrome_same_can_converge(current, normalized_response)
+                    and (current.same_streak + 1) >= int(self.cal.get("duochrome_equal_confirmations", 2))
+                )
+            row.duo_same_anchor_response = self._duochrome_next_same_anchor(current, normalized_response)
 
-            if self._duochrome_terminal_negative_reversal(current, dv, normalized_response):
+            if self._duochrome_green_same_red_recovery_converged(current, normalized_response):
+                row.ds_re = float(self.cal.get("duochrome_red_step", -0.25))
+            elif row.duo_same_anchor_response == "GREEN" and normalized_response == "SAME":
+                row.ds_re = float(self.cal.get("duochrome_green_step", 0.25))
+            elif self._duochrome_terminal_negative_reversal(current, dv, normalized_response):
                 row.ds_re = 0.0
             else:
                 row.ds_re = duochrome_sphere_delta(
@@ -1434,9 +1515,17 @@ class RefractionFSMEngine:
         elif current.state == "J":
             equal_reached = False
             if normalized_response == "SAME":
-                equal_reached = (current.same_streak + 1) >= int(self.cal.get("duochrome_equal_confirmations", 2))
+                equal_reached = (
+                    self._duochrome_same_can_converge(current, normalized_response)
+                    and (current.same_streak + 1) >= int(self.cal.get("duochrome_equal_confirmations", 2))
+                )
+            row.duo_same_anchor_response = self._duochrome_next_same_anchor(current, normalized_response)
 
-            if self._duochrome_terminal_negative_reversal(current, dv, normalized_response):
+            if self._duochrome_green_same_red_recovery_converged(current, normalized_response):
+                row.ds_le = float(self.cal.get("duochrome_red_step", -0.25))
+            elif row.duo_same_anchor_response == "GREEN" and normalized_response == "SAME":
+                row.ds_le = float(self.cal.get("duochrome_green_step", 0.25))
+            elif self._duochrome_terminal_negative_reversal(current, dv, normalized_response):
                 row.ds_le = 0.0
             else:
                 row.ds_le = duochrome_sphere_delta(
@@ -1485,10 +1574,10 @@ class RefractionFSMEngine:
             row.ds_le = binocular_balance_delta(normalized_response, self.cal, top_eye=False)
 
         elif current.state == "P":
-            row.dadd_r = near_add_delta(normalized_response, self.cal)
+            row.dadd_r = self._near_monocular_add_delta(current, dv, normalized_response)
 
         elif current.state == "Q":
-            row.dadd_l = near_add_delta(normalized_response, self.cal)
+            row.dadd_l = self._near_monocular_add_delta(current, dv, normalized_response)
 
         elif current.state == "R":
             step = float(dv.dv_near_binoc_step_D)
@@ -1639,13 +1728,17 @@ class RefractionFSMEngine:
             "timeout": timeout,
             "re_escalate": re_escalate,
             "le_escalate": le_escalate,
-            "axis_tolerance": float(dv.dv_axis_tolerance_deg),
+            "axis_tolerance": self._axis_tolerance_for_state(current.state, dv),
             "axis_step": float(row.axis_step),
             "same_streak": int(row.same_streak),
             "power_same_n": int(power_same_n),
             "duo_equal_n": int(duo_equal_n),
             "duo_flip": int(row.duo_flip),
             "duo_max": int(dv.dv_duochrome_max_flips),
+            "duo_same_can_converge": self._duochrome_same_can_converge(current, normalized_response),
+            "duochrome_green_same_red_recovery_converged": (
+                self._duochrome_green_same_red_recovery_converged(current, normalized_response)
+            ),
             "bino_same_n": int(bino_same_n),
             "bino_flip": int(row.duo_flip) if current.state == "K" else 0,
             "bino_flip_limit": int(bino_flip_limit),

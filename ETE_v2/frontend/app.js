@@ -3385,7 +3385,13 @@ async function signOff() {
         total_paused_ms: totalPausedMs,
       }),
     });
-    const data = await resp.json();
+    const contentType = resp.headers.get('content-type') || '';
+    const data = contentType.includes('application/json')
+      ? await resp.json()
+      : { error: await resp.text() };
+    if (!resp.ok) {
+      throw new Error(data.error || `Could not save session logs (${resp.status})`);
+    }
     alert(`Session stored: ${data.session_id}${data.remote_upload_error ? '\nRemote upload error: ' + data.remote_upload_error : ''}`);
     cleanup();
   } catch (e) {
