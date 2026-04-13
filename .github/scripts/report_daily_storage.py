@@ -26,24 +26,49 @@ def get_env(name: str) -> str:
     return val
 
 
-def list_all_objects(client, bucket: str) -> list[dict]:
-    """Paginate through all objects in a Supabase Storage bucket."""
-    storage = client.storage.from_(bucket)
-    all_objects: list[dict] = []
+def _list_paginated(storage, path: str) -> list[dict]:
+    """Paginate through all items at a given path in a Storage bucket."""
+    items: list[dict] = []
     limit = 1000
     offset = 0
     while True:
         batch = storage.list(
-            path="",
+            path=path,
             options={"limit": limit, "offset": offset, "sortBy": {"column": "created_at", "order": "desc"}},
         )
         if not batch:
             break
-        all_objects.extend(batch)
+        items.extend(batch)
         if len(batch) < limit:
             break
         offset += limit
-    return all_objects
+    return items
+
+
+def list_all_objects(client, bucket: str) -> list[dict]:
+    """
+    Recursively list all *files* in a Supabase Storage bucket.
+
+    Buckets like success_voices/failed_voices store files inside session
+    sub-folders (e.g. session_123/audio.webm).  We first list root items,
+    then drill into any folder to collect the actual files.
+    """
+    storage = client.storage.from_(bucket)
+    top_level = _list_paginated(storage, "")
+
+    all_files: list[dict] = []
+    for item in top_level:
+        item_id = item.get("id")
+        name = item.get("name", "")
+        if item_id is None and name:
+            folder_items = _list_paginated(storage, name)
+            for fi in folder_items:
+                if fi.get("id") is not None:
+                    all_files.append(fi)
+        elif item_id is not None:
+            all_files.append(item)
+
+    return all_files
 
 
 def count_by_date(objects: list[dict], cutoff: datetime) -> dict[str, int]:
