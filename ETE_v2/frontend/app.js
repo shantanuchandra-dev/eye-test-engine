@@ -291,6 +291,7 @@ function showComingSoonToast() {
 }
 
 function speakQuestion(text, langOverride, onEnd, profileKey = 'default') {
+  if (_isPaused) { if (onEnd) onEnd(); return; }
   const ttsSessionId = ++_ttsSessionId;
 
   if (!ttsEnabled || !('speechSynthesis' in window)) {
@@ -916,7 +917,7 @@ function playBeep() {
 }
 
 function cueAndStartVoiceCapture(state, options, step, { delayMs = null, enableInput = true, statusText = null, questionToken = _questionTurnToken, skipBeep = false, setupDelayMs = 100 } = {}) {
-  if (!voiceEnabled) return;
+  if (!voiceEnabled || _isPaused) return;
   invalidatePendingVoiceStart();
   const generation = _voiceStartGeneration;
   const resolvedDelayMs = delayMs == null ? (sessionLanguage === 'hi' ? 50 : 200) : delayMs;
@@ -1381,6 +1382,11 @@ async function handleSessionUpdate(data) {
     return;
   }
 
+  // If paused, accept the state update (so currentState + Rx table stay in sync
+  // with the backend/phoropter) but skip TTS, voice capture, and auto-flip.
+  // Resume will re-speak the current question.
+  if (_isPaused) return;
+
   // Show question (await so localized text is ready before TTS speaks)
   await showQuestion(data);
 
@@ -1602,7 +1608,7 @@ function updateVoiceButton() { updateVoiceModeSelect(); }
 
 function startVoiceCapture(state, options, step, runtime = {}) {
   const { skipTtsCheck = false, questionToken = _questionTurnToken, setupDelayMs = 100 } = runtime;
-  if (!voiceEnabled) return;
+  if (!voiceEnabled || _isPaused) return;
   if (voiceSubmitting) return;
   if (responseSubmitting) return;
   if (_flipState === 'flip1') return;
@@ -3309,6 +3315,13 @@ function pauseSession() {
     _observeAdvanceTimer = null;
   }
 
+  // Stop any pending JCC auto-flip timer so flips don't fire during pause
+  if (_autoFlipTimer) {
+    clearTimeout(_autoFlipTimer);
+    _autoFlipTimer = null;
+  }
+  _flipState = null;
+
   // Cancel any in-progress TTS so the next question read doesn't overlap
   if ('speechSynthesis' in window && (speechSynthesis.speaking || speechSynthesis.pending)) {
     _ttsSessionId += 1;
@@ -3340,16 +3353,14 @@ async function resumeSession() {
   // Restart the timer interval (the offset bakes in the just-ended pause)
   startExamTimer();
 
-  // Re-fetch current state and re-render the last question (re-speaks + re-arms mic)
-  try {
-    const resp = await fetch(`${API}/api/session/${sessionId}/status`);
-    if (!resp.ok) throw new Error(`status HTTP ${resp.status}`);
-    const data = await resp.json();
-    await handleSessionUpdate(data);
-    console.log('[Pause] Session resumed — last question re-asked');
-  } catch (e) {
-    console.error('[Pause] Resume failed:', e);
-    alert('Could not resume session: ' + e.message);
+  // currentState is already up-to-date (handleSessionUpdate still processes
+  // data updates while paused). Just re-render the current question with
+  // TTS + voice + auto-flip — no re-fetch needed, no extra phoropter toggles.
+  if (currentState && !currentState.is_terminal) {
+    await showQuestion(currentState);
+    handleAutoFlip(currentState);
+    if (currentState.state) updatePhaseProgress(currentState.state);
+    console.log('[Pause] Session resumed — current question re-asked');
   }
 }
 
