@@ -45,6 +45,15 @@ def _list_paginated(storage, path: str) -> list[dict]:
     return items
 
 
+def _is_folder(item: dict) -> bool:
+    """Detect whether a Supabase Storage list item is a folder (not a file)."""
+    if item.get("id") is None:
+        return True
+    if item.get("metadata") is None:
+        return True
+    return False
+
+
 def list_all_objects(client, bucket: str) -> list[dict]:
     """
     Recursively list all *files* in a Supabase Storage bucket.
@@ -56,18 +65,26 @@ def list_all_objects(client, bucket: str) -> list[dict]:
     storage = client.storage.from_(bucket)
     top_level = _list_paginated(storage, "")
 
+    if top_level:
+        print(f"  DEBUG top-level sample: {top_level[0]}")
+        print(f"  DEBUG top-level count: {len(top_level)}")
+
     all_files: list[dict] = []
+    folders_found = 0
     for item in top_level:
-        item_id = item.get("id")
         name = item.get("name", "")
-        if item_id is None and name:
+        if _is_folder(item) and name:
+            folders_found += 1
             folder_items = _list_paginated(storage, name)
+            if folder_items:
+                print(f"  DEBUG folder '{name}' has {len(folder_items)} items, sample: {folder_items[0]}")
             for fi in folder_items:
-                if fi.get("id") is not None:
+                if not _is_folder(fi):
                     all_files.append(fi)
-        elif item_id is not None:
+        elif not _is_folder(item):
             all_files.append(item)
 
+    print(f"  DEBUG folders={folders_found}, files_collected={len(all_files)}")
     return all_files
 
 
