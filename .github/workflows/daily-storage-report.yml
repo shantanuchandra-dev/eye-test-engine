@@ -1,0 +1,29 @@
+name: Daily Storage Report
+
+on:
+  schedule:
+    # Runs at 18:30 UTC = 12:00 AM IST (midnight)
+    - cron: '30 18 * * *'
+  workflow_dispatch: # allows manual trigger from GitHub UI
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install supabase requests
+
+      - name: Run daily storage report
+        run: python .github/scripts/report_daily_storage.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          GOOGLE_CHAT_WEBHOOK_URL: ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
