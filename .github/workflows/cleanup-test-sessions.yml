@@ -1,0 +1,166 @@
+name: Cleanup Test Sessions
+
+on:
+  schedule:
+    - cron: '30 18 * * *' # Every day at 12:00 AM IST (UTC+5:30)
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install supabase
+
+      - name: Cleanup test sessions
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          GOOGLE_CHAT_WEBHOOK_URL: ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
+        run: |
+          python3 << 'PYEOF'
+          import json
+          import os
+          import urllib.request
+
+          from supabase import create_client
+
+          SUPABASE_URL = os.environ["SUPABASE_URL"]
+          SUPABASE_SERVICE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
+          GOOGLE_CHAT_WEBHOOK_URL = os.environ.get("GOOGLE_CHAT_WEBHOOK_URL", "")
+          TARGET_NAME = "John Doe"
+          MIN_TEST_DURATION_SECS = 180  # 3 minutes
+
+          client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+
+          def list_all_files(storage, path=""):
+              """Paginate through all files in a bucket/path."""
+              all_files = []
+              offset = 0
+              limit = 100
+              while True:
+                  batch = storage.list(path=path, options={"limit": limit, "offset": offset})
+                  if not batch:
+                      break
+                  all_files.extend(batch)
+                  if len(batch) < limit:
+                      break
+                  offset += limit
+              return all_files
+
+
+          def delete_files(storage, paths):
+              """Delete a list of file paths from a bucket."""
+              if not paths:
+                  return
+              storage.remove(paths)
+
+
+          def delete_session(sid, main_storage, all_file_names):
+              """Delete all files for a session across all buckets."""
+              to_delete = []
+              for suffix in [".csv", "_metadata.json", "_failed_voice_attempts.csv"]:
+                  fname = f"{sid}{suffix}"
+                  if fname in all_file_names:
+                      to_delete.append(fname)
+              if to_delete:
+                  delete_files(main_storage, to_delete)
+                  print(f"  Eye_Test_logs: deleted {to_delete}")
+
+              for bucket_name in ["success_voices", "failed_voices"]:
+                  storage = client.storage.from_(bucket_name)
+                  try:
+                      files = list_all_files(storage, path=sid)
+                      if files:
+                          paths = [f"{sid}/{f['name']}" for f in files]
+                          delete_files(storage, paths)
+                          print(f"  {bucket_name}/{sid}: deleted {len(paths)} file(s)")
+                  except Exception as e:
+                      print(f"  {bucket_name}/{sid}: error - {e}")
+
+
+          def send_google_chat_message(john_doe_count, short_test_count, total_sessions):
+              """Send cleanup summary to Google Chat via webhook."""
+              if not GOOGLE_CHAT_WEBHOOK_URL:
+                  print("GOOGLE_CHAT_WEBHOOK_URL not set, skipping notification.")
+                  return
+              message = {
+                  "text": (
+                      "*ETE Session Cleanup Report*\n\n"
+                      f"Total sessions in bucket: {total_sessions}\n"
+                      f"Sessions deleted: {john_doe_count + short_test_count}\n\n"
+                      f"• John Doe sessions removed: *{john_doe_count}*\n"
+                      f"• Short test (<3 min) sessions removed: *{short_test_count}*"
+                  )
+              }
+              req = urllib.request.Request(
+                  GOOGLE_CHAT_WEBHOOK_URL,
+                  data=json.dumps(message).encode("utf-8"),
+                  headers={"Content-Type": "application/json; charset=UTF-8"},
+                  method="POST",
+              )
+              try:
+                  urllib.request.urlopen(req)
+                  print("Google Chat notification sent.")
+              except Exception as e:
+                  print(f"Failed to send Google Chat notification: {e}")
+
+
+          # Scan all metadata files
+          main_storage = client.storage.from_("Eye_Test_logs")
+          all_files = list_all_files(main_storage)
+          all_file_names = set(f["name"] for f in all_files)
+          meta_files = [f["name"] for f in all_files if f["name"].endswith("_metadata.json")]
+
+          john_doe_sessions = []
+          short_test_sessions = []
+
+          for mf in meta_files:
+              try:
+                  raw = main_storage.download(mf)
+                  meta = json.loads(raw.decode("utf-8"))
+                  sid = mf.replace("_metadata.json", "")
+
+                  # Rule 1: John Doe sessions
+                  customer_name = (meta.get("customer_name") or "").strip()
+                  patient_name = ""
+                  pi = meta.get("patient_input")
+                  if isinstance(pi, dict):
+                      patient_name = (pi.get("patient_name") or "").strip()
+                  if customer_name.lower() == TARGET_NAME.lower() or patient_name.lower() == TARGET_NAME.lower():
+                      john_doe_sessions.append(sid)
+                      print(f"[John Doe] {sid}")
+                      continue
+
+                  # Rule 2: Test duration < 3 minutes
+                  test_duration = meta.get("test_duration_seconds")
+                  if test_duration is not None and float(test_duration) < MIN_TEST_DURATION_SECS:
+                      short_test_sessions.append(sid)
+                      print(f"[Short test] {sid} ({meta.get('test_duration_display', '?')})")
+                      continue
+
+              except Exception as e:
+                  print(f"Error reading {mf}: {e}")
+
+          all_to_delete = john_doe_sessions + short_test_sessions
+
+          if not all_to_delete:
+              print("\nNo sessions matched cleanup criteria. Nothing to delete.")
+              send_google_chat_message(0, 0, len(meta_files))
+              exit(0)
+
+          print(f"\nDeleting {len(all_to_delete)} session(s)...\n")
+
+          for sid in sorted(all_to_delete):
+              print(f"Deleting {sid}:")
+              delete_session(sid, main_storage, all_file_names)
+
+          print(f"\nDone. Cleaned up {len(all_to_delete)} session(s).")
+          send_google_chat_message(len(john_doe_sessions), len(short_test_sessions), len(meta_files))
+          PYEOF

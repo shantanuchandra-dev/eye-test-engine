@@ -1,0 +1,6 @@
+behavior_id,total_replays,pct_of_replays,completion_rate,escalation_rate,timeout_rate,distance_success_rate_all_cases,avg_steps
+ideal,281,0.2964,0.7829,0.2171,0.0,0.7936,27.25
+hesitant,216,0.2278,0.5926,0.4074,0.0,0.5139,30.24
+accommodative,203,0.2141,0.9261,0.0739,0.0,0.8374,31.57
+noisy,154,0.1624,0.7857,0.2143,0.0,0.6234,36.03
+inconsistent,94,0.0992,0.4574,0.5426,0.0,0.4787,34.1

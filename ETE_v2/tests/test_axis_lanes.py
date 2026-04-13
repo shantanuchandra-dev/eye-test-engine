@@ -50,12 +50,19 @@ class AxisLanePolicyTests(unittest.TestCase):
         lenso_le: Optional[EyePrescription] = None,
         satisfaction: str = "Not satisfied",
         primary_reason: str = "Blurred distance",
+        age: int = 30,
+        near_priority: str = "",
+        wear_type: str = "",
+        lenso_add_r: Optional[float] = None,
+        lenso_add_l: Optional[float] = None,
     ) -> PatientInput:
         return PatientInput(
             visit_id=visit_id,
-            age=30,
+            age=age,
             primary_reason=primary_reason,
             satisfaction_with_current_rx=satisfaction,
+            wear_type=wear_type,
+            near_priority_declared=near_priority,
             driving_hours=1,
             screen_time_hours=2,
             last_eye_test_months_ago=12,
@@ -63,6 +70,8 @@ class AxisLanePolicyTests(unittest.TestCase):
             autorefractor_le=ar_le or self._rx(-1.25, -0.75, 80),
             lenso_re=lenso_re,
             lenso_le=lenso_le,
+            lenso_add_r=lenso_add_r,
+            lenso_add_l=lenso_add_l,
         )
 
     def _derive(self, patient: PatientInput):
@@ -143,9 +152,10 @@ class AxisLanePolicyTests(unittest.TestCase):
             )
         )
         self.assertEqual(dv.dv_axis_lane_id_RE, "LANE_1")
-        self.assertEqual(dv.dv_axis_step_sequence_RE, "10")
+        self.assertEqual(dv.dv_axis_step_sequence_RE, "10,5")
         self.assertEqual(dv.dv_axis_confidence_label_RE, "High")
         self.assertGreaterEqual(dv.dv_axis_cyl_magnitude_for_lane_RE, 0.75)
+        self.assertEqual(dv.dv_axis_tolerance_deg_RE, 5.0)
 
     def test_lane_2_selected_for_ar_only_meaningful_non_cardinal_axis(self):
         dv = self._derive(
@@ -156,9 +166,10 @@ class AxisLanePolicyTests(unittest.TestCase):
             )
         )
         self.assertEqual(dv.dv_axis_lane_id_RE, "LANE_2")
-        self.assertEqual(dv.dv_axis_step_sequence_RE, "20,10")
+        self.assertEqual(dv.dv_axis_step_sequence_RE, "20,10,5")
         self.assertFalse(dv.dv_axis_is_near_cardinal_RE)
         self.assertEqual(dv.dv_start_rx_RE_axis, 45.0)
+        self.assertEqual(dv.dv_axis_tolerance_deg_RE, 5.0)
 
     def test_lane_3_selected_for_ar_only_intermediate_confidence_case(self):
         dv = self._derive(
@@ -171,6 +182,7 @@ class AxisLanePolicyTests(unittest.TestCase):
         self.assertEqual(dv.dv_axis_lane_id_RE, "LANE_3")
         self.assertEqual(dv.dv_axis_step_sequence_RE, "30,20,10")
         self.assertIn("conservative_fallback_lane", dv.dv_axis_selection_reason_RE)
+        self.assertEqual(dv.dv_axis_tolerance_deg_RE, 10.0)
 
     def test_lane_4_selected_for_ar_only_near_cardinal_low_cylinder_case(self):
         dv = self._derive(
@@ -188,28 +200,25 @@ class AxisLanePolicyTests(unittest.TestCase):
     def test_axis_calibration_is_consistent_with_live_lane_policy(self):
         self.assertEqual(float(self.calibration.get("axis_fixed_step", 0)), 5.0)
         self.assertEqual(float(self.calibration.get("axis_rounding_step", 0)), 5.0)
-        self.assertEqual(float(self.calibration.get("axis_tol_strict", 0)), 10.0)
-        self.assertEqual(float(self.calibration.get("axis_tol_normal", 0)), 10.0)
-        self.assertEqual(float(self.calibration.get("axis_tol_relaxed", 0)), 10.0)
+        keys = {row["parameter_key"] for row in self.calibration.get_snapshot()}
+        self.assertNotIn("axis_tol_strict", keys)
+        self.assertNotIn("axis_tol_normal", keys)
+        self.assertNotIn("axis_tol_relaxed", keys)
+        self.assertEqual(float(self.calibration.get("axis_meaningful_cyl_threshold_d", 0)), 0.5)
         self.assertEqual(int(self.calibration.get("jcc_axis_same_required", 0)), 1)
 
-    def test_axis_tolerance_of_five_adds_live_five_degree_terminal_step(self):
+    def test_meaningful_cylinder_axis_tolerance_adds_live_five_degree_terminal_step(self):
         patient = self._patient(
-            visit_id="axis-five-degree-terminal-step",
+            visit_id="axis-meaningful-five-degree-terminal-step",
             ar_re=self._rx(-1.50, -1.25, 47),
             lenso_re=None,
         )
-        dv, calibration = self._derive_with_calibration_overrides(
-            patient,
-            axis_tol_strict=5,
-            axis_tol_normal=5,
-            axis_tol_relaxed=5,
-        )
-        self.assertEqual(dv.dv_axis_tolerance_deg, 5.0)
+        dv, calibration = self._derive_with_calibration_overrides(patient)
+        self.assertEqual(dv.dv_axis_tolerance_deg_RE, 5.0)
         self.assertEqual(dv.dv_axis_step_sequence_RE, "20,10,5")
 
         engine = RefractionFSMEngine(calibration)
-        current = engine.initialize_row("axis-five-degree-terminal-step", dv)
+        current = engine.initialize_row("axis-meaningful-five-degree-terminal-step", dv)
         guard = 0
         while current.state != "E":
             self.assertLess(guard, 12)
@@ -242,8 +251,8 @@ class AxisLanePolicyTests(unittest.TestCase):
 
     def test_reversal_progression_uses_each_lane_sequence_without_skipping(self):
         cases = [
-            ("LANE_1", self._rx(-2.00, -1.00, 45), self._rx(-2.25, -1.00, 40), [10.0, 0.0]),
-            ("LANE_2", self._rx(-1.50, -1.25, 47), None, [20.0, 10.0, 0.0]),
+            ("LANE_1", self._rx(-2.00, -1.00, 45), self._rx(-2.25, -1.00, 40), [10.0, 5.0, 0.0]),
+            ("LANE_2", self._rx(-1.50, -1.25, 47), None, [20.0, 10.0, 5.0, 0.0]),
             ("LANE_3", self._rx(-1.50, -0.40, 55), None, [30.0, 20.0, 10.0, 0.0]),
             ("LANE_4", self._rx(-1.50, -0.12, 4), None, [45.0, 30.0, 20.0, 10.0, 0.0]),
         ]
@@ -279,11 +288,11 @@ class AxisLanePolicyTests(unittest.TestCase):
         dv = self._derive(
             self._patient(
                 visit_id="axis-ten-reversal-exit",
-                ar_re=self._rx(-1.50, -1.25, 47),
+                ar_re=self._rx(-1.50, -0.40, 47),
                 lenso_re=None,
             )
         )
-        self.assertEqual(dv.dv_axis_tolerance_deg, 10.0)
+        self.assertEqual(dv.dv_axis_tolerance_deg_RE, 10.0)
 
         engine = RefractionFSMEngine(self.calibration)
         axis_row = self._advance_to_axis_re(dv)
@@ -293,9 +302,29 @@ class AxisLanePolicyTests(unittest.TestCase):
         second = engine.apply_response(second_row, "TWO", dv)
         third_row = engine._build_next_row(second, dv)
         self.assertIsNotNone(third_row)
-        finalized = engine.apply_response(third_row, "ONE", dv)
+        third = engine.apply_response(third_row, "ONE", dv)
+        fourth_row = engine._build_next_row(third, dv)
+        self.assertIsNotNone(fourth_row)
+        finalized = engine.apply_response(fourth_row, "TWO", dv)
         self.assertEqual(finalized.next_state, "F")
         self.assertEqual(finalized.da_re, 0.0)
+
+    def test_axis_tolerance_uses_start_cylinder_not_lensometer_confidence_cylinder(self):
+        dv = self._derive(
+            self._patient(
+                visit_id="axis-start-cyl-tolerance",
+                ar_re=self._rx(-1.50, -1.00, 47),
+                lenso_re=self._rx(-1.25, -0.25, 50),
+                satisfaction="Not satisfied",
+            )
+        )
+
+        self.assertEqual(dv.dv_start_source_policy, "Start_AR")
+        self.assertEqual(dv.dv_start_rx_RE_cyl, -1.00)
+        self.assertEqual(dv.dv_axis_cyl_magnitude_for_lane_RE, 0.25)
+        self.assertEqual(dv.dv_axis_cyl_magnitude_for_tolerance_RE, 1.00)
+        self.assertEqual(dv.dv_axis_tolerance_deg_RE, 5.0)
+        self.assertTrue(dv.dv_axis_step_sequence_RE.endswith(",5"))
 
     def test_axis_phase_converges_on_single_same_response(self):
         dv = self._derive(
@@ -329,7 +358,10 @@ class AxisLanePolicyTests(unittest.TestCase):
         second = engine.apply_response(first_row, "TWO", dv)
         second_row = engine._build_next_row(second, dv)
         self.assertIsNotNone(second_row)
-        axis_done = engine.apply_response(second_row, "ONE", dv)
+        third = engine.apply_response(second_row, "ONE", dv)
+        third_row = engine._build_next_row(third, dv)
+        self.assertIsNotNone(third_row)
+        axis_done = engine.apply_response(third_row, "TWO", dv)
         self.assertEqual(axis_done.next_state, "F")
         power_row = engine._build_next_row(axis_done, dv)
         self.assertIsNotNone(power_row)
@@ -427,6 +459,150 @@ class AxisLanePolicyTests(unittest.TestCase):
         self.assertIsNotNone(next_row)
         self.assertEqual(next_row.state, "C")
         self.assertAlmostEqual(next_row.re_sph, -1.25)
+
+    def test_duochrome_same_after_green_adds_plus_until_red_then_converges(self):
+        dv = self._derive(
+            self._patient(
+                visit_id="duochrome-green-same-red",
+                ar_re=self._rx(-2.00, -1.25, 47),
+                lenso_re=None,
+            )
+        )
+        engine = RefractionFSMEngine(self.calibration)
+        current = engine._row_for_state(
+            step=15,
+            visit_id="duochrome-green-same-red",
+            state="G",
+            dv=dv,
+            re_sph=-1.25,
+            re_cyl=-1.25,
+            re_axis=45,
+            le_sph=-1.25,
+            le_cyl=-0.75,
+            le_axis=80,
+            add_r=0.0,
+            add_l=0.0,
+            chart_param="20_20_20",
+            phase_step_count=1,
+            same_streak=0,
+            prev_axis_response="",
+            duo_iter=0,
+            duo_flip=0,
+            axis_step=10.0,
+        )
+        current.response_value = "GREEN"
+
+        same_after_green = engine.apply_response(current, "SAME", dv)
+        self.assertEqual(same_after_green.next_state, "G")
+        self.assertEqual(same_after_green.duo_same_anchor_response, "GREEN")
+        self.assertAlmostEqual(same_after_green.ds_re, 0.25)
+
+        next_row = engine._build_next_row(same_after_green, dv)
+        self.assertIsNotNone(next_row)
+        self.assertAlmostEqual(next_row.re_sph, -1.00)
+
+        red_recovery = engine.apply_response(next_row, "RED", dv)
+        self.assertEqual(red_recovery.next_state, "C")
+        self.assertAlmostEqual(red_recovery.ds_re, -0.25)
+
+        final_row = engine._build_next_row(red_recovery, dv)
+        self.assertIsNotNone(final_row)
+        self.assertEqual(final_row.state, "C")
+        self.assertAlmostEqual(final_row.re_sph, -1.25)
+
+    def test_near_line_letters_map_to_clear_without_stimulus_payload(self):
+        result = match_response(
+            transcript="A P E O R F D Z",
+            state="P",
+            available_options=["CLEAR", "BLURRY", "REPEAT"],
+            question="Please read the last line. Is it clear, blurry, or should I repeat?",
+            language="en",
+        )
+
+        self.assertTrue(result.accepted)
+        self.assertEqual(result.response_value, "CLEAR")
+        self.assertEqual(result.method, "letter_reading")
+
+    def test_near_starts_from_lenso_add_and_presbyope_first_blurry_jumps_to_point_seven_five(self):
+        patient = self._patient(
+            visit_id="near-lenso-start",
+            ar_re=self._rx(-2.00, -1.25, 47),
+            lenso_re=self._rx(-2.00, -1.25, 47),
+            ar_le=self._rx(-1.25, -0.75, 80),
+            lenso_le=self._rx(-1.25, -0.75, 80),
+            age=52,
+            primary_reason="Blurred near",
+            near_priority="High",
+            wear_type="Progressive",
+            lenso_add_r=1.25,
+            lenso_add_l=1.00,
+        )
+        dv = self._derive(patient)
+        self.assertTrue(dv.dv_near_test_required)
+        self.assertAlmostEqual(dv.dv_near_start_add_r, 1.25)
+        self.assertAlmostEqual(dv.dv_near_start_add_l, 1.00)
+
+        engine = RefractionFSMEngine(self.calibration)
+        k_row = engine._row_for_state(
+            step=30,
+            visit_id="near-lenso-start",
+            state="K",
+            dv=dv,
+            re_sph=-1.25,
+            re_cyl=-1.25,
+            re_axis=45,
+            le_sph=-1.25,
+            le_cyl=-0.75,
+            le_axis=80,
+            add_r=0.0,
+            add_l=0.0,
+            chart_param="20_20_20",
+            phase_step_count=1,
+            same_streak=0,
+            prev_axis_response="",
+            duo_iter=0,
+            duo_flip=0,
+            axis_step=10.0,
+        )
+        finalized_k = engine.apply_response(k_row, "SAME", dv)
+        self.assertEqual(finalized_k.next_state, "P")
+        p_row = engine._build_next_row(finalized_k, dv)
+        self.assertIsNotNone(p_row)
+        self.assertAlmostEqual(p_row.add_r, 1.25)
+        self.assertAlmostEqual(p_row.add_l, 1.00)
+
+        no_lenso_add_patient = self._patient(
+            visit_id="near-presbyope-jump",
+            ar_re=self._rx(-2.00, -1.25, 47),
+            lenso_re=None,
+            age=52,
+            primary_reason="Blurred near",
+            near_priority="High",
+        )
+        jump_dv = self._derive(no_lenso_add_patient)
+        p_start = RefractionFSMEngine(self.calibration)._row_for_state(
+            step=30,
+            visit_id="near-presbyope-jump",
+            state="P",
+            dv=jump_dv,
+            re_sph=-1.25,
+            re_cyl=-1.25,
+            re_axis=45,
+            le_sph=-1.25,
+            le_cyl=-0.75,
+            le_axis=80,
+            add_r=0.0,
+            add_l=0.0,
+            chart_param="near",
+            phase_step_count=1,
+            same_streak=0,
+            prev_axis_response="",
+            duo_iter=0,
+            duo_flip=0,
+            axis_step=10.0,
+        )
+        first_blurry = engine.apply_response(p_start, "BLURRY", jump_dv)
+        self.assertAlmostEqual(first_blurry.dadd_r, 0.75)
 
     def test_logging_contains_axis_lane_metadata(self):
         orchestrator = SessionOrchestrator(calibration_path=str(CALIBRATION_PATH))
@@ -1312,7 +1488,10 @@ class AxisLanePolicyTests(unittest.TestCase):
         second = engine.apply_response(first_row, "TWO", dv)
         second_row = engine._build_next_row(second, dv)
         self.assertIsNotNone(second_row)
-        axis_done = engine.apply_response(second_row, "ONE", dv)
+        third = engine.apply_response(second_row, "ONE", dv)
+        third_row = engine._build_next_row(third, dv)
+        self.assertIsNotNone(third_row)
+        axis_done = engine.apply_response(third_row, "TWO", dv)
         self.assertEqual(axis_done.next_state, "F")
         power_row = engine._build_next_row(axis_done, dv)
         self.assertIsNotNone(power_row)

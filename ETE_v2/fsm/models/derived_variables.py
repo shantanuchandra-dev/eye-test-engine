@@ -33,6 +33,8 @@ class DerivedVariables:
     dv_max_delta_from_ar_sph: float
 
     dv_axis_tolerance_deg: float
+    dv_axis_tolerance_deg_RE: float
+    dv_axis_tolerance_deg_LE: float
     dv_cyl_tolerance_D: float
 
     dv_requires_optom_review: bool
@@ -66,6 +68,8 @@ class DerivedVariables:
     dv_axis_source_used_LE: str = ""
     dv_axis_cyl_magnitude_for_lane_RE: float = 0.0
     dv_axis_cyl_magnitude_for_lane_LE: float = 0.0
+    dv_axis_cyl_magnitude_for_tolerance_RE: float = 0.0
+    dv_axis_cyl_magnitude_for_tolerance_LE: float = 0.0
     dv_axis_is_near_cardinal_RE: bool = False
     dv_axis_is_near_cardinal_LE: bool = False
     dv_axis_lane_id_RE: str = ""
@@ -79,6 +83,8 @@ class DerivedVariables:
     dv_axis_selection_reason_RE: str = ""
     dv_axis_selection_reason_LE: str = ""
 
+    dv_near_start_add_r: float = 0.0
+    dv_near_start_add_l: float = 0.0
     dv_near_binoc_step_D: float = 0.25
     dv_near_binoc_max_plus_steps: int = 4
     dv_near_binoc_max_minus_steps: int = 4

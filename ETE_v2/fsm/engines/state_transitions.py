@@ -71,6 +71,10 @@ def compute_next_state(context: dict) -> str:
     va_confirm_completed = bool(context.get("va_confirm_completed", False))
     final_compare_enabled = bool(context.get("final_compare_enabled", False))
     final_compare_round = int(context.get("final_compare_round", 0))
+    duo_same_can_converge = bool(context.get("duo_same_can_converge", True))
+    duochrome_green_same_red_recovery_converged = bool(
+        context.get("duochrome_green_same_red_recovery_converged", False)
+    )
 
     # FSM v2.3 additions
     axis_flip_count = int(context.get("axis_flip_count", 0))
@@ -120,7 +124,9 @@ def compute_next_state(context: dict) -> str:
             return "ESCALATE"
         if response == "REPEAT":
             return "G"
-        if same_streak >= duo_equal_n or duo_flip >= duo_max:
+        if duochrome_green_same_red_recovery_converged:
+            return "C"
+        if (duo_same_can_converge and same_streak >= duo_equal_n) or duo_flip >= duo_max:
             return "C"
         return "G"
 
@@ -170,7 +176,9 @@ def compute_next_state(context: dict) -> str:
             return "ESCALATE"
         if response == "REPEAT":
             return "J"
-        if same_streak >= duo_equal_n or duo_flip >= duo_max:
+        if duochrome_green_same_red_recovery_converged:
+            return "L"
+        if (duo_same_can_converge and same_streak >= duo_equal_n) or duo_flip >= duo_max:
             return "L"
         return "J"
 

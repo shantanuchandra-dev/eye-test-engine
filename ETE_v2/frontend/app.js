@@ -11,8 +11,6 @@ const TTS_VOICE_STORAGE_KEY = 'ete_tts_voice_name';
 // Single-switch rollback point for the duplex audio layer.
 // Set back to "legacy" to restore the original half-duplex behavior.
 const AUDIO_TURN_MODE = 'duplex';
-// Keep early controller/keyboard answers, but disable early voice interruption.
-const EARLY_VOICE_BARGE_IN_ENABLED = false;
 
 // ── TTS (Browser SpeechSynthesis) ──
 let ttsEnabled = true;
@@ -341,14 +339,18 @@ function speakQuestion(text, langOverride, onEnd, profileKey = 'default') {
     const startupGuardMs = lang === 'hi' ? 2500 : 800;
     let speechStarted = false;
 
+    // Declare timers first so fireOnEnd can reference them (avoid temporal dead zone)
+    let keepAlive = null;
+    let startupGuard = null;
+
     // Guard against double-fire (cancel() on a previous utterance can fire onend)
     let callbackFired = false;
     const fireOnEnd = () => {
       if (ttsSessionId !== _ttsSessionId) return;
       if (callbackFired) return;
       callbackFired = true;
-      clearInterval(keepAlive);
-      clearTimeout(startupGuard);
+      if (keepAlive) clearInterval(keepAlive);
+      if (startupGuard) clearTimeout(startupGuard);
       if (onEnd) onEnd();
     };
 
@@ -356,7 +358,7 @@ function speakQuestion(text, langOverride, onEnd, profileKey = 'default') {
       if (ttsSessionId !== _ttsSessionId) return;
       speechStarted = true;
       console.log('[TTS] Started speaking');
-      clearTimeout(startupGuard);
+      if (startupGuard) clearTimeout(startupGuard);
     };
     utterance.onend = () => {
       if (ttsSessionId !== _ttsSessionId) return;
@@ -372,15 +374,14 @@ function speakQuestion(text, langOverride, onEnd, profileKey = 'default') {
     speechSynthesis.speak(utterance);
 
     // Chrome workaround: Chrome sometimes pauses speech after 15s.
-    // Use resume() only (no pause first) to avoid the audible stutter on Indian voices.
-    const keepAlive = setInterval(() => {
+    keepAlive = setInterval(() => {
       if (!speechSynthesis.speaking) { clearInterval(keepAlive); return; }
       speechSynthesis.resume();
     }, 10000);
 
     // Safety fallback: if the browser silently blocks TTS (autoplay policy),
     // neither onend nor onerror fires.
-    const startupGuard = setTimeout(() => {
+    startupGuard = setTimeout(() => {
       if (ttsSessionId !== _ttsSessionId) return;
       if (!speechStarted && !speechSynthesis.speaking && !speechSynthesis.pending) {
         console.warn(`[TTS] Speech did not start within ${startupGuardMs}ms — firing callback as fallback.`);
@@ -634,18 +635,22 @@ let _ttsSessionId = 0;
 let _voiceStartGeneration = 0;
 let _voiceStartTimer = null;
 let _questionTurnToken = 0;
-let _duplexBargeInTimer = null;
-let _duplexBargeInStream = null;
-let _duplexBargeInCtx = null;
-let _duplexBargeInSource = null;
-let _duplexBargeInAnalyser = null;
-let _duplexSpeechDetectedToken = 0;
-let _duplexRecognitionFlush = null;
 
-const DUPLEX_BARGE_IN_GRACE_MS = 200;
-const DUPLEX_BARGE_IN_HOLD_MS = 100;
-const DUPLEX_BARGE_IN_POLL_MS = 50;
-const DUPLEX_BARGE_IN_LEVEL = 0.018;
+// ── Always-On STT Barge-In Engine ──
+// SpeechRecognition runs continuously from question start (even during TTS).
+// When an interim result arrives while TTS is playing → patient is speaking → stop TTS.
+// Zero word loss, zero gap. No MicVAD needed during questions.
+const BARGE_IN_GRACE_MS = 300;  // Ignore STT results for first 300ms of TTS (echo protection)
+
+let _bargeInActive    = false;  // true while STT is listening during TTS
+let _bargeInStartedAt = 0;      // timestamp when barge-in monitoring started
+let _bargeInFired     = false;  // set true once barge-in fires for this turn
+let _bargeInToken     = 0;      // question token for this barge-in session
+
+// States where barge-in is allowed (patient answering questions)
+const BARGE_IN_ELIGIBLE_STATES = new Set([
+  'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'P', 'Q', 'R', 'U',
+]);
 
 // ── Faster-whisper backend state ──
 let whisperAvailable = false; // Set true if backend has faster-whisper loaded
@@ -763,9 +768,7 @@ function nextQuestionTurnToken() {
 
 function invalidateQuestionTurn() {
   _questionTurnToken += 1;
-  stopDuplexBargeInMonitor();
-  _duplexSpeechDetectedToken = 0;
-  _duplexRecognitionFlush = null;
+  vadStop();
   return _questionTurnToken;
 }
 
@@ -777,37 +780,77 @@ function isTtsActive() {
   return !!('speechSynthesis' in window && (speechSynthesis.speaking || speechSynthesis.pending));
 }
 
-function stopDuplexBargeInMonitor() {
-  if (_duplexBargeInTimer) {
-    clearInterval(_duplexBargeInTimer);
-    _duplexBargeInTimer = null;
-  }
-  if (_duplexBargeInSource) {
-    try { _duplexBargeInSource.disconnect(); } catch (e) {}
-    _duplexBargeInSource = null;
-  }
-  _duplexBargeInAnalyser = null;
-  if (_duplexBargeInCtx) {
-    try { _duplexBargeInCtx.close(); } catch (e) {}
-    _duplexBargeInCtx = null;
-  }
-  if (_duplexBargeInStream) {
-    try { _duplexBargeInStream.getTracks().forEach(track => track.stop()); } catch (e) {}
-    _duplexBargeInStream = null;
+// ── Always-On STT Barge-In Helpers ──
+
+/** Is barge-in allowed for this FSM state? */
+function bargeInIsEligible(state, data) {
+  if (!isDuplexTurnMode()) return false;
+  if (!voiceEnabled) return false;
+  if (!state || state === 'LANG_SELECT') return false;
+  if (_flipState === 'flip1') return false;
+  if (data && (data.auto_flip && _flipState !== 'flip2')) return false;
+  if (data && Number(data.auto_advance_seconds || 0) > 0) return false;
+  return BARGE_IN_ELIGIBLE_STATES.has(state);
+}
+
+/** Did barge-in already fire for the given question turn? */
+function bargeInFiredFor(questionToken) {
+  return _bargeInFired && _bargeInToken === questionToken;
+}
+
+/** Start always-on STT with barge-in detection. Call when TTS begins. */
+function bargeInStart(questionToken, state, data, options, step) {
+  _bargeInActive = bargeInIsEligible(state, data);
+  _bargeInStartedAt = performance.now();
+  _bargeInFired = false;
+  _bargeInToken = questionToken;
+
+  // Start STT immediately — it runs during TTS, captures everything
+  if (voiceEnabled && (voiceMode === 'browser' ? SpeechRecognition : voiceMode === 'whisper')) {
+    startVoiceCapture(state, options || [], step, {
+      skipTtsCheck: true,
+      questionToken,
+      setupDelayMs: 0,
+    });
+    console.log(`[BargeIn] STT started during TTS for state ${state} (barge-in ${_bargeInActive ? 'armed' : 'disabled'})`);
   }
 }
 
-function isDuplexSpeechDetected(questionToken) {
-  return questionToken === _duplexSpeechDetectedToken;
+/** Stop barge-in monitoring (STT keeps running). */
+function bargeInStop() {
+  _bargeInActive = false;
 }
 
-function markDuplexSpeechDetected(questionToken) {
-  if (!isCurrentQuestionTurn(questionToken)) return;
-  _duplexSpeechDetectedToken = questionToken;
-  if (typeof _duplexRecognitionFlush === 'function') {
-    _duplexRecognitionFlush(questionToken);
+/**
+ * Called from recognition.onresult — checks if this result should trigger barge-in.
+ * Returns true if barge-in was fired (caller should NOT skip processing the result).
+ */
+function bargeInCheckResult(questionToken) {
+  if (!_bargeInActive) return false;
+  if (_bargeInFired) return false;
+  if (!isCurrentQuestionTurn(questionToken)) return false;
+
+  // Grace period: ignore results during first BARGE_IN_GRACE_MS (TTS echo)
+  if (performance.now() - _bargeInStartedAt < BARGE_IN_GRACE_MS) return false;
+
+  // ── Barge-in! STT got a result while TTS is playing ──
+  console.log('[BargeIn] Speech detected via STT interim — stopping TTS');
+  _bargeInFired = true;
+  _bargeInActive = false;
+  _inputEnabled = true;
+
+  invalidatePendingVoiceStart();
+  if (isTtsActive()) {
+    _ttsSessionId += 1;
+    try { speechSynthesis.cancel(); } catch (e) {}
   }
+  updateVoiceStatus(sessionLanguage === 'hi' ? '🎙 बोलिए...' : '🎙 Listening...');
+  return true;
 }
+
+// Backward-compat shims for code that still references old names
+function vadStop() { bargeInStop(); }
+function vadReleaseMic() { bargeInStop(); }
 
 function canEnableEarlyControllerInput(data) {
   return isDuplexTurnMode()
@@ -817,129 +860,10 @@ function canEnableEarlyControllerInput(data) {
     && Number(data.auto_advance_seconds || 0) <= 0;
 }
 
-function isVoiceBargeInEligible(state, questionText, data = {}) {
-  if (!EARLY_VOICE_BARGE_IN_ENABLED) return false;
-  if (!isDuplexTurnMode()) return false;
-  if (!voiceEnabled || voiceMode !== 'browser' || !SpeechRecognition) return false;
-  if (!state || state === 'LANG_SELECT') return false;
-  if (data.auto_flip || Number(data.auto_advance_seconds || 0) > 0) return false;
-
-  if (['E', 'F', 'G', 'H', 'I', 'J', 'K', 'P', 'Q', 'R', 'U'].includes(state)) {
-    return true;
-  }
-  if ((state === 'B' || state === 'D') && !questionExpectsLineReading(state, questionText)) {
-    return true;
-  }
-  return false;
-}
-
-async function startDuplexBargeInMonitor({ state, options, step, questionText, questionToken, data }) {
-  if (!isVoiceBargeInEligible(state, questionText, data)) return;
-  if (!navigator.mediaDevices?.getUserMedia) return;
-
-  stopDuplexBargeInMonitor();
-
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-    });
-
-    if (!isCurrentQuestionTurn(questionToken) || responseSubmitting || voiceSubmitting || !isTtsActive()) {
-      stream.getTracks().forEach(track => track.stop());
-      return;
-    }
-
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) {
-      stream.getTracks().forEach(track => track.stop());
-      return;
-    }
-
-    _duplexBargeInStream = stream;
-    _duplexBargeInCtx = new Ctx();
-    _duplexBargeInSource = _duplexBargeInCtx.createMediaStreamSource(stream);
-    _duplexBargeInAnalyser = _duplexBargeInCtx.createAnalyser();
-    _duplexBargeInAnalyser.fftSize = 2048;
-    _duplexBargeInAnalyser.smoothingTimeConstant = 0.25;
-    _duplexBargeInSource.connect(_duplexBargeInAnalyser);
-
-    const buffer = new Float32Array(_duplexBargeInAnalyser.fftSize);
-    const startedAt = performance.now();
-    let hotMs = 0;
-
-    _duplexBargeInTimer = setInterval(() => {
-      if (!isCurrentQuestionTurn(questionToken) || responseSubmitting || voiceSubmitting || !voiceEnabled) {
-        stopDuplexBargeInMonitor();
-        return;
-      }
-      if (!isTtsActive()) {
-        stopDuplexBargeInMonitor();
-        return;
-      }
-
-      const elapsedMs = performance.now() - startedAt;
-      if (elapsedMs < DUPLEX_BARGE_IN_GRACE_MS) {
-        return;
-      }
-
-      _duplexBargeInAnalyser.getFloatTimeDomainData(buffer);
-      let sumSquares = 0;
-      let peak = 0;
-      for (let i = 0; i < buffer.length; i++) {
-        const v = Math.abs(buffer[i]);
-        sumSquares += buffer[i] * buffer[i];
-        if (v > peak) peak = v;
-      }
-      const rms = Math.sqrt(sumSquares / buffer.length);
-      const level = Math.max(rms, peak * 0.5);
-
-      if (level >= DUPLEX_BARGE_IN_LEVEL) {
-        hotMs += DUPLEX_BARGE_IN_POLL_MS;
-      } else {
-        hotMs = 0;
-      }
-
-      if (hotMs < DUPLEX_BARGE_IN_HOLD_MS) return;
-
-      console.log(`[Duplex] Voice barge-in detected for ${state}`);
-      stopDuplexBargeInMonitor();
-      markDuplexSpeechDetected(questionToken);
-      invalidatePendingVoiceStart();
-      if (recognition) {
-        try { recognition.abort(); } catch (e) {}
-        recognition = null;
-      }
-      discardBrowserParallelCapture();
-      _duplexRecognitionFlush = null;
-      _inputEnabled = true;
-      if (isTtsActive()) {
-        _ttsSessionId += 1;
-        try { speechSynthesis.cancel(); } catch (e) {}
-      }
-      updateVoiceStatus(sessionLanguage === 'hi' ? '🎙 बोलिए...' : '🎙 Listening...');
-      setTimeout(() => {
-        if (!isCurrentQuestionTurn(questionToken) || responseSubmitting || voiceSubmitting) return;
-        cueAndStartVoiceCapture(state, options, step, {
-          delayMs: 0,
-          enableInput: true,
-          questionToken,
-          skipBeep: true,
-          setupDelayMs: 0,
-        });
-      }, 20);
-    }, DUPLEX_BARGE_IN_POLL_MS);
-  } catch (e) {
-    console.warn('[Duplex] Barge-in monitor unavailable:', e);
-    stopDuplexBargeInMonitor();
-  }
-}
-
 function stopActiveVoiceCapture({ resetVoiceSubmitting = false } = {}) {
   invalidatePendingVoiceStart();
   invalidateSpokenFlow();
-  stopDuplexBargeInMonitor();
-  _duplexRecognitionFlush = null;
-  _duplexSpeechDetectedToken = 0;
+  vadStop();
   if (recognition) {
     try { recognition.abort(); } catch (e) {}
     recognition = null;
@@ -1173,6 +1097,11 @@ let completedPhases = new Set();
 let heartbeatInterval = null;
 let _examTimerIntervalId = null;
 let _examClockStartMs = null;
+// Pause/resume state. _totalPausedMs accumulates time spent in pause so the
+// exam timer display can be offset accordingly.
+let _isPaused = false;
+let _pauseStartMs = null;
+let _totalPausedMs = 0;
 let _langSelectPendingData = null; // Stores first-question data during language selection
 let _autoFlipTimer = null; // Timer for JCC auto-flip
 let _flipState = null; // 'flip1', 'flip2', or null
@@ -1194,7 +1123,11 @@ document.addEventListener('DOMContentLoaded', () => {
   sessionId = params.get('session_id') || sessionStorage.getItem('session_id');
 
   if (sessionId) {
-    restoreSession();
+    // Show the start splash first. The operator's click on the splash is the
+    // user gesture Safari needs in order to grant the screen wake lock — and
+    // it also kicks off restoreSession(), so the test only begins after the
+    // wake lock is held.
+    showStartSplash();
   } else {
     document.getElementById('questionText').textContent = 'No session active. Go to /intake to start.';
   }
@@ -1373,7 +1306,13 @@ function updateExamTimerDisplay() {
     el.textContent = '—';
     return;
   }
-  el.textContent = `Exam ${formatExamElapsed(Date.now() - _examClockStartMs)}`;
+  // Subtract any paused duration so the displayed exam time excludes pauses.
+  // While currently paused, also subtract the in-progress pause window.
+  let pausedMs = _totalPausedMs;
+  if (_isPaused && _pauseStartMs != null) {
+    pausedMs += Date.now() - _pauseStartMs;
+  }
+  el.textContent = `Exam ${formatExamElapsed(Date.now() - _examClockStartMs - pausedMs)}`;
 }
 
 function startExamTimer() {
@@ -1401,6 +1340,9 @@ function syncExamClockFromSessionData(data) {
 function resetExamTimer() {
   stopExamTimer();
   _examClockStartMs = null;
+  _isPaused = false;
+  _pauseStartMs = null;
+  _totalPausedMs = 0;
   updateExamTimerDisplay();
 }
 
@@ -1581,24 +1523,26 @@ async function showQuestion(data) {
   }
 
   if (ttsEnabled && !isAutoFlip) {
-    if (isVoiceBargeInEligible(data.state, data.question || localizedQuestion, data)) {
-      startDuplexBargeInMonitor({
-        state: data.state,
-        options: data.options || [],
-        step: data.step,
-        questionText: data.question || localizedQuestion,
-        questionToken,
-        data,
-      });
-    }
+    // Start always-on STT during TTS — barge-in triggers when STT gets a result
+    bargeInStart(questionToken, data.state, data, data.options || [], data.step);
     speakQuestionWithStableFollowup(spokenPrompt, null, () => {
       if (!isCurrentQuestionTurn(questionToken)) return;
-      stopDuplexBargeInMonitor();
-      if (isDuplexSpeechDetected(questionToken)) return;
-      if (canListen) {
+      bargeInStop();
+      if (bargeInFiredFor(questionToken)) return; // barge-in already handled
+
+      // TTS ended naturally. Let existing STT continue (it may have pending results).
+      // If Chrome's no-speech timer fires, onend will silently restart.
+      if (recognition) {
+        _inputEnabled = true;
+        updateVoiceStatus('🎙 Listening...');
+        console.log('[Voice] TTS ended — STT continues with pending results');
+      } else if (canListen) {
         cueAndStartVoiceCapture(data.state, data.options || [], data.step, {
           enableInput: true,
           questionToken,
+          skipBeep: true,
+          delayMs: 0,
+          setupDelayMs: 0,
         });
       } else {
         playBeep().then(() => {
@@ -1608,7 +1552,7 @@ async function showQuestion(data) {
       }
     }, getQuestionTTSProfile(data));
   } else if (!isAutoFlip) {
-    stopDuplexBargeInMonitor();
+    vadStop();
     if (canListen) {
       cueAndStartVoiceCapture(data.state, data.options || [], data.step, {
         enableInput: true,
@@ -1657,7 +1601,7 @@ function toggleVoice() { setVoiceMode(voiceMode === 'off' ? 'browser' : 'off'); 
 function updateVoiceButton() { updateVoiceModeSelect(); }
 
 function startVoiceCapture(state, options, step, runtime = {}) {
-  const { skipTtsCheck = false, questionToken = _questionTurnToken, duplexArmOnly = false, setupDelayMs = 100 } = runtime;
+  const { skipTtsCheck = false, questionToken = _questionTurnToken, setupDelayMs = 100 } = runtime;
   if (!voiceEnabled) return;
   if (voiceSubmitting) return;
   if (responseSubmitting) return;
@@ -1691,6 +1635,9 @@ function startVoiceCapture(state, options, step, runtime = {}) {
     if (!isCurrentQuestionTurn(questionToken)) return;
     if (!voiceEnabled || voiceSubmitting || responseSubmitting) return;
 
+    // Start parallel MediaRecorder capture so audio blobs are saved for Supabase upload
+    startBrowserParallelCaptureForSession();
+
     recognition = new SpeechRecognition();
     const currentQuestionText = getCurrentQuestionText();
     recognition.lang = getBrowserRecognitionLang(state, currentQuestionText);
@@ -1715,16 +1662,12 @@ function startVoiceCapture(state, options, step, runtime = {}) {
     const capturedOptions = options;
     const capturedStep = step;
     const capturedQuestionToken = questionToken;
-    const capturedDuplexArmOnly = duplexArmOnly;
     let lastInterimTranscript = ''; // store interim for fallback
     let quickMatchTimer = null; // 1s timer to force-process short words
     let lineReadingFinalizeTimer = null;
     let accumulatedFinalTranscript = '';
-    let deferredFinalTranscript = '';
-    let deferredAlternatives = [];
     let alreadyProcessed = false; // prevent double-processing
 
-    const isDeferredDuplexMode = () => capturedDuplexArmOnly && !isDuplexSpeechDetected(capturedQuestionToken);
     const processFinalTranscript = (trimmed, alts = []) => {
       alreadyProcessed = true;
       try { recognition.stop(); } catch (e) {}
@@ -1748,19 +1691,6 @@ function startVoiceCapture(state, options, step, runtime = {}) {
         );
       })();
     };
-    const flushDeferredDuplexRecognition = () => {
-      if (!isCurrentQuestionTurn(capturedQuestionToken)) return;
-      if (!isDuplexSpeechDetected(capturedQuestionToken)) return;
-      if (alreadyProcessed) return;
-      if (deferredFinalTranscript) {
-        processFinalTranscript(deferredFinalTranscript, deferredAlternatives);
-        return;
-      }
-      if (lastInterimTranscript) {
-        forceProcessInterim();
-      }
-    };
-    _duplexRecognitionFlush = flushDeferredDuplexRecognition;
 
     recognition.onstart = () => {
       if (!isCurrentQuestionTurn(capturedQuestionToken)) {
@@ -1768,13 +1698,11 @@ function startVoiceCapture(state, options, step, runtime = {}) {
         return;
       }
       voiceRecording = true;
-      if (capturedState !== 'LANG_SELECT') {
-        void startBrowserParallelCaptureForSession();
-      }
-      if (!capturedDuplexArmOnly) {
+      // Don't show "Listening" while TTS is still playing — patient doesn't need the cue yet
+      if (!_bargeInActive) {
         updateVoiceStatus('🎙 Listening...');
       }
-      console.log(`[Voice] Listening for step ${capturedStep}, state ${capturedState}, options: ${capturedOptions.join(', ')}`);
+      console.log(`[Voice] Listening for step ${capturedStep}, state ${capturedState}, options: ${capturedOptions.join(', ')}${_bargeInActive ? ' (during TTS)' : ''}`);
     };
 
     // Quick-match check: does this interim text match a known response?
@@ -1852,7 +1780,6 @@ function startVoiceCapture(state, options, step, runtime = {}) {
 
     function forceProcessInterim() {
       if (!isCurrentQuestionTurn(capturedQuestionToken)) return;
-      if (isDeferredDuplexMode()) return;
       if (alreadyProcessed || !lastInterimTranscript) return;
       alreadyProcessed = true;
       try { recognition.stop(); } catch (e) {}
@@ -1896,19 +1823,25 @@ function startVoiceCapture(state, options, step, runtime = {}) {
         }
       }
 
+      // ── Barge-in: if we got a result while TTS is playing, stop TTS ──
+      if (_bargeInActive && (interimTranscript || finalTranscript)) {
+        bargeInCheckResult(capturedQuestionToken);
+        // After barge-in fires, fall through to process the result normally
+      }
+      // Still waiting for barge-in (grace period not met yet) — hold results
+      if (_bargeInActive) {
+        // Store interim for later but don't process yet
+        if (interimTranscript) lastInterimTranscript = interimTranscript.trim();
+        return;
+      }
+
       // Store interim and check for quick match
       if (interimTranscript && !finalTranscript) {
         lastInterimTranscript = interimTranscript.trim();
-        if (!capturedDuplexArmOnly || isDuplexSpeechDetected(capturedQuestionToken)) {
-          updateVoiceStatus(`🎙 "${interimTranscript}"...`);
-        }
+        updateVoiceStatus(`🎙 "${interimTranscript}"...`);
 
         if (isEnglishLineReadingCapture) {
           scheduleLineReadingFinalize();
-          return;
-        }
-
-        if (isDeferredDuplexMode()) {
           return;
         }
 
@@ -1948,11 +1881,6 @@ function startVoiceCapture(state, options, step, runtime = {}) {
           scheduleLineReadingFinalize();
           return;
         }
-        if (isDeferredDuplexMode()) {
-          deferredFinalTranscript = trimmed;
-          deferredAlternatives = alts;
-          return;
-        }
         processFinalTranscript(trimmed, alts);
       }
     };
@@ -1962,14 +1890,20 @@ function startVoiceCapture(state, options, step, runtime = {}) {
       if (quickMatchTimer) { clearTimeout(quickMatchTimer); quickMatchTimer = null; }
       clearLineReadingFinalizeTimer();
       voiceRecording = false;
-      if (_duplexRecognitionFlush === flushDeferredDuplexRecognition) {
-        _duplexRecognitionFlush = null;
-      }
       console.log(`[Voice] Error: ${event.error}`);
-      if (capturedDuplexArmOnly && !isDuplexSpeechDetected(capturedQuestionToken)) {
+      // During TTS, silently ignore errors (no-speech timeout is expected while TTS is playing)
+      if (_bargeInActive || isTtsActive()) {
+        console.log('[Voice] Error during TTS — ignoring (will restart in onend)');
         return;
       }
       if (event.error === 'no-speech') {
+        // If this recognition started during TTS (barge-in era), its no-speech timer
+        // expired from TTS time, not patient silence. Silently restart instead of repeating.
+        if (_bargeInFired || _bargeInToken === capturedQuestionToken) {
+          console.log('[Voice] no-speech from TTS-era STT — restarting silently');
+          // Will restart in onend handler
+          return;
+        }
         updateVoiceStatus('No speech detected. Repeating question...');
         void stopBrowserParallelCaptureAndEncodeBase64().then((b64) => {
           if (!b64 || !sessionId) return;
@@ -1984,16 +1918,24 @@ function startVoiceCapture(state, options, step, runtime = {}) {
             language: sessionLanguage,
           });
         });
-        // Re-speak the question (like FSMv3.1_R2 retry=True reprompt)
         if (voiceEnabled && !voiceSubmitting) {
           const questionEl = document.getElementById('questionText');
           const questionText = questionEl ? questionEl.textContent : '';
           const retryPrompt = sessionLanguage === 'hi'
             ? `फिर से सुनिए। ${questionText}`
             : `Let me repeat. ${questionText}`;
+          // Arm barge-in during retry TTS so patient can interrupt
+          bargeInStart(capturedQuestionToken, capturedState, null, capturedOptions, capturedStep);
           speakQuestionWithStableFollowup(retryPrompt, null, () => {
             if (!isCurrentQuestionTurn(capturedQuestionToken)) return;
-            cueAndStartVoiceCapture(capturedState, capturedOptions, capturedStep, { questionToken: capturedQuestionToken });
+            bargeInStop();
+            if (bargeInFiredFor(capturedQuestionToken)) return;
+            if (recognition) {
+              _inputEnabled = true;
+              updateVoiceStatus('🎙 Listening...');
+            } else {
+              cueAndStartVoiceCapture(capturedState, capturedOptions, capturedStep, { questionToken: capturedQuestionToken, skipBeep: true, delayMs: 0, setupDelayMs: 0 });
+            }
           }, 'retry');
         }
       } else if (event.error === 'aborted') {
@@ -2029,8 +1971,28 @@ function startVoiceCapture(state, options, step, runtime = {}) {
       if (quickMatchTimer) { clearTimeout(quickMatchTimer); quickMatchTimer = null; }
       clearLineReadingFinalizeTimer();
       voiceRecording = false;
-      if (_duplexRecognitionFlush === flushDeferredDuplexRecognition) {
-        _duplexRecognitionFlush = null;
+
+      // During TTS, silently restart STT if it died (browser timeout, no-speech, etc.)
+      if ((_bargeInActive || isTtsActive()) && !alreadyProcessed) {
+        console.log('[Voice] STT ended during TTS — restarting silently');
+        voiceRecording = false;
+        try { recognition.start(); } catch (e) {
+          console.warn('[Voice] Could not restart during TTS:', e);
+        }
+        return;
+      }
+
+      // TTS-era recognition expired after TTS ended — restart fresh
+      if (!alreadyProcessed && !gotFinalResult && !voiceSubmitting && _bargeInToken === capturedQuestionToken) {
+        console.log('[Voice] TTS-era STT expired — restarting fresh');
+        _bargeInToken = 0; // clear so next no-speech triggers normal retry
+        try {
+          recognition.start();
+        } catch (e) {
+          // If restart fails, fall through to normal handling
+          console.warn('[Voice] Could not restart:', e);
+        }
+        return;
       }
 
       if (isEnglishLineReadingCapture) {
@@ -2057,10 +2019,6 @@ function startVoiceCapture(state, options, step, runtime = {}) {
 
       // If already processed (final, quick-match, or error), do nothing
       if (alreadyProcessed || gotFinalResult || gotError || voiceSubmitting) return;
-
-      if (capturedDuplexArmOnly && !isDuplexSpeechDetected(capturedQuestionToken)) {
-        return;
-      }
 
       // Fix 2: Try interim transcript as fallback for single-syllable words
       if (lastInterimTranscript) {
@@ -2104,9 +2062,17 @@ function startVoiceCapture(state, options, step, runtime = {}) {
         const retryPrompt = sessionLanguage === 'hi'
           ? `सुनाई नहीं दिया। ${questionText}`
           : `I could not hear you. ${questionText}`;
+        bargeInStart(capturedQuestionToken, capturedState, null, capturedOptions, capturedStep);
         speakQuestionWithStableFollowup(retryPrompt, null, () => {
           if (!isCurrentQuestionTurn(capturedQuestionToken)) return;
-          cueAndStartVoiceCapture(capturedState, capturedOptions, capturedStep, { questionToken: capturedQuestionToken });
+          bargeInStop();
+          if (bargeInFiredFor(capturedQuestionToken)) return;
+          if (recognition) {
+            _inputEnabled = true;
+            updateVoiceStatus('🎙 Listening...');
+          } else {
+            cueAndStartVoiceCapture(capturedState, capturedOptions, capturedStep, { questionToken: capturedQuestionToken, skipBeep: true, delayMs: 0, setupDelayMs: 0 });
+          }
         }, 'retry');
       }
     };
@@ -2409,9 +2375,17 @@ function repeatAndListen(state, options, step, questionToken = _questionTurnToke
   const retryPrompt = sessionLanguage === 'hi'
     ? `समझ नहीं आया। ${questionText}`
     : `I didn't catch that. ${questionText}`;
+  bargeInStart(questionToken, state, null, options, step);
   speakQuestionWithStableFollowup(retryPrompt, null, () => {
     if (!isCurrentQuestionTurn(questionToken)) return;
-    cueAndStartVoiceCapture(state, options, step, { questionToken });
+    bargeInStop();
+    if (bargeInFiredFor(questionToken)) return;
+    if (recognition) {
+      _inputEnabled = true;
+      updateVoiceStatus('🎙 Listening...');
+    } else {
+      cueAndStartVoiceCapture(state, options, step, { questionToken, skipBeep: true, delayMs: 0, setupDelayMs: 0 });
+    }
   }, 'retry');
 }
 
@@ -2584,9 +2558,17 @@ async function matchVoiceResponseWithAlternatives(
       const retryPrompt = sessionLanguage === 'hi'
         ? `समझ नहीं आया। ${questionText}`
         : `I didn't catch that. ${questionText}`;
+      bargeInStart(questionToken, state, null, options, 0);
       speakQuestionWithStableFollowup(retryPrompt, null, () => {
         if (!isCurrentQuestionTurn(questionToken)) return;
-        cueAndStartVoiceCapture(state, options, 0, { questionToken });
+        bargeInStop();
+        if (bargeInFiredFor(questionToken)) return;
+        if (recognition) {
+          _inputEnabled = true;
+          updateVoiceStatus('🎙 Listening...');
+        } else {
+          cueAndStartVoiceCapture(state, options, 0, { questionToken, skipBeep: true, delayMs: 0, setupDelayMs: 0 });
+        }
       }, 'retry');
     }
   }
@@ -2952,6 +2934,7 @@ function fmtAxisDisplay(axis) {
 function showTerminal(data) {
   invalidateQuestionTurn();
   stopActiveVoiceCapture({ resetVoiceSubmitting: true });
+  vadReleaseMic(); // Release persistent VAD mic stream on session end
   if (_autoFlipTimer) {
     clearTimeout(_autoFlipTimer);
     _autoFlipTimer = null;
@@ -3187,6 +3170,19 @@ async function submitResponse(responseValue, voiceMeta, overrides = {}) {
 
 // ── Keyboard shortcuts ──
 function handleKeyboard(e) {
+  // Spacebar toggles pause/resume — handled BEFORE the input-enabled gate
+  // so the operator can pause during TTS playback or auto-advance windows.
+  if (e.key === ' ' || e.code === 'Space') {
+    const tag = (e.target && e.target.tagName) || '';
+    const isTextField = tag === 'INPUT' || tag === 'TEXTAREA'
+      || (e.target && e.target.isContentEditable);
+    if (!isTextField && sessionId) {
+      e.preventDefault();
+      togglePauseSession();
+      return;
+    }
+  }
+
   if (!_inputEnabled || (!isDuplexTurnMode() && isTtsActive())) return;
   if (e.key >= '1' && e.key <= '4') {
     const slot = parseInt(e.key, 10);
@@ -3289,6 +3285,74 @@ async function endSession() {
   document.getElementById('questionCard').style.display = 'none';
 }
 
+// ── Pause / Resume ──
+// Pauses the active test: stops TTS, voice capture, observe-advance auto-tick,
+// and the exam timer interval. Resume re-fetches the current state from the
+// backend and re-renders/re-speaks the last question via handleSessionUpdate.
+function togglePauseSession() {
+  if (_isPaused) {
+    resumeSession();
+  } else {
+    pauseSession();
+  }
+}
+
+function pauseSession() {
+  if (!sessionId || _isPaused) return;
+  _isPaused = true;
+  _pauseStartMs = Date.now();
+  _inputEnabled = false;
+
+  // Stop the auto-advance timer (e.g. observation phases)
+  if (_observeAdvanceTimer) {
+    clearTimeout(_observeAdvanceTimer);
+    _observeAdvanceTimer = null;
+  }
+
+  // Cancel any in-progress TTS so the next question read doesn't overlap
+  if ('speechSynthesis' in window && (speechSynthesis.speaking || speechSynthesis.pending)) {
+    _ttsSessionId += 1;
+    try { speechSynthesis.cancel(); } catch (_) {}
+  }
+
+  // Stop voice capture cleanly
+  try { stopActiveVoiceCapture({ resetVoiceSubmitting: true }); } catch (_) {}
+
+  // Freeze the exam timer interval (display will keep showing the offset value)
+  stopExamTimer();
+  updateExamTimerDisplay();
+
+  document.getElementById('pauseOverlay').style.display = 'flex';
+  console.log('[Pause] Session paused');
+}
+
+async function resumeSession() {
+  if (!sessionId || !_isPaused) return;
+  // Accumulate this pause window into the total before clearing the flag
+  if (_pauseStartMs != null) {
+    _totalPausedMs += Date.now() - _pauseStartMs;
+  }
+  _isPaused = false;
+  _pauseStartMs = null;
+
+  document.getElementById('pauseOverlay').style.display = 'none';
+
+  // Restart the timer interval (the offset bakes in the just-ended pause)
+  startExamTimer();
+
+  // Re-fetch current state and re-render the last question (re-speaks + re-arms mic)
+  try {
+    const resp = await fetch(`${API}/api/session/${sessionId}/status`);
+    if (!resp.ok) throw new Error(`status HTTP ${resp.status}`);
+    const data = await resp.json();
+    await handleSessionUpdate(data);
+    console.log('[Pause] Session resumed — last question re-asked');
+  } catch (e) {
+    console.error('[Pause] Resume failed:', e);
+    alert('Could not resume session: ' + e.message);
+  }
+}
+
 async function signOff() {
   if (!sessionId) return;
   try {
@@ -3303,6 +3367,13 @@ async function signOff() {
       } catch (e) { console.warn('Could not save failed voice attempts:', e); }
     }
 
+    // Sum any pause time spent so far. If the operator hits Sign Off while still
+    // paused, include the in-progress pause window too.
+    let totalPausedMs = _totalPausedMs;
+    if (_isPaused && _pauseStartMs != null) {
+      totalPausedMs += Date.now() - _pauseStartMs;
+    }
+
     const resp = await fetch(`${API}/api/session/${sessionId}/end`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -3310,9 +3381,17 @@ async function signOff() {
         operator_name: sessionStorage.getItem('operator_name') || '',
         qualitative_feedback: document.getElementById('feedbackArea').value,
         language: sessionLanguage,
+        history_taking_duration_seconds: parseFloat(sessionStorage.getItem('history_taking_duration_seconds')) || undefined,
+        total_paused_ms: totalPausedMs,
       }),
     });
-    const data = await resp.json();
+    const contentType = resp.headers.get('content-type') || '';
+    const data = contentType.includes('application/json')
+      ? await resp.json()
+      : { error: await resp.text() };
+    if (!resp.ok) {
+      throw new Error(data.error || `Could not save session logs (${resp.status})`);
+    }
     alert(`Session stored: ${data.session_id}${data.remote_upload_error ? '\nRemote upload error: ' + data.remote_upload_error : ''}`);
     cleanup();
   } catch (e) {
@@ -3362,6 +3441,93 @@ window.addEventListener('pagehide', () => {
   } catch (_) {}
 });
 
+// ── Screen Wake Lock ──
+// Prevents the screen from sleeping while a test is in progress.
+// Browsers automatically release the lock when the tab is hidden, so we
+// re-acquire on visibilitychange.
+let _wakeLockSentinel = null;
+let _wakeLockDesired = false;
+
+async function acquireScreenWakeLock() {
+  _wakeLockDesired = true;
+  if (!('wakeLock' in navigator)) {
+    console.warn('[WakeLock] Screen Wake Lock API not supported in this browser');
+    return;
+  }
+  if (_wakeLockSentinel) return;
+  try {
+    _wakeLockSentinel = await navigator.wakeLock.request('screen');
+    console.log('[WakeLock] Screen wake lock acquired');
+    _wakeLockSentinel.addEventListener('release', () => {
+      console.log('[WakeLock] Screen wake lock released by browser');
+      _wakeLockSentinel = null;
+    });
+  } catch (e) {
+    _wakeLockSentinel = null;
+    console.warn('[WakeLock] Failed to acquire screen wake lock:', e);
+  }
+}
+
+// Start splash: requires a real user click before restoreSession() runs, so
+// Safari grants the screen wake lock from inside a true user gesture.
+let _startSplashShown = false;
+let _startSplashDismissed = false;
+
+function showStartSplash() {
+  const el = document.getElementById('startSplash');
+  if (!el) {
+    // Defensive fallback: if the splash markup is missing, just start the test.
+    restoreSession();
+    acquireScreenWakeLock();
+    return;
+  }
+  _startSplashShown = true;
+  el.style.display = 'flex';
+  // Any keypress also dismisses the splash (since the operator may not click).
+  document.addEventListener('keydown', _startSplashKeyHandler, true);
+}
+
+function _startSplashKeyHandler(e) {
+  // Spacebar / Enter / any printable key dismisses the splash. The keydown
+  // event itself counts as a user gesture, so the wake lock will be granted.
+  if (_startSplashShown && !_startSplashDismissed) {
+    e.preventDefault();
+    dismissStartSplash();
+  }
+}
+
+function dismissStartSplash() {
+  if (_startSplashDismissed) return;
+  _startSplashDismissed = true;
+  _startSplashShown = false;
+  document.removeEventListener('keydown', _startSplashKeyHandler, true);
+  const el = document.getElementById('startSplash');
+  if (el) el.style.display = 'none';
+  // We are now inside a real user gesture (click or keydown). Acquire the
+  // wake lock immediately — Safari should grant it.
+  acquireScreenWakeLock();
+  // Now actually start the test.
+  restoreSession();
+}
+
+async function releaseScreenWakeLock() {
+  _wakeLockDesired = false;
+  if (_wakeLockSentinel) {
+    try { await _wakeLockSentinel.release(); } catch (_) {}
+    _wakeLockSentinel = null;
+    console.log('[WakeLock] Screen wake lock released');
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && _wakeLockDesired && !_wakeLockSentinel) {
+    // Re-acquire on tab focus return. Safari may grant or deny depending on
+    // whether it considers the visibility change a user gesture; either way
+    // the next operator click / keypress (e.g. spacebar pause) re-acquires.
+    acquireScreenWakeLock();
+  }
+});
+
 async function cleanup() {
   if (heartbeatInterval) clearInterval(heartbeatInterval);
   if (_observeAdvanceTimer) {
@@ -3369,6 +3535,9 @@ async function cleanup() {
     _observeAdvanceTimer = null;
   }
   resetExamTimer();
+  const pauseOverlay = document.getElementById('pauseOverlay');
+  if (pauseOverlay) pauseOverlay.style.display = 'none';
+  await releaseScreenWakeLock();
   await releaseDevice();
   sessionStorage.removeItem('session_id');
   sessionStorage.removeItem('session_language');
@@ -3953,7 +4122,7 @@ function applyPipTransform() {
 function handleAutoFlip(data) {
   // Clear any pending flip timer
   if (_autoFlipTimer) { clearTimeout(_autoFlipTimer); _autoFlipTimer = null; }
-  stopDuplexBargeInMonitor();
+  vadStop();
 
   if (!data.auto_flip) {
     _flipState = null;
@@ -4009,27 +4178,27 @@ function handleAutoFlip(data) {
     if (isDuplexTurnMode()) {
       setOptionsEnabled(true);
       _inputEnabled = true;
-      if (currentState && isVoiceBargeInEligible(currentState.state, currentState.question || flip2Prompt, currentState)) {
-        startDuplexBargeInMonitor({
-          state: currentState.state,
-          options: currentState.options || [],
-          step: currentState.step,
-          questionText: currentState.question || flip2Prompt,
-          questionToken,
-          data: currentState,
-        });
+      // Start always-on STT during Flip 2 TTS
+      if (currentState) {
+        bargeInStart(questionToken, currentState.state, currentState, currentState.options || [], currentState.step);
       }
     }
-    // Wait for Flip 2 TTS to finish via onEnd callback, then beep + enable buttons + listen
     speakQuestionWithStableFollowup(flip2Text, null, () => {
       if (!isCurrentQuestionTurn(questionToken)) return;
-      stopDuplexBargeInMonitor();
-      if (isDuplexSpeechDetected(questionToken)) return;
+      bargeInStop();
+      if (bargeInFiredFor(questionToken)) return;
       setOptionsEnabled(true);
-      if (voiceEnabled && currentState) {
+      if (recognition) {
+        _inputEnabled = true;
+        updateVoiceStatus('🎙 Listening...');
+        console.log('[Voice] TTS ended — STT continues (flip2)');
+      } else if (voiceEnabled && currentState) {
         cueAndStartVoiceCapture(currentState.state, currentState.options || [], currentState.step, {
           enableInput: true,
           questionToken,
+          skipBeep: true,
+          delayMs: 0,
+          setupDelayMs: 0,
         });
       } else {
         playBeep().then(() => {

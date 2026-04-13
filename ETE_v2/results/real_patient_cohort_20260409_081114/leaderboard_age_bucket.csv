@@ -1,0 +1,4 @@
+dv_age_bucket,total_cases,completion_rate,escalation_rate,timeout_rate,distance_accuracy_among_completed,distance_success_rate_all_cases,avg_steps
+Presbyope,251,0.7171,0.2829,0.0,0.6773,0.6016,38.81
+Adult,687,0.7453,0.2547,0.0,0.7246,0.7045,28.09
+Child,10,0.8,0.2,0.0,0.8,1.0,31.2

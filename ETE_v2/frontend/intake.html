@@ -3472,7 +3472,10 @@ document.getElementById('intakeForm').addEventListener('submit', async (e) => {
   try {
     validateSessionStartPrerequisites();
     sessionStorage.removeItem('session_language');
+    const historyStartMs = Date.now();
     const intakeAnswers = await runGuidedVoiceIntake();
+    const historyDurationSecs = ((Date.now() - historyStartMs) / 1000).toFixed(1);
+    sessionStorage.setItem('history_taking_duration_seconds', historyDurationSecs);
     const chosenLanguage = intakeAnswers?.language || getSelectedIntakeLanguage();
     setSelectedIntakeLanguage(chosenLanguage);
     sessionStorage.setItem('session_language', chosenLanguage);
@@ -3485,6 +3488,21 @@ document.getElementById('intakeForm').addEventListener('submit', async (e) => {
 });
 
 setSelectedIntakeLanguage(sessionStorage.getItem('session_language') || DEFAULT_INTAKE_LANGUAGE);
+
+// ── Booking prefill: auto-populate name/phone from booking system ──
+(function() {
+  const params = new URLSearchParams(window.location.search);
+  const phone = params.get('phone');
+  if (!phone) return;
+  fetch('/api/booking/prefill/' + encodeURIComponent(phone))
+    .then(r => r.ok ? r.json() : null)
+    .then(data => {
+      if (!data) return;
+      if (data.patient_name) document.getElementById('patientName').value = data.patient_name;
+      if (data.patient_phone) document.getElementById('patientPhone').value = data.patient_phone;
+    })
+    .catch(() => {});
+})();
 </script>
 </body>
 </html>

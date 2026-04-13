@@ -2062,9 +2062,20 @@ _extend_compact_hindi_matcher_variants()
 
 
 COARSE_RESPONSE_STATES = {"B", "C", "D", "L"}
+NEAR_LAST_LINE_LETTERS = "A P E O R F D Z"
+
+
+def _line_reading_stimulus_letters(*, state: str, stimulus_letters: Optional[str]) -> Optional[str]:
+    if stimulus_letters:
+        return stimulus_letters
+    if state in {"P", "Q", "R"}:
+        return NEAR_LAST_LINE_LETTERS
+    return stimulus_letters
 
 
 def _question_expects_line_reading(*, state: str, question: Optional[str], language: Optional[str] = None) -> bool:
+    if state in {"P", "Q", "R"}:
+        return True
     if language == "hi" and state in {"B", "C", "D", "L"}:
         return False
     prompt = str(question or "").strip().lower()
@@ -2087,6 +2098,8 @@ def _question_expects_line_reading(*, state: str, question: Optional[str], langu
 
 
 def _is_line_clarity_phase(*, state: str, question: Optional[str]) -> bool:
+    if state in {"P", "Q", "R"}:
+        return True
     if state in {"C", "L"}:
         return True
     if state not in {"B", "D"}:
@@ -3690,7 +3703,10 @@ def match_response(
                 letter_label, letter_confidence, letter_method = _match_chart_letters(
                     transcript=transcript,
                     normalized_text=normalized_text,
-                    stimulus_letters=stimulus_letters,
+                    stimulus_letters=_line_reading_stimulus_letters(
+                        state=state,
+                        stimulus_letters=stimulus_letters,
+                    ),
                 )
                 if letter_label is not None:
                     return build_compact_result(letter_label, letter_confidence, letter_method)
@@ -3707,7 +3723,10 @@ def match_response(
             letter_label, letter_confidence, letter_method = _match_chart_letters(
                 transcript=transcript,
                 normalized_text=normalized_text,
-                stimulus_letters=stimulus_letters,
+                stimulus_letters=_line_reading_stimulus_letters(
+                    state=state,
+                    stimulus_letters=stimulus_letters,
+                ),
             )
             if letter_label is not None:
                 return build_compact_result(letter_label, letter_confidence, letter_method)
