@@ -408,6 +408,16 @@ def get_booking_by_token(cancel_token: str) -> Optional[dict]:
     return resp.data[0] if resp.data else None
 
 
+def update_booking_status(booking_id: int, status: str) -> Optional[dict]:
+    """Admin: update a booking's status (e.g. completed, no_show)."""
+    client = _get_client()
+    resp = (client.table("bookings")
+            .update({"status": status})
+            .eq("id", booking_id)
+            .execute())
+    return resp.data[0] if resp.data else None
+
+
 def cancel_booking(cancel_token: str) -> Optional[dict]:
     client = _get_client()
     resp = (client.table("bookings")

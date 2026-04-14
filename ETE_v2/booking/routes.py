@@ -570,6 +570,21 @@ def admin_list_bookings():
     return jsonify(bookings)
 
 
+@booking_bp.route("/api/admin/booking/bookings/<int:booking_id>/status", methods=["PUT"])
+def admin_update_booking_status(booking_id):
+    data = _json()
+    err = _require_admin(data)
+    if err:
+        return err
+    status = data.get("status")
+    if status not in ("completed", "no_show", "confirmed"):
+        return jsonify({"error": "Status must be 'completed', 'no_show', or 'confirmed'"}), 400
+    result = db.update_booking_status(booking_id, status)
+    if not result:
+        return jsonify({"error": "Booking not found"}), 404
+    return jsonify(result)
+
+
 # ═══════════════════════════════════════════════════════════════
 # ADMIN: Blocked Slots
 # ═══════════════════════════════════════════════════════════════

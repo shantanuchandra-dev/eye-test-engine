@@ -137,6 +137,8 @@ tr:last-child td { border-bottom: none; }
 .badge-inactive { background: var(--danger-bg); color: var(--danger); }
 .badge-confirmed { background: var(--success-bg); color: var(--success); }
 .badge-cancelled { background: var(--danger-bg); color: var(--danger); }
+.badge-completed { background: #dbeafe; color: #2563eb; }
+.badge-no_show { background: #fef3c7; color: #b45309; }
 
 .url-box {
   display: flex; align-items: center; gap: 0.4rem;
@@ -423,7 +425,8 @@ tr:last-child td { border-bottom: none; }
   border-left-color: #cbd5e1;
 }
 .cal-booking.rescheduled { background: var(--warning); }
-.cal-booking.completed { background: var(--success); }
+.cal-booking.completed { background: #2563eb; }
+.cal-booking.no_show { background: #b45309; opacity: 0.8; }
 
 .cal-booking .booking-time {
   display: block; font-size: 0.68rem; font-weight: 600;
@@ -509,15 +512,21 @@ tr:last-child td { border-bottom: none; }
 /* Tooltip */
 .booking-tip {
   position: fixed; background: var(--ink); color: white;
-  padding: 8px 12px; border-radius: var(--radius-sm);
-  font-size: 0.78rem; pointer-events: none; z-index: 1000;
-  box-shadow: var(--shadow-lg); max-width: 240px;
+  padding: 10px 14px; border-radius: var(--radius-sm);
+  font-size: 0.78rem; pointer-events: auto; z-index: 1000;
+  box-shadow: var(--shadow-lg); max-width: 260px;
   display: none;
 }
 .booking-tip.visible { display: block; }
 .booking-tip .tip-row { display: flex; gap: 8px; margin-bottom: 3px; }
 .booking-tip .tip-row:last-child { margin-bottom: 0; }
 .booking-tip .tip-label { opacity: 0.6; min-width: 55px; }
+.booking-tip .tip-actions { display: flex; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.15); }
+.booking-tip .tip-btn { padding: 4px 10px; border: none; border-radius: 4px; font: 500 0.72rem var(--font-body); cursor: pointer; transition: opacity 0.15s; }
+.booking-tip .tip-btn:hover { opacity: 0.85; }
+.booking-tip .tip-btn-showed { background: #2563eb; color: white; }
+.booking-tip .tip-btn-noshow { background: #f59e0b; color: white; }
+.booking-tip .tip-btn-undo { background: rgba(255,255,255,0.15); color: white; }
 
 /* Email Templates */
 .templates-grid {
@@ -730,7 +739,8 @@ tr:last-child td { border-bottom: none; }
           <option value="confirmed">Confirmed</option>
           <option value="cancelled">Cancelled</option>
           <option value="rescheduled">Rescheduled</option>
-          <option value="completed">Completed</option>
+          <option value="completed">Showed up</option>
+          <option value="no_show">No-show</option>
         </select>
         <input type="date" class="toolbar-date" id="filterFrom" onchange="loadBookings()" title="From date">
         <span class="date-sep">→</span>
@@ -1648,9 +1658,8 @@ function renderTimelineView(numDays) {
         <span class="booking-name">${esc(b.patient_name)}</span>
         ${showLoc ? `<span class="booking-loc">${esc(b.location_name)}</span>` : ''}
       `;
-      el.onmouseenter = (e) => showTooltip(e, b);
-      el.onmouseleave = hideTooltip;
-      el.onmousemove = (e) => positionTooltip(e);
+      el.onclick = (e) => showTooltip(e, b);
+      el.style.cursor = 'pointer';
       col.appendChild(el);
     });
 
@@ -1856,9 +1865,8 @@ function renderMonthView() {
       const id = parseInt(eventEl.dataset.id);
       const booking = bookings.find(b => b.id === id);
       if (booking) {
-        eventEl.onmouseenter = (e) => showTooltip(e, booking);
-        eventEl.onmouseleave = hideTooltip;
-        eventEl.onmousemove = (e) => positionTooltip(e);
+        eventEl.onclick = (e) => showTooltip(e, booking);
+        eventEl.style.cursor = 'pointer';
       }
     });
 
@@ -1907,20 +1915,40 @@ function renderListView() {
 
 // ── Tooltip ──
 
+let activeTipBookingId = null;
+
 function showTooltip(e, b) {
   const tip = document.getElementById('bookingTip');
+  activeTipBookingId = b.id;
   const d = new Date(b.booking_date + 'T00:00:00');
   const dateStr = d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
+
+  let actionsHtml = '';
+  if (b.status === 'confirmed') {
+    actionsHtml = `<div class="tip-actions">
+      <button class="tip-btn tip-btn-showed" onclick="markAttendance(${b.id}, 'completed', event)">Showed up</button>
+      <button class="tip-btn tip-btn-noshow" onclick="markAttendance(${b.id}, 'no_show', event)">No-show</button>
+    </div>`;
+  } else if (b.status === 'completed' || b.status === 'no_show') {
+    const label = b.status === 'completed' ? 'Showed up' : 'No-show';
+    actionsHtml = `<div class="tip-actions">
+      <span style="font-size:0.72rem;opacity:0.7">Marked: ${label}</span>
+      <button class="tip-btn tip-btn-undo" onclick="markAttendance(${b.id}, 'confirmed', event)">Undo</button>
+    </div>`;
+  }
+
   tip.innerHTML = `
     <div class="tip-row" style="font-weight:600;margin-bottom:6px;font-size:0.85rem">${esc(b.patient_name)}</div>
     <div class="tip-row"><span class="tip-label">When:</span><span>${esc(dateStr)}, ${esc(b.slot_start.slice(0,5))}–${esc(b.slot_end.slice(0,5))}</span></div>
     <div class="tip-row"><span class="tip-label">Location:</span><span>${esc(b.location_name)}</span></div>
     <div class="tip-row"><span class="tip-label">Phone:</span><span>${esc(b.patient_phone)}</span></div>
     <div class="tip-row"><span class="tip-label">Email:</span><span>${esc(b.patient_email)}</span></div>
-    <div class="tip-row"><span class="tip-label">Status:</span><span>${esc(b.status)}</span></div>
+    <div class="tip-row"><span class="tip-label">Status:</span><span class="badge badge-${esc(b.status)}" style="font-size:0.7rem;padding:2px 6px">${esc(b.status.replace('_', ' '))}</span></div>
+    ${actionsHtml}
   `;
   tip.classList.add('visible');
   positionTooltip(e);
+  e.stopPropagation();
 }
 
 function positionTooltip(e) {
@@ -1929,6 +1957,7 @@ function positionTooltip(e) {
   let x = e.clientX + pad;
   let y = e.clientY + pad;
   // Keep on screen
+  tip.style.left = '0px'; tip.style.top = '0px'; // reset for measurement
   const rect = tip.getBoundingClientRect();
   if (x + rect.width > window.innerWidth) x = e.clientX - rect.width - pad;
   if (y + rect.height > window.innerHeight) y = e.clientY - rect.height - pad;
@@ -1937,8 +1966,35 @@ function positionTooltip(e) {
 }
 
 function hideTooltip() {
+  activeTipBookingId = null;
   document.getElementById('bookingTip').classList.remove('visible');
 }
+
+async function markAttendance(bookingId, status, event) {
+  if (event) event.stopPropagation();
+  try {
+    const resp = await adminFetch(`/api/admin/booking/bookings/${bookingId}/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ status }),
+    });
+    if (!resp.ok) throw new Error((await resp.json()).error || 'Failed');
+    // Update local data
+    const booking = allBookings.find(b => b.id === bookingId);
+    if (booking) booking.status = status;
+    hideTooltip();
+    renderBookings();
+  } catch (e) {
+    alert('Failed to update: ' + e.message);
+  }
+}
+
+// Dismiss tooltip on click outside
+document.addEventListener('click', (e) => {
+  const tip = document.getElementById('bookingTip');
+  if (tip.classList.contains('visible') && !tip.contains(e.target) && !e.target.closest('.cal-booking') && !e.target.closest('.month-event')) {
+    hideTooltip();
+  }
+});
 
 // ── Email Templates ──
 
