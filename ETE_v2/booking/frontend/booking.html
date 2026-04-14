@@ -350,7 +350,9 @@ function renderDays(days) {
   days.forEach(day => {
     const d = new Date(day.date + 'T00:00:00');
     const dateStr = d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
-    const isToday = day.date === new Date().toISOString().slice(0, 10);
+    const now = new Date();
+    const todayStr = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+    const isToday = day.date === todayStr;
     const disabled = !day.is_working_day || day.available_slots === 0;
 
     let availText, availClass;

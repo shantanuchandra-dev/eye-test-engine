@@ -97,6 +97,79 @@ def update_schedule_bulk(location_name: str, days: list[dict]) -> list[dict]:
     return results
 
 
+# ── Blocked Slots ─────────────────────────────────────────────
+
+def create_blocked_slot(location_name: str, slot_start: str, slot_end: str,
+                        block_date: str = None, reason: str = "Blocked",
+                        is_recurring: bool = False, recur_days: list[int] = None) -> dict:
+    client = _get_client()
+    data = {
+        "location_name": location_name,
+        "slot_start": slot_start,
+        "slot_end": slot_end,
+        "reason": reason,
+        "is_recurring": is_recurring,
+        "recur_days": recur_days or [],
+    }
+    if block_date:
+        data["block_date"] = block_date
+    resp = client.table("blocked_slots").insert(data).execute()
+    return resp.data[0]
+
+
+def list_blocked_slots(location_name: str) -> list[dict]:
+    client = _get_client()
+    resp = (client.table("blocked_slots")
+            .select("*")
+            .eq("location_name", location_name)
+            .order("created_at")
+            .execute())
+    return resp.data
+
+
+def delete_blocked_slot(block_id: int) -> bool:
+    client = _get_client()
+    resp = client.table("blocked_slots").delete().eq("id", block_id).execute()
+    return len(resp.data) > 0
+
+
+def get_blocked_ranges_for_date(location_name: str, target_date: str) -> list[dict]:
+    """Return all blocked time ranges for a specific date (one-off + recurring)."""
+    d = date.fromisoformat(target_date)
+    dow = d.weekday()  # 0=Mon..6=Sun
+    client = _get_client()
+
+    # One-off blocks for this exact date
+    one_off = (client.table("blocked_slots")
+               .select("id, slot_start, slot_end, reason, is_recurring")
+               .eq("location_name", location_name)
+               .eq("is_recurring", False)
+               .eq("block_date", target_date)
+               .execute()).data
+
+    # Recurring blocks that include this day of week
+    recurring = (client.table("blocked_slots")
+                 .select("id, slot_start, slot_end, reason, is_recurring, recur_days")
+                 .eq("location_name", location_name)
+                 .eq("is_recurring", True)
+                 .execute()).data
+    recurring = [r for r in recurring if dow in (r.get("recur_days") or [])]
+
+    return one_off + recurring
+
+
+def _is_slot_blocked(blocked_ranges: list[dict], slot_start: str, slot_end: str) -> bool:
+    """Return True if a slot overlaps any blocked range."""
+    s_start = _parse_time(slot_start)
+    s_end = _parse_time(slot_end)
+    for br in blocked_ranges:
+        b_start = _parse_time(br["slot_start"][:5])
+        b_end = _parse_time(br["slot_end"][:5])
+        if b_start < s_end and s_start < b_end:
+            return True
+    return False
+
+
 # ── Slot Availability ──────────────────────────────────────────
 
 def _now_ist() -> datetime:
@@ -132,6 +205,20 @@ def _add_minutes(t: time, minutes: int) -> time:
     return time(total // 60, total % 60)
 
 
+def _count_overlapping_bookings(bookings_data: list[dict], slot_start: str, slot_end: str) -> int:
+    """Count confirmed bookings that overlap with the given time range."""
+    s_start = _parse_time(slot_start)
+    s_end = _parse_time(slot_end)
+    count = 0
+    for b in bookings_data:
+        b_start = _parse_time(b["slot_start"][:5])
+        b_end = _parse_time(b["slot_end"][:5])
+        # Two ranges overlap when one starts before the other ends and vice versa
+        if b_start < s_end and s_start < b_end:
+            count += 1
+    return count
+
+
 def get_availability(location_name: str, num_days: int = 7) -> list[dict]:
     """Return next `num_days` days with slot counts and availability."""
     location = get_location_by_name(location_name)
@@ -160,30 +247,32 @@ def get_availability(location_name: str, num_days: int = 7) -> list[dict]:
             continue
 
         cutoff = _cutoff_for_date(d)
-        slots = _generate_slots(
+        all_slots = _generate_slots(
             _parse_time(sched["start_time"]),
             _parse_time(sched["end_time"]),
             location["slot_duration_minutes"],
             cutoff=cutoff,
         )
+
+        # Filter out blocked slots
+        blocked = get_blocked_ranges_for_date(location_name, d.isoformat())
+        slots = [s for s in all_slots if not _is_slot_blocked(blocked, s["start"], s["end"])]
         total = len(slots)
 
-        # Count confirmed bookings per slot for this date
+        # Fetch confirmed bookings with start AND end times for overlap check
         client = _get_client()
         resp = (client.table("bookings")
-                .select("slot_start")
+                .select("slot_start, slot_end")
                 .eq("location_name", location_name)
                 .eq("booking_date", d.isoformat())
                 .eq("status", "confirmed")
                 .execute())
 
-        booked_counts: dict[str, int] = {}
-        for b in resp.data:
-            st = b["slot_start"][:5]  # "HH:MM"
-            booked_counts[st] = booked_counts.get(st, 0) + 1
-
         max_per_slot = location["max_bookings_per_slot"]
-        available = sum(1 for s in slots if booked_counts.get(s["start"], 0) < max_per_slot)
+        available = sum(
+            1 for s in slots
+            if _count_overlapping_bookings(resp.data, s["start"], s["end"]) < max_per_slot
+        )
 
         days.append({
             "date": d.isoformat(),
@@ -211,30 +300,29 @@ def get_slots_for_date(location_name: str, target_date: str) -> list[dict]:
         return []
 
     cutoff = _cutoff_for_date(d)
-    slots = _generate_slots(
+    all_slots = _generate_slots(
         _parse_time(sched["start_time"]),
         _parse_time(sched["end_time"]),
         location["slot_duration_minutes"],
         cutoff=cutoff,
     )
 
+    # Filter out blocked slots
+    blocked = get_blocked_ranges_for_date(location_name, target_date)
+    slots = [s for s in all_slots if not _is_slot_blocked(blocked, s["start"], s["end"])]
+
     client = _get_client()
     resp = (client.table("bookings")
-            .select("slot_start")
+            .select("slot_start, slot_end")
             .eq("location_name", location_name)
             .eq("booking_date", target_date)
             .eq("status", "confirmed")
             .execute())
 
-    booked_counts: dict[str, int] = {}
-    for b in resp.data:
-        st = b["slot_start"][:5]
-        booked_counts[st] = booked_counts.get(st, 0) + 1
-
     max_per_slot = location["max_bookings_per_slot"]
     result = []
     for s in slots:
-        booked = booked_counts.get(s["start"], 0)
+        booked = _count_overlapping_bookings(resp.data, s["start"], s["end"])
         result.append({
             "start": s["start"],
             "end": s["end"],

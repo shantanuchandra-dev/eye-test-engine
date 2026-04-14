@@ -578,6 +578,43 @@ tr:last-child td { border-bottom: none; }
   font: 500 0.78rem var(--font-body); cursor: pointer;
 }
 .logout-btn:hover { background: rgba(255,255,255,0.2); }
+
+/* Blocked slots on calendar */
+.cal-blocked {
+  position: absolute; left: 4px; right: 4px;
+  background: repeating-linear-gradient(135deg, #fee2e2, #fee2e2 4px, #fecaca 4px, #fecaca 8px);
+  border: 1px dashed #ef4444; border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  font: 500 0.7rem var(--font-body); color: #b91c1c;
+  cursor: pointer; z-index: 2; overflow: hidden;
+  transition: opacity 0.15s;
+}
+.cal-blocked:hover { opacity: 0.8; }
+.cal-blocked .block-label { padding: 2px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Block modal */
+.block-modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+}
+.block-modal {
+  background: var(--surface-card); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 1.5rem; width: 380px; max-width: 92vw;
+}
+.block-modal h3 { font-size: 1rem; font-weight: 600; margin-bottom: 1rem; }
+.block-modal label { display: block; font-size: 0.8rem; font-weight: 500; color: var(--ink-secondary); margin-bottom: 4px; margin-top: 0.8rem; }
+.block-modal input, .block-modal select { width: 100%; padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); font: 400 0.85rem var(--font-body); }
+.block-modal .modal-actions { display: flex; gap: 8px; margin-top: 1.2rem; justify-content: flex-end; }
+.block-modal .btn-block { background: #ef4444; color: white; border: none; padding: 8px 18px; border-radius: var(--radius-sm); font: 500 0.82rem var(--font-body); cursor: pointer; }
+.block-modal .btn-block:hover { background: #dc2626; }
+.block-modal .btn-cancel { background: var(--surface-hover); color: var(--ink); border: none; padding: 8px 18px; border-radius: var(--radius-sm); font: 500 0.82rem var(--font-body); cursor: pointer; }
+.block-modal .recur-days { display: flex; gap: 4px; margin-top: 4px; }
+.block-modal .recur-days label { display: inline-flex; align-items: center; gap: 3px; font-size: 0.75rem; padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; margin: 0; }
+.block-modal .recur-days label.checked { background: var(--accent-glow); border-color: var(--accent); }
+.block-modal .recur-days input[type="checkbox"] { width: auto; margin: 0; }
+
+/* Month view blocked indicator */
+.month-event.blocked { background: #fecaca; color: #b91c1c; border-left: 3px solid #ef4444; }
 </style>
 </head>
 <body>
@@ -589,6 +626,32 @@ tr:last-child td { border-bottom: none; }
 
 <!-- Tooltip for calendar hover -->
 <div class="booking-tip" id="bookingTip"></div>
+<div id="blockModalOverlay" class="block-modal-overlay" style="display:none" onclick="if(event.target===this)closeBlockModal()">
+  <div class="block-modal">
+    <h3 id="blockModalTitle">Block Time Slot</h3>
+    <div id="blockModalMsg"></div>
+    <label>Location</label>
+    <select id="blockLocation"></select>
+    <label>Date <span id="blockDateHint" style="font-weight:400;color:var(--ink-muted)"></span></label>
+    <input type="date" id="blockDate">
+    <div style="display:flex;gap:8px">
+      <div style="flex:1"><label>Start time</label><input type="time" id="blockStart"></div>
+      <div style="flex:1"><label>End time</label><input type="time" id="blockEnd"></div>
+    </div>
+    <label>Reason</label>
+    <input type="text" id="blockReason" value="Lunch" placeholder="e.g. Lunch, Meeting">
+    <label style="margin-top:0.8rem">
+      <input type="checkbox" id="blockRecurring" onchange="toggleRecurDays()" style="width:auto;margin-right:6px">
+      Repeat every week
+    </label>
+    <div class="recur-days" id="recurDays" style="display:none">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeBlockModal()">Cancel</button>
+      <button class="btn-block" onclick="submitBlock()">Block</button>
+    </div>
+  </div>
+</div>
 
 <!-- Password Gate -->
 <div class="gate" id="gate">
@@ -673,8 +736,7 @@ tr:last-child td { border-bottom: none; }
         <span class="date-sep">→</span>
         <input type="date" class="toolbar-date" id="filterTo" onchange="loadBookings()" title="To date">
         <button class="toolbar-btn-icon" onclick="resetFilters()" title="Reset filters">↺</button>
-        <!-- Hidden, kept for backward-compat with code that reads the location filter value -->
-        <select id="filterLocation" style="display:none"><option value="">All locations</option></select>
+        <select class="toolbar-select" id="filterLocation" onchange="onLocationFilterChange()" title="Filter by location"><option value="">All locations</option></select>
       </div>
       <div class="view-toggle">
         <button class="view-btn active" id="viewCalendar" onclick="setBookingView('calendar')">Calendar</button>
@@ -701,7 +763,8 @@ tr:last-child td { border-bottom: none; }
           <button class="zoom-btn active" data-zoom="88" onclick="setZoom(88)">M</button>
           <button class="zoom-btn" data-zoom="120" onclick="setZoom(120)">L</button>
         </div>
-        <button class="btn btn-sm" style="margin-left:auto;background:var(--surface-hover)" onclick="goToToday()">Today</button>
+        <button class="btn btn-sm" style="margin-left:auto;background:#fef2f2;color:#dc2626;border:1px solid #fecaca" onclick="openBlockModal(calendarLocation || locations[0]?.name || '', toLocalDateStr(calendarWeekStart || new Date()))">Block Slot</button>
+        <button class="btn btn-sm" style="background:var(--surface-hover)" onclick="goToToday()">Today</button>
       </div>
       <div class="calendar-grid" id="calendarGrid"></div>
       <div class="month-grid" id="monthGrid" style="display:none"></div>
@@ -847,6 +910,7 @@ let calendarWeekStart = null;  // Date — start of displayed range
 let calendarRange = 7;          // 1, 3, 5, 7, or 'month'
 let calendarLocation = '';      // '' = all, or location name
 let calendarZoom = 88;          // pixels per hour (S=60, M=88, L=120)
+let allBlockedSlots = {};       // { locationName: [...blocked] }
 
 // ── Session persistence (24 hours) ──
 const SESSION_KEY = 'booking_admin_session';
@@ -970,7 +1034,7 @@ function switchTab(name) {
   if (name === 'schedule') populateSchedDropdown();
   if (name === 'bookings') {
     populateBookingsFilters();
-    loadBookings();
+    loadBlockedSlots().then(() => loadBookings());
   }
   if (name === 'templates') loadTemplates();
   if (name === 'settings') loadDomains();
@@ -1004,8 +1068,20 @@ function renderLocations() {
                onkeydown="if(event.key==='Enter')this.blur()">
       </td>
       <td style="font-size:0.78rem;max-width:120px;overflow:hidden;text-overflow:ellipsis">${esc(loc.calendar_id || '—')}</td>
-      <td>${loc.slot_duration_minutes}m</td>
-      <td>${loc.max_bookings_per_slot}</td>
+      <td>
+        <input type="number" value="${loc.slot_duration_minutes}" min="5" max="120" step="5"
+               data-loc="${esc(loc.name)}" data-field="slot_duration_minutes"
+               style="width:60px;padding:5px 6px;border:1px solid var(--border);border-radius:var(--radius-sm);font:400 0.8rem var(--font-body);text-align:center"
+               onblur="saveLocationField(this)"
+               onkeydown="if(event.key==='Enter')this.blur()">m
+      </td>
+      <td>
+        <input type="number" value="${loc.max_bookings_per_slot}" min="1" max="50"
+               data-loc="${esc(loc.name)}" data-field="max_bookings_per_slot"
+               style="width:60px;padding:5px 6px;border:1px solid var(--border);border-radius:var(--radius-sm);font:400 0.8rem var(--font-body);text-align:center"
+               onblur="saveLocationField(this)"
+               onkeydown="if(event.key==='Enter')this.blur()">
+      </td>
       <td><span class="badge badge-${loc.is_active ? 'active' : 'inactive'}">${loc.is_active ? 'Active' : 'Inactive'}</span></td>
       <td><div class="url-box"><span>${esc(url)}</span><button onclick="copyUrl('${esc(url).replace(/'/g,'%27')}')">Copy</button></div></td>
     </tr>`;
@@ -1035,6 +1111,32 @@ async function saveLocationAddress(inputEl) {
   } catch (e) {
     inputEl.style.borderColor = 'var(--danger)';
     alert('Failed to save address: ' + e.message);
+  }
+}
+
+async function saveLocationField(inputEl) {
+  const name = inputEl.dataset.loc;
+  const field = inputEl.dataset.field;
+  const newValue = parseInt(inputEl.value);
+  if (isNaN(newValue) || newValue < 1) return;
+
+  const loc = locations.find(l => l.name === name);
+  if (loc && loc[field] === newValue) return;
+
+  const original = inputEl.style.borderColor;
+  inputEl.style.borderColor = 'var(--accent)';
+  try {
+    const resp = await adminFetch(`/api/admin/booking/locations/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ [field]: newValue }),
+    });
+    if (!resp.ok) throw new Error((await resp.json()).error || 'Save failed');
+    if (loc) loc[field] = newValue;
+    inputEl.style.borderColor = 'var(--success)';
+    setTimeout(() => { inputEl.style.borderColor = original; }, 800);
+  } catch (e) {
+    inputEl.style.borderColor = 'var(--danger)';
+    alert('Failed to save: ' + e.message);
   }
 }
 
@@ -1207,15 +1309,15 @@ function populateBookingsFilters() {
 
 // Distinct color palette — high-saturation, well-spaced hues
 const LOC_COLORS = [
-  '#2563eb', // blue
-  '#7c3aed', // purple
+  '#2563eb', // blue  (HQ)
+  '#e5590a', // orange (Delta)
   '#059669', // emerald
-  '#ea580c', // orange
+  '#9333ea', // violet
   '#dc2626', // red
   '#0891b2', // cyan
   '#db2777', // pink
   '#65a30d', // lime
-  '#9333ea', // violet
+  '#7c3aed', // purple
   '#0d9488', // teal
 ];
 function locationColor(name) {
@@ -1241,16 +1343,25 @@ function renderLocationToggle() {
 
 function setCalendarLocation(name) {
   calendarLocation = name;
-  // Sync the filter dropdown so the underlying loadBookings can use it too
   document.getElementById('filterLocation').value = name;
+  renderLocationToggle();
+  loadBookings();
+}
+
+function onLocationFilterChange() {
+  const name = document.getElementById('filterLocation').value;
+  calendarLocation = name;
+  renderLocationToggle();
   loadBookings();
 }
 
 function resetFilters() {
+  calendarLocation = '';
   document.getElementById('filterLocation').value = '';
   document.getElementById('filterStatus').value = '';
   document.getElementById('filterFrom').value = '';
   document.getElementById('filterTo').value = '';
+  renderLocationToggle();
   loadBookings();
 }
 
@@ -1310,6 +1421,13 @@ function setBookingView(v) {
 }
 
 // ── Calendar rendering ──
+
+function toLocalDateStr(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 
 function getMondayOfWeek(d) {
   const dt = new Date(d);
@@ -1419,11 +1537,11 @@ function renderTimelineView(numDays) {
   headerBlank.style.background = 'var(--surface)';
   grid.appendChild(headerBlank);
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = toLocalDateStr(new Date());
   for (let i = 0; i < numDays; i++) {
     const d = new Date(calendarWeekStart);
     d.setDate(d.getDate() + i);
-    const dStr = d.toISOString().slice(0, 10);
+    const dStr = toLocalDateStr(d);
     const isToday = dStr === todayStr;
     const header = document.createElement('div');
     header.className = 'cal-header' + (isToday ? ' today' : '');
@@ -1454,7 +1572,7 @@ function renderTimelineView(numDays) {
   for (let i = 0; i < numDays; i++) {
     const d = new Date(calendarWeekStart);
     d.setDate(d.getDate() + i);
-    const dStr = d.toISOString().slice(0, 10);
+    const dStr = toLocalDateStr(d);
     const dow = d.getDay();
     const isToday = dStr === todayStr;
 
@@ -1522,7 +1640,8 @@ function renderTimelineView(numDays) {
       const timeRange = `${formatTime12(b.slot_start)} – ${formatTime12(b.slot_end)}`;
       // Show time/location based on available vertical AND horizontal space
       const showTime = height >= 38 && colCount <= 2;
-      const showLoc = height >= 54 && colCount === 1;
+      const isAllLocations = calendarLocation === '';
+      const showLoc = isAllLocations ? (height >= 38) : (height >= 54 && colCount === 1);
 
       el.innerHTML = `
         ${showTime ? `<span class="booking-time">${esc(timeRange)}</span>` : ''}
@@ -1533,6 +1652,47 @@ function renderTimelineView(numDays) {
       el.onmouseleave = hideTooltip;
       el.onmousemove = (e) => positionTooltip(e);
       col.appendChild(el);
+    });
+
+    // Render blocked slots for this day
+    const locsToCheck = calendarLocation ? [calendarLocation] : locations.map(l => l.name);
+    locsToCheck.forEach(locName => {
+      const blocked = getBlockedForDate(locName, dStr);
+      blocked.forEach(blk => {
+        const bStart = blk.slot_start.slice(0, 5);
+        const bEnd = blk.slot_end.slice(0, 5);
+        const startMin = toMinutes(bStart) - minHour * 60;
+        const endMin = toMinutes(bEnd) - minHour * 60;
+        if (endMin <= 0 || startMin >= (maxHour + 1 - minHour) * 60) return; // out of view
+        const top = Math.max(0, (startMin / 60) * hourPx);
+        const height = Math.max(((Math.min(endMin, (maxHour + 1 - minHour) * 60) - Math.max(startMin, 0)) / 60) * hourPx - 2, 18);
+
+        const el = document.createElement('div');
+        el.className = 'cal-blocked';
+        el.style.top = `${top}px`;
+        el.style.height = `${height}px`;
+        const label = blk.reason || 'Blocked';
+        const recurTag = blk.is_recurring ? ' (recurring)' : '';
+        const locTag = calendarLocation ? '' : ` - ${locName}`;
+        el.innerHTML = `<span class="block-label">${esc(label)}${esc(recurTag)}${esc(locTag)}</span>`;
+        el.title = `${label}${recurTag}${locTag}\n${bStart} – ${bEnd}\nClick to unblock`;
+        el.onclick = () => unblockSlot(blk.id, `${label} ${bStart}–${bEnd}${locTag}`);
+        col.appendChild(el);
+      });
+    });
+
+    // Click on empty area to block
+    col.addEventListener('dblclick', (e) => {
+      if (e.target.closest('.cal-booking') || e.target.closest('.cal-blocked')) return;
+      const rect = col.getBoundingClientRect();
+      const yOffset = e.clientY - rect.top;
+      const clickedMin = Math.floor((yOffset / hourPx) * 60) + minHour * 60;
+      const startH = String(Math.floor(clickedMin / 60)).padStart(2, '0');
+      const startM = String(Math.floor(clickedMin / 30) * 30 % 60).padStart(2, '0');
+      const endMin = clickedMin + 60;
+      const endH = String(Math.min(Math.floor(endMin / 60), 23)).padStart(2, '0');
+      const endM = String(Math.floor(endMin / 30) * 30 % 60).padStart(2, '0');
+      openBlockModal(calendarLocation || locations[0]?.name || '', dStr, `${startH}:${startM}`, `${endH}:${endM}`);
     });
 
     grid.appendChild(col);
@@ -1640,13 +1800,13 @@ function renderMonthView() {
   // First cell — start from Monday of the week containing the 1st
   const firstCell = getMondayOfWeek(monthStart);
   // 6 weeks = 42 cells (covers all months)
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = toLocalDateStr(new Date());
   const bookings = filteredBookings();
 
   for (let i = 0; i < 42; i++) {
     const d = new Date(firstCell);
     d.setDate(d.getDate() + i);
-    const dStr = d.toISOString().slice(0, 10);
+    const dStr = toLocalDateStr(d);
     const inMonth = d.getMonth() === monthStart.getMonth();
     const dow = d.getDay();
     const isWeekend = dow === 0 || dow === 6;
@@ -1669,11 +1829,24 @@ function renderMonthView() {
     let eventsHtml = '<div class="month-events">';
     visible.forEach(b => {
       const colorStyle = b.status === 'confirmed' ? `style="background:${locationColor(b.location_name)}"` : '';
-      eventsHtml += `<div class="month-event ${esc(b.status)}" data-id="${b.id}" ${colorStyle}>${esc(b.slot_start.slice(0,5))} ${esc(b.patient_name)}</div>`;
+      const locLabel = calendarLocation === '' ? ` <span style="opacity:0.8;font-size:0.65rem">${esc(b.location_name)}</span>` : '';
+      eventsHtml += `<div class="month-event ${esc(b.status)}" data-id="${b.id}" ${colorStyle}>${esc(b.slot_start.slice(0,5))} ${esc(b.patient_name)}${locLabel}</div>`;
     });
     if (hidden > 0) {
       eventsHtml += `<div class="month-event-more">+${hidden} more</div>`;
     }
+
+    // Blocked slots for this day
+    const locsToCheck = calendarLocation ? [calendarLocation] : locations.map(l => l.name);
+    locsToCheck.forEach(locName => {
+      const blocked = getBlockedForDate(locName, dStr);
+      blocked.forEach(blk => {
+        const label = blk.reason || 'Blocked';
+        const time = `${blk.slot_start.slice(0,5)}–${blk.slot_end.slice(0,5)}`;
+        const locTag = calendarLocation ? '' : ` ${locName}`;
+        eventsHtml += `<div class="month-event blocked" data-block-id="${blk.id}" title="${label} ${time}${locTag} (click to unblock)">${time} ${esc(label)}${esc(locTag)}</div>`;
+      });
+    });
     eventsHtml += '</div>';
 
     cell.innerHTML = `<span class="month-daynum">${d.getDate()}</span>${eventsHtml}`;
@@ -1687,6 +1860,15 @@ function renderMonthView() {
         eventEl.onmouseleave = hideTooltip;
         eventEl.onmousemove = (e) => positionTooltip(e);
       }
+    });
+
+    // Wire unblock on blocked events
+    cell.querySelectorAll('.month-event.blocked[data-block-id]').forEach(el => {
+      el.style.cursor = 'pointer';
+      el.onclick = () => {
+        const blockId = parseInt(el.dataset.blockId);
+        unblockSlot(blockId, el.title);
+      };
     });
 
     grid.appendChild(cell);
@@ -1712,7 +1894,7 @@ function renderListView() {
     html += `<tr>
       <td>${esc(dateStr)}</td>
       <td style="font-family:var(--font-mono);font-size:0.8rem">${esc(b.slot_start.slice(0,5))}</td>
-      <td>${esc(b.location_name)}</td>
+      <td><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${locationColor(b.location_name)};margin-right:6px;vertical-align:middle"></span>${esc(b.location_name)}</td>
       <td><strong>${esc(b.patient_name)}</strong></td>
       <td style="font-size:0.8rem">${esc(b.patient_phone)}</td>
       <td style="font-size:0.8rem">${esc(b.patient_email)}</td>
@@ -1885,6 +2067,121 @@ async function saveTemplate(key) {
     setTimeout(() => msgEl.innerHTML = '', 3000);
   } catch (e) {
     msgEl.innerHTML = `<div class="msg msg-error">${esc(e.message)}</div>`;
+  }
+}
+
+// ── Blocked Slots ──
+
+async function loadBlockedSlots() {
+  allBlockedSlots = {};
+  for (const loc of locations) {
+    try {
+      const resp = await fetch(`/api/admin/booking/locations/${encodeURIComponent(loc.name)}/blocked`);
+      allBlockedSlots[loc.name] = await resp.json();
+    } catch (e) {
+      allBlockedSlots[loc.name] = [];
+    }
+  }
+}
+
+function getBlockedForDate(locationName, dateStr) {
+  const blocks = allBlockedSlots[locationName] || [];
+  const d = new Date(dateStr + 'T00:00:00');
+  const dow = (d.getDay() + 6) % 7; // JS getDay: 0=Sun → convert to 0=Mon
+  return blocks.filter(b => {
+    if (b.is_recurring) {
+      return (b.recur_days || []).includes(dow);
+    }
+    return b.block_date === dateStr;
+  });
+}
+
+function openBlockModal(locationName, dateStr, startTime, endTime) {
+  const sel = document.getElementById('blockLocation');
+  sel.innerHTML = locations.map(l =>
+    `<option value="${esc(l.name)}" ${l.name === locationName ? 'selected' : ''}>${esc(l.name)}</option>`
+  ).join('');
+  document.getElementById('blockDate').value = dateStr || toLocalDateStr(new Date());
+  document.getElementById('blockStart').value = startTime || '14:00';
+  document.getElementById('blockEnd').value = endTime || '15:00';
+  document.getElementById('blockReason').value = 'Lunch';
+  document.getElementById('blockRecurring').checked = false;
+  document.getElementById('blockModalTitle').textContent = 'Block Time Slot';
+  document.getElementById('blockModalMsg').innerHTML = '';
+  toggleRecurDays();
+  document.getElementById('blockModalOverlay').style.display = 'flex';
+}
+
+function closeBlockModal() {
+  document.getElementById('blockModalOverlay').style.display = 'none';
+}
+
+function toggleRecurDays() {
+  const checked = document.getElementById('blockRecurring').checked;
+  const container = document.getElementById('recurDays');
+  container.style.display = checked ? 'flex' : 'none';
+  if (checked) {
+    const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    container.innerHTML = dayNames.map((name, i) =>
+      `<label class="${i < 5 ? 'checked' : ''}"><input type="checkbox" value="${i}" ${i < 5 ? 'checked' : ''} onchange="this.parentElement.classList.toggle('checked',this.checked)">${name}</label>`
+    ).join('');
+  }
+}
+
+async function submitBlock() {
+  const msgEl = document.getElementById('blockModalMsg');
+  const locName = document.getElementById('blockLocation').value;
+  const blockDate = document.getElementById('blockDate').value;
+  const start = document.getElementById('blockStart').value;
+  const end = document.getElementById('blockEnd').value;
+  const reason = document.getElementById('blockReason').value.trim() || 'Blocked';
+  const isRecurring = document.getElementById('blockRecurring').checked;
+
+  if (!start || !end) { msgEl.innerHTML = '<div class="msg msg-error">Start and end time required</div>'; return; }
+  if (start >= end) { msgEl.innerHTML = '<div class="msg msg-error">End time must be after start</div>'; return; }
+  if (!isRecurring && !blockDate) { msgEl.innerHTML = '<div class="msg msg-error">Date required for one-off block</div>'; return; }
+  if (!isRecurring && blockDate < toLocalDateStr(new Date())) { msgEl.innerHTML = '<div class="msg msg-error">Cannot block a past date</div>'; return; }
+
+  const body = {
+    slot_start: start + ':00',
+    slot_end: end + ':00',
+    reason,
+    is_recurring: isRecurring,
+  };
+  if (!isRecurring) body.block_date = blockDate;
+  if (isRecurring) {
+    body.recur_days = Array.from(document.querySelectorAll('#recurDays input:checked')).map(cb => parseInt(cb.value));
+    if (!body.recur_days.length) { msgEl.innerHTML = '<div class="msg msg-error">Select at least one day</div>'; return; }
+  }
+
+  try {
+    const resp = await adminFetch(`/api/admin/booking/locations/${encodeURIComponent(locName)}/blocked`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Failed to block');
+    closeBlockModal();
+    await loadBlockedSlots();
+    renderBookings();
+  } catch (e) {
+    msgEl.innerHTML = `<div class="msg msg-error">${esc(e.message)}</div>`;
+  }
+}
+
+async function unblockSlot(blockId, description) {
+  if (!confirm(`Unblock: ${description}?`)) return;
+  try {
+    const resp = await adminFetch(`/api/admin/booking/blocked/${blockId}`, {
+      method: 'DELETE',
+      body: JSON.stringify({}),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Failed to unblock');
+    await loadBlockedSlots();
+    renderBookings();
+  } catch (e) {
+    alert('Failed to unblock: ' + e.message);
   }
 }
 </script>
