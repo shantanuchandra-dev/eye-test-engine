@@ -43,3 +43,4 @@ ETE_v2/booking/*.json
 .claude/plans/
 *metadata.json
 Updated files.zip
+.claude/settings.local.json

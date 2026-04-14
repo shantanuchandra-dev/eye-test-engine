@@ -113,7 +113,8 @@
       "Bash(xargs -I{} echo \"Group markup occurrences: {}\")",
       "Bash(xargs -I{} echo \"New code markers: {}\")",
       "Bash(xargs -I{} echo \"Toolbar markers: {}\")",
-      "Bash(xargs -I{} echo \"Found {} marker\\(s\\)\")"
+      "Bash(xargs -I{} echo \"Found {} marker\\(s\\)\")",
+      "Bash(psql \"postgresql://postgres.bnwmmxidqrtixoarvnlm:@aws-0-ap-south-1.pooler.supabase.com:6543/postgres\" -c \"SELECT 1\")"
     ]
   },
   "syntaxHighlightingDisabled": true
