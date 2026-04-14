@@ -17,7 +17,9 @@ from booking.notifications import BookingInfo, notification_service
 from booking.test_history import template_key_for
 
 BOOKING_FRONTEND_DIR = Path(__file__).resolve().parent / "frontend"
-ADMIN_PASSWORD = os.environ.get("BOOKING_ADMIN_PASSWORD", "Shantanu")
+ADMIN_PASSWORD = os.environ.get("BOOKING_ADMIN_PASSWORD")
+if not ADMIN_PASSWORD:
+    raise RuntimeError("BOOKING_ADMIN_PASSWORD environment variable is required")
 
 booking_bp = Blueprint("booking", __name__)
 
@@ -566,6 +568,61 @@ def admin_list_bookings():
     to_date = request.args.get("to")
     bookings = db.list_bookings(location_name=location, from_date=from_date, to_date=to_date)
     return jsonify(bookings)
+
+
+# ═══════════════════════════════════════════════════════════════
+# ADMIN: Blocked Slots
+# ═══════════════════════════════════════════════════════════════
+
+@booking_bp.route("/api/admin/booking/locations/<name>/blocked", methods=["GET"])
+def admin_list_blocked(name):
+    return jsonify(db.list_blocked_slots(name))
+
+
+@booking_bp.route("/api/admin/booking/locations/<name>/blocked", methods=["POST"])
+def admin_create_blocked(name):
+    data = _json()
+    err = _require_admin(data)
+    if err:
+        return err
+    block_date = data.get("block_date")
+    is_recurring = data.get("is_recurring", False)
+    if not is_recurring and block_date:
+        from datetime import date as date_cls
+        if date_cls.fromisoformat(block_date) < db._now_ist().date():
+            return jsonify({"error": "Cannot block a past date"}), 400
+    try:
+        result = db.create_blocked_slot(
+            location_name=name,
+            slot_start=data["slot_start"],
+            slot_end=data["slot_end"],
+            block_date=block_date,
+            reason=data.get("reason", "Blocked"),
+            is_recurring=is_recurring,
+            recur_days=data.get("recur_days", []),
+        )
+        return jsonify(result), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@booking_bp.route("/api/admin/booking/blocked/<int:block_id>", methods=["DELETE"])
+def admin_delete_blocked(block_id):
+    data = _json()
+    err = _require_admin(data)
+    if err:
+        return err
+    if db.delete_blocked_slot(block_id):
+        return jsonify({"ok": True})
+    return jsonify({"error": "Block not found"}), 404
+
+
+@booking_bp.route("/api/admin/booking/locations/<name>/blocked-for-date")
+def admin_blocked_for_date(name):
+    target_date = request.args.get("date")
+    if not target_date:
+        return jsonify({"error": "date parameter required"}), 400
+    return jsonify(db.get_blocked_ranges_for_date(name, target_date))
 
 
 # ═══════════════════════════════════════════════════════════════
