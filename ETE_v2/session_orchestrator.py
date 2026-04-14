@@ -401,6 +401,7 @@ class SessionOrchestrator:
         # ── STEP 1: Send RESPONSE commands for the PREVIOUS state ──
         # (JCC handle/increase/decrease, duochrome increase/decrease)
         # These must be sent BEFORE transitioning, while we're still in the old state.
+        curl_count_before = len(self.curl_log)
         self._dispatch_response_commands(prev_state, response_value, applied_row=finalized)
 
         # Track phase exit if state changed
@@ -500,6 +501,12 @@ class SessionOrchestrator:
                 prev_response=response_value,
                 prev_state=prev_state,
             )
+
+        # ── Delta-vs-curl mismatch detection ──
+        curl_was_sent = len(self.curl_log) > curl_count_before
+        self._log_delta_curl_mismatch(
+            prev_state, next_state, response_value, finalized, curl_was_sent,
+        )
 
         # Update phoropter prev-state AFTER dispatching (so next command has correct prev)
         self._update_phoropter_prev_state()
@@ -987,6 +994,54 @@ class SessionOrchestrator:
             )
         )
 
+    def _log_delta_curl_mismatch(
+        self,
+        prev_state: str,
+        next_state: str,
+        response_value: str,
+        finalized_row: Optional[FSMRuntimeRow],
+        curl_was_sent: bool,
+    ) -> None:
+        """Log a warning when FSM deltas and curl dispatch are out of sync.
+
+        Detects two classes of mismatch:
+          1. Delta non-zero but no curl command was sent
+          2. Delta is zero but a curl command was sent
+        """
+        if finalized_row is None:
+            return
+
+        # Collect all deltas from the finalized row
+        deltas = {
+            "ds_re": float(finalized_row.ds_re or 0),
+            "dc_re": float(finalized_row.dc_re or 0),
+            "da_re": float(finalized_row.da_re or 0),
+            "ds_le": float(finalized_row.ds_le or 0),
+            "dc_le": float(finalized_row.dc_le or 0),
+            "da_le": float(finalized_row.da_le or 0),
+            "dadd_r": float(finalized_row.dadd_r or 0),
+            "dadd_l": float(finalized_row.dadd_l or 0),
+        }
+        has_delta = any(abs(v) > 1e-9 for v in deltas.values())
+        nonzero = {k: v for k, v in deltas.items() if abs(v) > 1e-9}
+
+        if has_delta and not curl_was_sent:
+            msg = (
+                f"MISMATCH: FSM deltas {nonzero} but NO curl sent | "
+                f"state={prev_state}→{next_state} response={response_value}"
+            )
+            logger.warning(msg)
+            self._log_conversation("system", f"[DELTA-CURL MISMATCH] {msg}",
+                                   state=prev_state, step=finalized_row.step)
+        elif not has_delta and curl_was_sent:
+            msg = (
+                f"MISMATCH: All deltas zero but curl WAS sent | "
+                f"state={prev_state}→{next_state} response={response_value}"
+            )
+            logger.warning(msg)
+            self._log_conversation("system", f"[DELTA-CURL MISMATCH] {msg}",
+                                   state=prev_state, step=finalized_row.step)
+
     @staticmethod
     def _entry_dispatch_includes_power(state: str) -> bool:
         return state in {"B", "D", "K", "P", "S", "T"}
@@ -1206,55 +1261,56 @@ class SessionOrchestrator:
         response_value: str,
         applied_row: Optional[FSMRuntimeRow] = None,
     ) -> None:
-        """Send phoropter commands for a patient RESPONSE in the given state.
-        Called BEFORE state transition. Handles JCC flip/adjust and duochrome SPH.
+        """Send phoropter commands driven by FSM deltas, not patient response strings.
 
-        JCC REPEAT: sends handle + handle (flip back to pos1, then re-show pos2)
-        matching v1's handle + auto_flip pattern.
-        Non-JCC REPEAT: no CURL commands (already intercepted by process_response).
+        The FSM engine is the single source of truth: if it computed a non-zero
+        delta the phoropter moves; if the delta is zero (terminal reversal,
+        cyl-at-zero clamp, convergence, etc.) no curl is sent.
+
+        JCC states (E/F/H/I): delta sign → increase/decrease + handle (flip)
+        Duochrome (G/J): delta sign → increase/decrease
+        All other states: power updates handled by dispatch_phoropter_commands
         """
         if not self.phoropter_auto_dispatch or not self.phoropter_id:
             return
-        resp = response_value.upper()
+        if applied_row is None:
+            return
 
-        # JCC Axis (E, H): increase/decrease + handle
-        # REPEAT handled in process_response before this is called
+        # Determine the relevant delta for this state
+        if state == "E":
+            delta = float(applied_row.da_re or 0)
+        elif state == "H":
+            delta = float(applied_row.da_le or 0)
+        elif state == "F":
+            delta = float(applied_row.dc_re or 0)
+        elif state == "I":
+            delta = float(applied_row.dc_le or 0)
+        elif state == "G":
+            delta = float(applied_row.ds_re or 0)
+        elif state == "J":
+            delta = float(applied_row.ds_le or 0)
+        else:
+            return
+
+        if abs(delta) < 1e-9:
+            return
+
+        # JCC Axis (E, H): may need multiple clicks for larger steps
         if state in ("E", "H"):
-            if resp in ("ONE", "BETTER_1"):
-                for _ in range(self._axis_response_clicks(state, applied_row)):
-                    self._send_jcc("increase")
-                self._send_jcc("handle")
-            elif resp in ("TWO", "BETTER_2"):
-                for _ in range(self._axis_response_clicks(state, applied_row)):
-                    self._send_jcc("decrease")
-                self._send_jcc("handle")
+            clicks = self._axis_response_clicks(state, applied_row)
+            cmd = "increase" if delta > 0 else "decrease"
+            for _ in range(clicks):
+                self._send_jcc(cmd)
+            self._send_jcc("handle")
 
-        # JCC Power (F, I): increase/decrease + handle
+        # JCC Power (F, I): single click + handle
         elif state in ("F", "I"):
-            if resp in ("ONE", "BETTER_1"):
-                self._send_jcc("increase")
-                self._send_jcc("handle")
-            elif resp in ("TWO", "BETTER_2"):
-                self._send_jcc("decrease")
-                self._send_jcc("handle")
+            self._send_jcc("increase" if delta > 0 else "decrease")
+            self._send_jcc("handle")
 
-        # Duochrome (G, J): decrease for RED, increase for GREEN
-        # SAME after a GREEN anchor triggers the FSM3.3 plus-search (+0.25 D),
-        # so it also needs an "increase" dispatch. Other SAME/REPEAT: no CURL.
+        # Duochrome (G, J): single click, no handle
         elif state in ("G", "J"):
-            if resp in ("RED", "RED_CLEARER"):
-                self._send_jcc("decrease")  # RAM: Red Add Minus
-            elif resp in ("GREEN", "GREEN_CLEARER"):
-                self._send_jcc("increase")  # GAP: Green Add Plus
-            elif (
-                resp == "SAME"
-                and applied_row is not None
-                and applied_row.duo_same_anchor_response == "GREEN"
-            ):
-                self._send_jcc("increase")  # FSM3.3 plus-search: SAME after GREEN
-
-        # All other states: no response-level CURL commands
-        # B/D coarse, K binocular, P/Q/R near: power updates handled by dispatch_phoropter_commands
+            self._send_jcc("increase" if delta > 0 else "decrease")
 
     def _phoropter_url(self, path: str = "/run-tests") -> str:
         return f"{self.phoropter_base_url}/phoropter/{self.phoropter_id}{path}"
