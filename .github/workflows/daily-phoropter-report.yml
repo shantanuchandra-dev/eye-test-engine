@@ -1,0 +1,169 @@
+name: Daily Phoropter Session Report
+
+on:
+  schedule:
+    - cron: '30 18 * * *' # 12:00 AM IST (UTC+5:30) — reports on the IST day that just ended
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install supabase
+
+      - name: Generate phoropter session report
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          GOOGLE_CHAT_WEBHOOK_URL: ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
+          SUPABASE_BUCKET: Eye_Test_logs
+          SUPABASE_SUCCESS_VOICES_BUCKET: success_voices
+        run: |
+          python3 << 'PYEOF'
+          import json
+          import os
+          import urllib.request
+          from datetime import datetime, timedelta, timezone
+
+          from supabase import create_client
+
+          SUPABASE_URL = os.environ["SUPABASE_URL"]
+          SUPABASE_SERVICE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
+          GOOGLE_CHAT_WEBHOOK_URL = os.environ.get("GOOGLE_CHAT_WEBHOOK_URL", "")
+          BUCKET = os.environ.get("SUPABASE_BUCKET", "Eye_Test_logs")
+          SUCCESS_VOICES_BUCKET = os.environ.get("SUPABASE_SUCCESS_VOICES_BUCKET", "success_voices")
+
+          # At 00:00 IST, the IST day that just ended = today_ist - 1 day.
+          IST = timezone(timedelta(hours=5, minutes=30))
+          now_ist = datetime.now(IST)
+          target_ist_date = (now_ist - timedelta(minutes=1)).date().isoformat()
+          print(f"Reporting on IST date: {target_ist_date}\n")
+
+          client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+          storage = client.storage
+
+
+          def list_all_files(bucket, folder=""):
+              files = []
+              result = storage.from_(bucket).list(
+                  folder, {"limit": 1000, "sortBy": {"column": "created_at", "order": "desc"}}
+              )
+              for item in result:
+                  path = f"{folder}/{item['name']}" if folder else item["name"]
+                  if item.get("id") is None:
+                      files.extend(list_all_files(bucket, path))
+                  else:
+                      files.append((path, item))
+              return files
+
+
+          def count_success_voices(session_id):
+              if not session_id:
+                  return 0
+              try:
+                  items = storage.from_(SUCCESS_VOICES_BUCKET).list(session_id, {"limit": 1000})
+              except Exception:
+                  return 0
+              return sum(
+                  1
+                  for it in items
+                  if it.get("id") is not None
+                  and it.get("name", "").lower().endswith((".webm", ".wav", ".ogg", ".mp3", ".m4a"))
+              )
+
+
+          all_files = list_all_files(BUCKET)
+          meta_files = [(p, it) for p, it in all_files if p.endswith("_metadata.json")]
+
+          rows = []
+          for path, item in meta_files:
+              try:
+                  raw = storage.from_(BUCKET).download(path)
+                  meta = json.loads(raw)
+              except Exception as e:
+                  print(f"Skip {path}: {e}")
+                  continue
+
+              sst = meta.get("session_start_time") or ""
+              # session_start_time is an IST ISO timestamp (e.g. "2026-04-14T10:01:46.474641+05:30")
+              if not sst.startswith(target_ist_date):
+                  continue
+
+              sid = meta.get("session_id")
+              rows.append(
+                  {
+                      "session_id": sid,
+                      "phoropter_id": meta.get("phoropter_id") or "<unknown>",
+                      "session_start_time": sst,
+                      "operator_name": meta.get("operator_name") or "<no operator>",
+                      "success_voice_count": count_success_voices(sid),
+                  }
+              )
+
+          rows.sort(key=lambda r: r["session_start_time"])
+          groups = {}
+          for r in rows:
+              groups.setdefault(r["phoropter_id"], []).append(r)
+
+          # Build text report
+          lines = [f"*Daily Phoropter Session Report* — {target_ist_date} (IST)", ""]
+          if not rows:
+              lines.append("_No sessions found._")
+          else:
+              lines.append(f"Total sessions: *{len(rows)}*  |  Phoropters: *{len(groups)}*")
+              lines.append("")
+              for pid in sorted(groups):
+                  sessions = groups[pid]
+                  lines.append(f"*{pid}* ({len(sessions)} sessions)")
+                  for r in sessions:
+                      # show HH:MM:SS only, keep line compact
+                      t = r["session_start_time"].split("T")[-1].split("+")[0].split(".")[0]
+                      lines.append(
+                          f"    • `{r['session_id']}`  {t}  — {r['operator_name']}  (voices: {r['success_voice_count']})"
+                      )
+                  lines.append("")
+
+          report_text = "\n".join(lines).rstrip()
+          print(report_text)
+
+
+          def send_google_chat(text):
+              if not GOOGLE_CHAT_WEBHOOK_URL:
+                  print("\nGOOGLE_CHAT_WEBHOOK_URL not set — skipping notification.")
+                  return
+              # Google Chat webhook has ~4000 char limit per text field; chunk if needed.
+              chunks = []
+              current = ""
+              for line in text.split("\n"):
+                  if len(current) + len(line) + 1 > 3800:
+                      chunks.append(current)
+                      current = line
+                  else:
+                      current = f"{current}\n{line}" if current else line
+              if current:
+                  chunks.append(current)
+
+              for idx, chunk in enumerate(chunks, 1):
+                  suffix = f"\n_(part {idx}/{len(chunks)})_" if len(chunks) > 1 else ""
+                  payload = {"text": chunk + suffix}
+                  req = urllib.request.Request(
+                      GOOGLE_CHAT_WEBHOOK_URL,
+                      data=json.dumps(payload).encode("utf-8"),
+                      headers={"Content-Type": "application/json; charset=UTF-8"},
+                      method="POST",
+                  )
+                  try:
+                      urllib.request.urlopen(req)
+                      print(f"\nGoogle Chat notification sent ({idx}/{len(chunks)}).")
+                  except Exception as e:
+                      print(f"\nFailed to send Google Chat notification: {e}")
+
+
+          send_google_chat(report_text)
+          PYEOF
