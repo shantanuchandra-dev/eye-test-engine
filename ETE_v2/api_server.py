@@ -69,6 +69,10 @@ def _resolve_app_path(raw_path: str | Path) -> Path:
 app = Flask(__name__, static_folder=str(FRONTEND_DIR), static_url_path="")
 CORS(app)
 
+# ── Booking system blueprint ──
+from booking.routes import booking_bp
+app.register_blueprint(booking_bp)
+
 # ── Configuration ──
 PHOROPTER_BASE_URL = os.environ.get(
     "PHOROPTER_BASE_URL",
@@ -762,9 +766,36 @@ def session_end(session_id):
         calibration_snapshot=orch.calibration.get_snapshot(),
     )
 
+    # Time the operator paused the test (sent from frontend pause/resume).
+    # Subtracted from both the per-test and total-session display durations so
+    # the stored numbers reflect active examination time.
+    paused_secs = max(0.0, round(float(data.get("total_paused_ms", 0) or 0) / 1000.0, 1))
+    metadata["total_paused_seconds"] = paused_secs
+
+    # Test time: from first question asked (exam_clock_start) to session end,
+    # minus any paused time.
+    if orch.exam_clock_start:
+        test_duration_secs = round((end_time - orch.exam_clock_start).total_seconds(), 1)
+    else:
+        test_duration_secs = metadata.get("session_duration_seconds", 0)
+    test_duration_secs = max(0.0, round(test_duration_secs - paused_secs, 1))
+    test_mins, test_secs = divmod(int(test_duration_secs), 60)
+    metadata["test_duration_seconds"] = test_duration_secs
+    metadata["test_duration_display"] = f"{test_mins}m {test_secs}s"
+
+    # History-taking time: passed from frontend
+    history_duration = data.get("history_taking_duration_seconds")
+    if history_duration is not None:
+        history_duration = round(float(history_duration), 1)
+        h_mins, h_secs = divmod(int(history_duration), 60)
+        metadata["history_taking_duration_seconds"] = history_duration
+        metadata["history_taking_duration_display"] = f"{h_mins}m {h_secs}s"
+
     # Enrich metadata with voice/language stats (matching FSMv3.1_R2 summary.json)
+    # total_test_duration_display = full session duration minus paused time.
     duration_secs = metadata.get("session_duration_seconds", 0)
-    mins, secs = divmod(int(duration_secs), 60)
+    active_total_secs = max(0.0, round(float(duration_secs) - paused_secs, 1))
+    mins, secs = divmod(int(active_total_secs), 60)
     metadata["total_test_duration_display"] = f"{mins}m {secs}s"
     metadata["session_language"] = getattr(orch, "session_language", data.get("language", "en"))
     metadata["input_mode"] = "voice_browser_speech_recognition"

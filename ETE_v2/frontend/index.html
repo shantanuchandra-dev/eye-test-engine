@@ -807,6 +807,23 @@ body {
   </div>
 </div>
 
+<!-- Start splash: requires a real user click so Safari grants the screen wake lock -->
+<div id="startSplash" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,0.92);backdrop-filter:blur(6px);z-index:10000;align-items:center;justify-content:center;flex-direction:column;color:#f8fafc;font-family:inherit;cursor:pointer" onclick="dismissStartSplash()">
+  <div style="font-size:5rem;line-height:1">👁</div>
+  <div style="font-size:2rem;font-weight:600;margin-top:1rem">Ready to begin</div>
+  <div style="font-size:1rem;opacity:0.8;margin-top:0.5rem;max-width:32rem;text-align:center">Tap anywhere or press any key to start the eye test. The screen will stay awake for the duration of the session.</div>
+  <button class="action-btn primary" style="margin-top:1.5rem;font-size:1.1rem;padding:0.85rem 2.5rem" onclick="event.stopPropagation(); dismissStartSplash()">Start Eye Test</button>
+</div>
+
+<!-- Pause overlay (toggled with the Spacebar) -->
+<div id="pauseOverlay" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,0.85);backdrop-filter:blur(6px);z-index:9999;align-items:center;justify-content:center;flex-direction:column;color:#f8fafc;font-family:inherit">
+  <div style="font-size:5rem;line-height:1">⏸</div>
+  <div style="font-size:2rem;font-weight:600;margin-top:1rem">Test Paused</div>
+  <div style="font-size:1rem;opacity:0.8;margin-top:0.5rem;max-width:32rem;text-align:center">The exam is paused. When you resume, the last question will be asked again.</div>
+  <div style="font-size:0.9rem;opacity:0.7;margin-top:0.75rem">Press <kbd style="background:#1e293b;border:1px solid #334155;padding:0.15rem 0.55rem;border-radius:4px;font-family:inherit">Space</kbd> to resume</div>
+  <button class="action-btn primary" style="margin-top:1.5rem;font-size:1.05rem;padding:0.75rem 2rem" onclick="resumeSession()">Resume Test</button>
+</div>
+
 <!-- Main -->
 <div class="main-layout">
   <!-- Center -->
