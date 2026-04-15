@@ -27,6 +27,27 @@ DEFAULT_HF_MODEL_PATH = APP_ROOT / "models" / "whisper-large-v3-turbo-hf"
 DEFAULT_CT2_MODEL_PATH = APP_ROOT / "models" / "whisper-large-v3-turbo-ct2"
 
 
+DISTANCE_CHART_STIMULI = {
+    "200_150": [["E", "N", "H"], ["S", "L", "C"]],
+    "200150": [["E", "N", "H"], ["S", "L", "C"]],
+    "100_80": [["H", "B", "V"], ["P", "H", "T"]],
+    "100_90": [["H", "B", "V"], ["P", "H", "T"]],
+    "10080": [["H", "B", "V"], ["P", "H", "T"]],
+    "70_60_50": [["V", "L", "N", "E", "A"], ["D", "A", "O", "F", "C"], ["E", "G", "N", "D", "H"]],
+    "706050": [["V", "L", "N", "E", "A"], ["D", "A", "O", "F", "C"], ["E", "G", "N", "D", "H"]],
+    "40_30_25": [["F", "Z", "B", "D", "E"], ["O", "F", "L", "C", "T"], ["A", "P", "E", "O", "F"]],
+    "403025": [["F", "Z", "B", "D", "E"], ["O", "F", "L", "C", "T"], ["A", "P", "E", "O", "F"]],
+    "20_15_10": [["T", "Z", "V", "E", "C"], ["O", "H", "P", "N", "T"], ["V", "L", "F", "T", "H"]],
+    "201510": [["T", "Z", "V", "E", "C"], ["O", "H", "P", "N", "T"], ["V", "L", "F", "T", "H"]],
+    "20_20_20": [["E", "V", "O", "T", "L"], ["T", "B", "G", "A", "B"], ["H", "N", "F", "Z", "C"]],
+    "202020": [["E", "V", "O", "T", "L"], ["T", "B", "G", "A", "B"], ["H", "N", "F", "Z", "C"]],
+    "25_20_15": [["D", "F", "N", "P", "T"], ["P", "H", "U", "N", "T"], ["F", "D", "S", "L", "N"]],
+    "252015": [["D", "F", "N", "P", "T"], ["P", "H", "U", "N", "T"], ["F", "D", "S", "L", "N"]],
+}
+
+NEAR_LAST_LINE_LETTERS = "A P E O R F D Z"
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run the interactive FSM refraction simulator in keyboard or fully local voice mode."
@@ -131,6 +152,29 @@ def _available_options(current) -> list[str]:
     return [option for option in options if option not in ("", None)]
 
 
+def _displayed_distance_chart_lines(state: str, chart_param: str) -> list[list[str]] | None:
+    normalized = str(chart_param or "").replace("-", "_").replace("/", "_")
+    while "__" in normalized:
+        normalized = normalized.replace("__", "_")
+
+    letters = DISTANCE_CHART_STIMULI.get(normalized) or DISTANCE_CHART_STIMULI.get(normalized.replace("_", ""))
+    if not letters:
+        return None
+    if state in {"B", "C", "D", "L"}:
+        return [letters[-1]]
+    return letters
+
+
+def _stimulus_letters_for_row(current) -> str:
+    if current.state in {"P", "Q", "R"}:
+        return NEAR_LAST_LINE_LETTERS
+
+    lines = _displayed_distance_chart_lines(current.state, current.chart_param)
+    if not lines:
+        return ""
+    return "\n".join(" ".join(line) for line in lines)
+
+
 def _print_profile(dv, run_id: str, input_mode: str) -> None:
     print("\n===== INTERACTIVE FSM REFRACTION SIMULATOR =====\n")
     print(f"Run ID: {run_id}")
@@ -185,6 +229,7 @@ def _voice_response(
     transcriber,
     current,
     options: list[str],
+    stimulus_letters: str,
     results_folder: Path,
     record_seconds: float,
     samplerate: int,
@@ -193,11 +238,19 @@ def _voice_response(
     beep_before_record: bool,
 ) -> tuple[str, dict]:
     audio_dir = results_folder / "voice_audio"
+    last_timing_meta = {}
 
     for attempt in range(1, reprompt_limit + 2):
+        attempt_started = time.perf_counter()
+        prompt_seconds = 0.0
+        beep_seconds = 0.0
+        capture_seconds = 0.0
+        stt_seconds = 0.0
+        match_seconds = 0.0
         audio_path = audio_dir / f"step_{current.step:03d}_attempt_{attempt}.wav"
 
         if speak_prompts:
+            prompt_started = time.perf_counter()
             prompt_to_speak = current.question.strip()
             if attempt > 1:
                 prompt_to_speak = (
@@ -205,32 +258,59 @@ def _voice_response(
                     f"You have {record_seconds:.0f} seconds to answer."
                 )
             _speak_text(prompt_to_speak)
+            prompt_seconds = time.perf_counter() - prompt_started
 
         if beep_before_record:
+            beep_started = time.perf_counter()
             _play_beep()
             time.sleep(0.15)
+            beep_seconds = time.perf_counter() - beep_started
 
         print(f"\nVOICE INPUT: listening for {record_seconds:.1f}s ...")
+        capture_started = time.perf_counter()
         record_audio_clip(
             output_path=audio_path,
             seconds=record_seconds,
             samplerate=samplerate,
         )
+        capture_seconds = time.perf_counter() - capture_started
 
         try:
+            stt_started = time.perf_counter()
             transcript = transcriber.transcribe(audio_path)
         except Exception as exc:
             print(f"Voice transcription failed: {exc}")
             transcript = ""
+        finally:
+            stt_seconds = time.perf_counter() - stt_started
 
+        match_started = time.perf_counter()
         match = match_response(
             transcript=transcript,
             state=current.state,
             available_options=options,
             question=current.question,
+            stimulus_letters=stimulus_letters,
         )
+        match_seconds = time.perf_counter() - match_started
+        total_seconds = time.perf_counter() - attempt_started
+        last_timing_meta = {
+            "voice_prompt_seconds": round(prompt_seconds, 3),
+            "voice_beep_seconds": round(beep_seconds, 3),
+            "voice_capture_seconds": round(capture_seconds, 3),
+            "stt_seconds": round(stt_seconds, 3),
+            "response_match_seconds": round(match_seconds, 3),
+            "voice_attempt_total_seconds": round(total_seconds, 3),
+        }
 
         print(f"Heard: {transcript!r}")
+        print(
+            "TIMING: "
+            f"STT={stt_seconds:.3f}s | "
+            f"matching={match_seconds:.3f}s | "
+            f"overall={total_seconds:.3f}s "
+            f"(recording={capture_seconds:.3f}s)"
+        )
         if match.accepted and match.response_value is not None:
             print(
                 "Matched response: "
@@ -247,9 +327,11 @@ def _voice_response(
                 "response_attempt_count": attempt,
                 "response_audio_path": str(audio_path),
                 "stt_backend": transcriber.backend_name,
+                "stimulus_letters": stimulus_letters,
                 "prompt_spoken": speak_prompts,
                 "beep_before_record": beep_before_record,
                 "voice_record_seconds": float(record_seconds),
+                **last_timing_meta,
             }
 
         print(
@@ -263,9 +345,11 @@ def _voice_response(
     meta["input_mode"] = f"{transcriber.backend_name}_fallback_keyboard"
     meta["stt_backend"] = transcriber.backend_name
     meta["response_attempt_count"] = reprompt_limit + 1
+    meta["stimulus_letters"] = stimulus_letters
     meta["prompt_spoken"] = speak_prompts
     meta["beep_before_record"] = beep_before_record
     meta["voice_record_seconds"] = float(record_seconds)
+    meta.update(last_timing_meta)
     return response, meta
 
 
@@ -358,6 +442,11 @@ def main() -> None:
         print(f"CHART: {current.chart_param}")
         print(f"EYE: {current.eye}")
 
+        stimulus_letters = _stimulus_letters_for_row(current)
+        if stimulus_letters:
+            print("\nDISPLAYED LETTERS:")
+            print(stimulus_letters)
+
         print("\nCURRENT POWER")
 
         re_add = current.add_r if current.add_r is not None else 0.0
@@ -387,6 +476,7 @@ def main() -> None:
                     transcriber=transcriber,
                     current=current,
                     options=options,
+                    stimulus_letters=stimulus_letters,
                     results_folder=results_folder,
                     record_seconds=args.voice_record_seconds,
                     samplerate=args.voice_samplerate,
@@ -397,6 +487,8 @@ def main() -> None:
         except ValueError as exc:
             print(str(exc))
             continue
+
+        meta["stimulus_letters"] = stimulus_letters
 
         finalized = engine.apply_response(
             current=current,
