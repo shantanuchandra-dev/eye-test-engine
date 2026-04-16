@@ -73,6 +73,10 @@ CORS(app)
 from booking.routes import booking_bp
 app.register_blueprint(booking_bp)
 
+# ── Admin dashboard blueprint ──
+from admin.routes import admin_bp
+app.register_blueprint(admin_bp)
+
 # ── Configuration ──
 PHOROPTER_BASE_URL = os.environ.get(
     "PHOROPTER_BASE_URL",

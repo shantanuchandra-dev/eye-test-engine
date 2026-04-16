@@ -1,0 +1,1113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ETE v2 — Admin Dashboard</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ink: #0f172a; --ink-secondary: #475569; --ink-muted: #94a3b8;
+  --surface: #f8fafc; --surface-card: #ffffff; --surface-hover: #f1f5f9;
+  --border: #e2e8f0; --border-focus: #3b82f6;
+  --accent: #2563eb; --accent-hover: #1d4ed8; --accent-light: #dbeafe;
+  --success: #059669; --success-bg: #ecfdf5;
+  --warning: #d97706; --warning-bg: #fef3c7;
+  --danger: #dc2626; --danger-bg: #fef2f2;
+  --radius-sm: 6px; --radius-md: 10px; --radius-lg: 14px;
+  --shadow-sm: 0 1px 2px rgba(15,23,42,0.06);
+  --shadow-md: 0 4px 12px rgba(15,23,42,0.08);
+  --font-body: 'DM Sans', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+html { font-size: 15px; }
+body { font-family: var(--font-body); background: var(--surface); color: var(--ink); min-height: 100vh; -webkit-font-smoothing: antialiased; }
+
+/* ── Topbar ── */
+.topbar {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--surface-card); color: var(--ink);
+  padding: 0 2rem; height: 56px;
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+}
+.topbar-left { display: flex; align-items: center; gap: 12px; }
+.topbar-brand { font-weight: 700; font-size: 1rem; }
+.topbar-badge {
+  background: var(--success-bg); color: var(--success);
+  padding: 2px 10px; border-radius: 12px;
+  font-size: 0.72rem; font-weight: 600; text-transform: uppercase;
+}
+.topbar-right { display: flex; align-items: center; gap: 16px; font-size: 0.85rem; }
+.topbar-user { color: var(--ink-muted); }
+.topbar-link {
+  color: var(--ink-secondary); text-decoration: none; font-weight: 500;
+  display: flex; align-items: center; gap: 4px; cursor: pointer; background: none; border: none;
+  font: 500 0.85rem var(--font-body);
+}
+.topbar-link:hover { color: var(--accent); }
+
+/* ── Page ── */
+.page { max-width: 1200px; margin: 0 auto; padding: 1.5rem 2rem 3rem; }
+.page-title { font-size: 1.35rem; font-weight: 700; margin-bottom: 1.2rem; }
+
+/* ── Gate (login) ── */
+.gate { max-width: 340px; margin: 5rem auto; text-align: center; }
+.gate h2 { margin-bottom: 0.3rem; font-size: 1.2rem; }
+.gate p { color: var(--ink-muted); font-size: 0.85rem; margin-bottom: 1.2rem; }
+.gate input {
+  width: 100%; padding: 10px 14px; margin-bottom: 0.8rem;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  font: 400 0.9rem var(--font-body);
+}
+.gate input:focus { outline: none; border-color: var(--accent); }
+
+/* ── Buttons ── */
+.btn {
+  padding: 8px 18px; border: none; border-radius: var(--radius-sm);
+  font: 600 0.85rem var(--font-body); cursor: pointer; transition: all 0.15s;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.btn-primary { background: var(--accent); color: white; }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-outline {
+  background: var(--surface-card); color: var(--ink-secondary);
+  border: 1px solid var(--border);
+}
+.btn-outline:hover { background: var(--surface-hover); }
+.btn-sm { padding: 5px 12px; font-size: 0.8rem; }
+
+.msg { padding: 0.5rem 0.8rem; border-radius: var(--radius-sm); font-size: 0.85rem; margin: 0.5rem 0; }
+.msg-error { background: var(--danger-bg); color: var(--danger); }
+
+/* ── Action bar (CSV + Refresh) ── */
+.action-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+.action-bar-right { display: flex; gap: 8px; }
+
+/* ── Stat cards ── */
+.stat-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-bottom: 1.5rem; }
+@media (max-width: 900px) { .stat-grid { grid-template-columns: repeat(2, 1fr); } }
+.stat-card {
+  background: var(--surface-card); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 18px 20px;
+  box-shadow: var(--shadow-sm);
+  display: flex; align-items: flex-start; gap: 14px;
+}
+.stat-icon {
+  width: 40px; height: 40px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.1rem; flex-shrink: 0;
+}
+.stat-icon.green { background: var(--success-bg); color: var(--success); }
+.stat-icon.blue { background: var(--accent-light); color: var(--accent); }
+.stat-icon.orange { background: var(--warning-bg); color: var(--warning); }
+.stat-icon.red { background: var(--danger-bg); color: var(--danger); }
+.stat-icon.purple { background: #ede9fe; color: #7c3aed; }
+.stat-info { flex: 1; }
+.stat-label { font-size: 0.75rem; font-weight: 500; color: var(--ink-muted); margin-bottom: 2px; }
+.stat-value { font-size: 1.6rem; font-weight: 700; line-height: 1.2; }
+
+/* ── Filter bar ── */
+.filter-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin-bottom: 1rem;
+}
+.period-btn {
+  padding: 6px 16px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface-card); font: 500 0.82rem var(--font-body);
+  color: var(--ink-secondary); cursor: pointer; transition: all 0.15s;
+}
+.period-btn:hover { background: var(--surface-hover); }
+.period-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+.filter-date {
+  padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  font: 400 0.82rem var(--font-body); color: var(--ink);
+}
+.filter-date:focus { outline: none; border-color: var(--accent); }
+.filter-sep { color: var(--ink-muted); font-size: 0.8rem; }
+
+.filter-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.rx-label { font-size: 0.82rem; font-weight: 500; color: var(--ink-secondary); }
+.rx-btn {
+  padding: 5px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface-card); font: 500 0.8rem var(--font-body);
+  color: var(--ink-secondary); cursor: pointer; transition: all 0.15s;
+}
+.rx-btn:hover { background: var(--surface-hover); }
+.rx-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+/* ── Search bar ── */
+.search-bar {
+  position: relative; margin-bottom: 1rem; max-width: 420px;
+}
+.search-bar input {
+  width: 100%; padding: 9px 12px 9px 36px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  font: 400 0.85rem var(--font-body); color: var(--ink);
+}
+.search-bar input:focus { outline: none; border-color: var(--accent); }
+.search-bar svg {
+  position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+  width: 16px; height: 16px; color: var(--ink-muted);
+}
+
+/* ── Table ── */
+.table-card {
+  background: var(--surface-card); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+th {
+  text-align: left; padding: 10px 14px;
+  font-size: 0.72rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--ink-muted);
+  border-bottom: 2px solid var(--border); background: var(--surface);
+  white-space: nowrap;
+}
+td { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+tbody tr:hover { background: rgba(37,99,235,0.02); }
+tbody tr:last-child td { border-bottom: none; }
+.mono { font-family: var(--font-mono); font-size: 0.8rem; }
+.text-muted { color: var(--ink-muted); }
+.text-center { text-align: center; }
+.empty-row td { text-align: center; color: var(--ink-muted); padding: 2rem; }
+
+/* ── Badges ── */
+.badge {
+  display: inline-block; padding: 2px 8px; border-radius: 12px;
+  font-size: 0.72rem; font-weight: 600;
+}
+.badge-pass { background: var(--success-bg); color: var(--success); }
+.badge-fail { background: var(--danger-bg); color: var(--danger); }
+.badge-pending { background: #f1f5f9; color: var(--ink-muted); }
+
+/* ── Pagination ── */
+.pagination {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px; border-top: 1px solid var(--border);
+  font-size: 0.82rem; color: var(--ink-secondary);
+}
+.pagination-info { color: var(--ink-muted); }
+.pagination-controls { display: flex; align-items: center; gap: 6px; }
+.pagination select {
+  padding: 4px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  font: 400 0.82rem var(--font-body); color: var(--ink);
+}
+.page-btn {
+  width: 32px; height: 32px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface-card); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.8rem; color: var(--ink-secondary); transition: all 0.1s;
+}
+.page-btn:hover:not(:disabled) { background: var(--surface-hover); }
+.page-btn:disabled { opacity: 0.35; cursor: default; }
+
+/* ── Multi-select dropdown ── */
+.multi-select {
+  position: relative; display: inline-block;
+}
+.multi-select-trigger {
+  padding: 6px 30px 6px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface-card); font: 500 0.82rem var(--font-body); color: var(--ink-secondary);
+  cursor: pointer; white-space: nowrap; min-width: 140px;
+  appearance: none; position: relative;
+}
+.multi-select-trigger::after {
+  content: ''; position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  border-left: 4px solid transparent; border-right: 4px solid transparent;
+  border-top: 5px solid var(--ink-muted);
+}
+.multi-select-trigger:hover { background: var(--surface-hover); }
+.multi-select-dropdown {
+  display: none; position: absolute; top: calc(100% + 4px); left: 0; z-index: 50;
+  background: var(--surface-card); border: 1px solid var(--border); border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md); min-width: 180px; max-height: 240px; overflow-y: auto;
+  padding: 4px 0;
+}
+.multi-select-dropdown.open { display: block; }
+.multi-select-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 12px; cursor: pointer; font-size: 0.82rem; color: var(--ink);
+  transition: background 0.1s;
+}
+.multi-select-item:hover { background: var(--surface-hover); }
+.multi-select-item input[type="checkbox"] {
+  accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer;
+}
+.multi-select-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--accent); color: white; border-radius: 10px;
+  font-size: 0.68rem; font-weight: 700; min-width: 18px; height: 18px;
+  padding: 0 5px; margin-left: 4px;
+}
+
+/* ── Manual Rx Modal ── */
+.modal-overlay {
+  display: none; position: fixed; inset: 0; z-index: 200;
+  background: rgba(15,23,42,0.4); backdrop-filter: blur(2px);
+  align-items: center; justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+.modal {
+  background: var(--surface-card); border-radius: var(--radius-lg);
+  box-shadow: 0 20px 60px rgba(15,23,42,0.2);
+  width: 560px; max-width: 95vw; max-height: 90vh;
+  overflow-y: auto;
+}
+.modal-header {
+  padding: 16px 20px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.modal-header h3 { font-size: 1rem; font-weight: 700; }
+.modal-close {
+  background: none; border: none; cursor: pointer;
+  font-size: 1.2rem; color: var(--ink-muted); padding: 4px;
+}
+.modal-close:hover { color: var(--ink); }
+.modal-body { padding: 20px; }
+.modal-footer {
+  padding: 14px 20px; border-top: 1px solid var(--border);
+  display: flex; justify-content: flex-end; gap: 8px;
+}
+
+/* ── Rx form ── */
+.rx-section { margin-bottom: 1rem; }
+.rx-section h4 { font-size: 0.85rem; font-weight: 600; margin-bottom: 8px; color: var(--ink-secondary); }
+.rx-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+}
+.rx-field label {
+  display: block; font-size: 0.72rem; font-weight: 500; color: var(--ink-muted);
+  margin-bottom: 3px; text-transform: uppercase;
+}
+.rx-field input {
+  width: 100%; padding: 7px 8px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  font: 400 0.85rem var(--font-mono); color: var(--ink); text-align: center;
+}
+.rx-field input:focus { outline: none; border-color: var(--accent); }
+.rx-field input.readonly { background: var(--surface); color: var(--ink-muted); }
+
+.ai-compare {
+  font-size: 0.75rem; color: var(--ink-muted); text-align: center; margin-top: 2px;
+  font-family: var(--font-mono);
+}
+
+.rx-entered-by { margin-top: 0.8rem; }
+.rx-entered-by label { font-size: 0.8rem; font-weight: 500; color: var(--ink-secondary); }
+.rx-entered-by input {
+  width: 100%; padding: 7px 10px; margin-top: 4px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  font: 400 0.85rem var(--font-body); color: var(--ink);
+}
+
+/* ── Threshold Modal ── */
+.thresh-field { margin-bottom: 0.8rem; }
+.thresh-field label {
+  display: block; font-size: 0.82rem; font-weight: 500; color: var(--ink-secondary); margin-bottom: 4px;
+}
+.thresh-field input {
+  width: 120px; padding: 7px 10px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  font: 400 0.85rem var(--font-mono); color: var(--ink);
+}
+.thresh-field .hint { font-size: 0.72rem; color: var(--ink-muted); margin-top: 2px; }
+
+/* ── Deviation detail ── */
+.dev-detail { font-size: 0.75rem; line-height: 1.5; }
+.dev-ok { color: var(--success); }
+.dev-bad { color: var(--danger); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<!-- ═══ Topbar ═══ -->
+<div class="topbar">
+  <div class="topbar-left">
+    <span class="topbar-brand">ETE v2 Dashboard</span>
+    <span class="topbar-badge">Admin</span>
+  </div>
+  <div class="topbar-right" id="topbarRight" style="display:none;">
+    <span class="topbar-user" id="topbarUser"></span>
+    <button class="topbar-link" onclick="openThresholds()" title="Accuracy thresholds">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
+    <button class="topbar-link" onclick="logout()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      Logout
+    </button>
+  </div>
+</div>
+
+<!-- ═══ Login gate ═══ -->
+<div id="gateView" class="gate">
+  <h2>Admin Dashboard</h2>
+  <p>Enter admin password to continue</p>
+  <input type="password" id="gatePassword" placeholder="Password" onkeydown="if(event.key==='Enter')doLogin()">
+  <br>
+  <button class="btn btn-primary" onclick="doLogin()" style="width:100%">Sign In</button>
+  <div id="gateError"></div>
+</div>
+
+<!-- ═══ Main dashboard (hidden until auth) ═══ -->
+<div id="dashView" style="display:none;">
+  <div class="page">
+
+    <!-- Title + actions -->
+    <div class="action-bar">
+      <h1 class="page-title" style="margin:0">Admin Dashboard</h1>
+      <div class="action-bar-right">
+        <button class="btn btn-outline btn-sm" onclick="exportCSV()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          CSV
+        </button>
+        <button class="btn btn-outline btn-sm" onclick="refresh()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          Refresh
+        </button>
+      </div>
+    </div>
+
+    <!-- Stat cards -->
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="stat-icon green">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </div>
+        <div class="stat-info">
+          <div class="stat-label">Total AI Tests</div>
+          <div class="stat-value" id="statTotal">0</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon blue">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/><path d="m9 16 2 2 4-4"/></svg>
+        </div>
+        <div class="stat-info">
+          <div class="stat-label">Manual Rx Done</div>
+          <div class="stat-value" id="statRxDone">0</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon orange">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        </div>
+        <div class="stat-info">
+          <div class="stat-label">Pending Rx</div>
+          <div class="stat-value" id="statPending">0</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon purple">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        </div>
+        <div class="stat-info">
+          <div class="stat-label">Avg Accuracy</div>
+          <div class="stat-value" id="statAccuracy">&mdash;</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon red">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        </div>
+        <div class="stat-info">
+          <div class="stat-label">High Deviation</div>
+          <div class="stat-value" id="statDeviation">0</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="filter-bar">
+      <button class="period-btn active" data-period="today">Today</button>
+      <button class="period-btn" data-period="week">This Week</button>
+      <button class="period-btn" data-period="month">This Month</button>
+      <button class="period-btn" data-period="all">All Time</button>
+      <input type="date" class="filter-date" id="filterFrom">
+      <span class="filter-sep">to</span>
+      <input type="date" class="filter-date" id="filterTo">
+
+      <div class="multi-select" id="phoropterSelect">
+        <div class="multi-select-trigger" onclick="togglePhoropterDropdown()">
+          Phoropter: All
+        </div>
+        <div class="multi-select-dropdown" id="phoropterDropdown"></div>
+      </div>
+
+      <div class="filter-right">
+        <span class="rx-label">Manual Rx:</span>
+        <button class="rx-btn active" data-rx="all">All</button>
+        <button class="rx-btn" data-rx="filled">Filled</button>
+        <button class="rx-btn" data-rx="empty">Empty</button>
+      </div>
+    </div>
+
+    <!-- Search -->
+    <div class="search-bar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="text" id="searchInput" placeholder="Search by session ID or name...">
+    </div>
+
+    <!-- Table -->
+    <div class="table-card">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Customer Name</th>
+              <th>Phone</th>
+              <th>Phoropter</th>
+              <th>Manual Rx</th>
+              <th>Self ET Power (AI)</th>
+              <th>Duration</th>
+              <th>Deviation (|M - AI|)</th>
+              <th>Accuracy</th>
+            </tr>
+          </thead>
+          <tbody id="sessionsTable">
+            <tr class="empty-row"><td colspan="8">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="pagination">
+        <span class="pagination-info" id="pageInfo">Page 1 of 1 (0 total)</span>
+        <div class="pagination-controls">
+          <span style="font-size:0.82rem;color:var(--ink-secondary)">Show</span>
+          <select id="perPageSelect" onchange="state.perPage=+this.value;state.page=1;loadData()">
+            <option value="10">10</option>
+            <option value="25">25</option>
+            <option value="50">50</option>
+          </select>
+          <button class="page-btn" onclick="goPage(1)" title="First">&laquo;</button>
+          <button class="page-btn" onclick="goPage(state.page-1)" title="Previous">&lsaquo;</button>
+          <button class="page-btn" onclick="goPage(state.page+1)" title="Next">&rsaquo;</button>
+          <button class="page-btn" onclick="goPage(state.totalPages)" title="Last">&raquo;</button>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- .page -->
+</div><!-- #dashView -->
+
+
+<!-- ═══ Manual Rx Modal ═══ -->
+<div class="modal-overlay" id="rxModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="rxModalTitle">Manual Rx Entry</h3>
+      <button class="modal-close" onclick="closeRxModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div id="rxSessionInfo" style="font-size:0.85rem;color:var(--ink-secondary);margin-bottom:1rem;"></div>
+
+      <!-- Right Eye -->
+      <div class="rx-section">
+        <h4>Right Eye (OD)</h4>
+        <div class="rx-grid">
+          <div class="rx-field">
+            <label>SPH</label>
+            <input type="number" step="0.25" id="rx_r_sph" placeholder="0.00">
+            <div class="ai-compare" id="ai_r_sph_cmp"></div>
+          </div>
+          <div class="rx-field">
+            <label>CYL</label>
+            <input type="number" step="0.25" id="rx_r_cyl" placeholder="0.00">
+            <div class="ai-compare" id="ai_r_cyl_cmp"></div>
+          </div>
+          <div class="rx-field">
+            <label>AXIS</label>
+            <input type="number" step="1" min="0" max="180" id="rx_r_axis" placeholder="0">
+            <div class="ai-compare" id="ai_r_axis_cmp"></div>
+          </div>
+          <div class="rx-field">
+            <label>ADD</label>
+            <input type="number" step="0.25" id="rx_r_add" placeholder="0.00">
+            <div class="ai-compare" id="ai_r_add_cmp"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Left Eye -->
+      <div class="rx-section">
+        <h4>Left Eye (OS)</h4>
+        <div class="rx-grid">
+          <div class="rx-field">
+            <label>SPH</label>
+            <input type="number" step="0.25" id="rx_l_sph" placeholder="0.00">
+            <div class="ai-compare" id="ai_l_sph_cmp"></div>
+          </div>
+          <div class="rx-field">
+            <label>CYL</label>
+            <input type="number" step="0.25" id="rx_l_cyl" placeholder="0.00">
+            <div class="ai-compare" id="ai_l_cyl_cmp"></div>
+          </div>
+          <div class="rx-field">
+            <label>AXIS</label>
+            <input type="number" step="1" min="0" max="180" id="rx_l_axis" placeholder="0">
+            <div class="ai-compare" id="ai_l_axis_cmp"></div>
+          </div>
+          <div class="rx-field">
+            <label>ADD</label>
+            <input type="number" step="0.25" id="rx_l_add" placeholder="0.00">
+            <div class="ai-compare" id="ai_l_add_cmp"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="rx-entered-by">
+        <label>Entered By</label>
+        <input type="text" id="rx_entered_by" placeholder="Your name">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeRxModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveManualRx()">Save Rx</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Thresholds Modal ═══ -->
+<div class="modal-overlay" id="threshModal">
+  <div class="modal" style="width:440px;">
+    <div class="modal-header">
+      <h3>Accuracy Thresholds</h3>
+      <button class="modal-close" onclick="closeThresholds()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:0.82rem;color:var(--ink-muted);margin-bottom:1rem;">
+        Configure what counts as an accurate prescription match. Changes apply immediately on next refresh.
+      </p>
+      <div class="thresh-field">
+        <label>SPH Tolerance (D)</label>
+        <input type="number" step="0.25" id="thresh_sph" value="0.25">
+        <div class="hint">Spherical power must be within &plusmn; this value</div>
+      </div>
+      <div class="thresh-field">
+        <label>CYL Tolerance (D)</label>
+        <input type="number" step="0.25" id="thresh_cyl" value="0.25">
+        <div class="hint">Cylindrical power must be within &plusmn; this value</div>
+      </div>
+      <div class="thresh-field">
+        <label>Axis Tolerance (&deg;)</label>
+        <input type="number" step="1" id="thresh_axis" value="5">
+        <div class="hint">Axis must be within &plusmn; this many degrees</div>
+      </div>
+      <div class="thresh-field">
+        <label>Min CYL for Axis Check (D)</label>
+        <input type="number" step="0.25" id="thresh_axis_cyl_min" value="0.75">
+        <div class="hint">Axis is only checked when |CYL| &ge; this value</div>
+      </div>
+      <div class="thresh-field">
+        <label>ADD Tolerance (D)</label>
+        <input type="number" step="0.25" id="thresh_add" value="0.25">
+        <div class="hint">Addition power must be within &plusmn; this value</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeThresholds()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveThresholds()">Save</button>
+    </div>
+  </div>
+</div>
+
+
+<script>
+const API = window.BACKEND_URL || '';
+
+// ── State ──
+const state = {
+  token: localStorage.getItem('admin_dash_token') || '',
+  period: 'today',
+  fromDate: '',
+  toDate: '',
+  search: '',
+  rxFilter: 'all',
+  phoropters: [],          // selected phoropter IDs (empty = all)
+  allPhoropters: [],       // populated from API response
+  page: 1,
+  perPage: 10,
+  totalPages: 1,
+  currentSessions: [],
+  editingSession: null,
+};
+
+// ── Auth ──
+function authHeaders() {
+  return { 'Authorization': `Bearer ${state.token}`, 'Content-Type': 'application/json' };
+}
+
+async function doLogin(pw, silent) {
+  if (!pw) pw = document.getElementById('gatePassword').value;
+  const errEl = document.getElementById('gateError');
+  if (!silent) errEl.innerHTML = '';
+  try {
+    const resp = await fetch(`${API}/api/admin/dashboard/verify`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({password: pw}),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      if (!silent) errEl.innerHTML = `<div class="msg msg-error">${data.error}</div>`;
+      return false;
+    }
+    state.token = data.token;
+    localStorage.setItem('admin_dash_token', data.token);
+    localStorage.setItem('admin_dash_ts', String(Date.now()));
+    // Store password for auto-re-auth on server restart (24h window)
+    localStorage.setItem('admin_dash_pw', btoa(pw));
+    showDashboard();
+    return true;
+  } catch(e) {
+    if (!silent) errEl.innerHTML = `<div class="msg msg-error">Connection error</div>`;
+    return false;
+  }
+}
+
+function logout() {
+  fetch(`${API}/api/admin/dashboard/logout`, { method:'POST', headers: authHeaders() }).catch(()=>{});
+  state.token = '';
+  localStorage.removeItem('admin_dash_token');
+  localStorage.removeItem('admin_dash_pw');
+  localStorage.removeItem('admin_dash_ts');
+  document.getElementById('dashView').style.display = 'none';
+  document.getElementById('topbarRight').style.display = 'none';
+  document.getElementById('gateView').style.display = '';
+}
+
+async function showDashboard() {
+  document.getElementById('gateView').style.display = 'none';
+  document.getElementById('dashView').style.display = '';
+  document.getElementById('topbarRight').style.display = 'flex';
+  await loadData();
+}
+
+// ── Data loading ──
+function setLoading(on) {
+  if (on) {
+    document.getElementById('sessionsTable').innerHTML =
+      '<tr class="empty-row"><td colspan="8">Loading...</td></tr>';
+    ['statTotal','statRxDone','statPending','statAccuracy','statDeviation'].forEach(id => {
+      document.getElementById(id).style.opacity = '0.4';
+    });
+  } else {
+    ['statTotal','statRxDone','statPending','statAccuracy','statDeviation'].forEach(id => {
+      document.getElementById(id).style.opacity = '1';
+    });
+  }
+}
+
+async function loadData(forceRefresh) {
+  setLoading(true);
+  const params = new URLSearchParams();
+  if (state.fromDate && state.toDate) {
+    params.set('from', state.fromDate);
+    params.set('to', state.toDate);
+  } else {
+    params.set('period', state.period);
+  }
+  if (state.search) params.set('search', state.search);
+  params.set('rx_filter', state.rxFilter);
+  if (state.phoropters.length) params.set('phoropters', state.phoropters.join(','));
+  params.set('page', state.page);
+  params.set('per_page', state.perPage);
+  if (forceRefresh) params.set('refresh', '1');
+
+  try {
+    const resp = await fetch(`${API}/api/admin/dashboard/sessions?${params}`, { headers: authHeaders() });
+    if (resp.status === 401) { logout(); return; }
+    const data = await resp.json();
+
+    // Stats
+    const s = data.stats;
+    document.getElementById('statTotal').textContent = s.total_tests;
+    document.getElementById('statRxDone').textContent = s.manual_rx_done;
+    document.getElementById('statPending').textContent = s.pending_rx;
+    document.getElementById('statAccuracy').textContent = s.avg_accuracy != null ? s.avg_accuracy + '%' : '\u2014';
+    document.getElementById('statDeviation').textContent = s.high_deviation;
+
+    // Pagination
+    const p = data.pagination;
+    state.page = p.page;
+    state.totalPages = p.total_pages;
+    document.getElementById('pageInfo').textContent = `Page ${p.page} of ${p.total_pages} (${p.total} total)`;
+    updatePaginationButtons();
+
+    // Phoropter list (for multi-select)
+    if (data.phoropters && data.phoropters.length) {
+      state.allPhoropters = data.phoropters;
+      renderPhoropterDropdown();
+    }
+
+    // Sessions
+    state.currentSessions = data.sessions;
+    renderTable(data.sessions);
+  } catch(e) {
+    console.error('Load error:', e);
+    document.getElementById('sessionsTable').innerHTML =
+      '<tr class="empty-row"><td colspan="8">Failed to load data. Check connection.</td></tr>';
+  } finally {
+    setLoading(false);
+  }
+}
+
+function renderTable(sessions) {
+  const tbody = document.getElementById('sessionsTable');
+  if (!sessions || sessions.length === 0) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="8">No results found.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = sessions.map(s => {
+    const name = s.customer_name || '<span class="text-muted">—</span>';
+    const phone = s.customer_phone || '—';
+    const phoropter = s.phoropter_id || '—';
+    const duration = s.duration_seconds ? Math.round(s.duration_seconds) + 's' : '—';
+
+    // Manual Rx cell
+    let rxCell;
+    if (s.has_manual_rx && s.manual_rx) {
+      const rx = s.manual_rx;
+      rxCell = `<span class="mono" style="cursor:pointer" onclick='openRxModal("${s.session_id}")'
+        title="Click to edit">${fmtRx(rx.r_sph, rx.r_cyl)} / ${fmtRx(rx.l_sph, rx.l_cyl)}</span>`;
+    } else {
+      rxCell = `<button class="btn btn-sm btn-primary" onclick='openRxModal("${s.session_id}")'>Enter Rx</button>`;
+    }
+
+    // AI power cell
+    const aiCell = `<span class="mono">${fmtRx(s.ai_r_sph, s.ai_r_cyl)} / ${fmtRx(s.ai_l_sph, s.ai_l_cyl)}</span>`;
+
+    // Deviation cell
+    let devCell = '<span class="text-muted">—</span>';
+    if (s.deviation) {
+      const rd = s.deviation.right;
+      const ld = s.deviation.left;
+      devCell = `<div class="dev-detail">
+        <span class="${rd.within_tolerance?'dev-ok':'dev-bad'}">R: ${fmtDev(rd)}</span><br>
+        <span class="${ld.within_tolerance?'dev-ok':'dev-bad'}">L: ${fmtDev(ld)}</span>
+      </div>`;
+    }
+
+    // Accuracy badge
+    let accCell = '<span class="badge badge-pending">Pending</span>';
+    if (s.accurate === true) accCell = '<span class="badge badge-pass">Pass</span>';
+    else if (s.accurate === false) accCell = '<span class="badge badge-fail">Fail</span>';
+
+    return `<tr>
+      <td>${name}</td>
+      <td class="mono">${phone}</td>
+      <td>${phoropter}</td>
+      <td>${rxCell}</td>
+      <td>${aiCell}</td>
+      <td>${duration}</td>
+      <td>${devCell}</td>
+      <td>${accCell}</td>
+    </tr>`;
+  }).join('');
+}
+
+function fmtRx(sph, cyl) {
+  if (sph == null && cyl == null) return '—';
+  const s = sph != null ? (sph >= 0 ? '+' : '') + Number(sph).toFixed(2) : '—';
+  const c = cyl != null ? (cyl >= 0 ? '+' : '') + Number(cyl).toFixed(2) : '—';
+  return `${s}/${c}`;
+}
+
+function fmtDev(d) {
+  const parts = [];
+  if (d.sph_dev != null) parts.push(`S:${d.sph_dev}`);
+  if (d.cyl_dev != null) parts.push(`C:${d.cyl_dev}`);
+  if (d.axis_dev != null) parts.push(`A:${d.axis_dev}\u00b0`);
+  return parts.join(' ') || '—';
+}
+
+// ── Filters ──
+document.querySelectorAll('.period-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.period = btn.dataset.period;
+    state.fromDate = '';
+    state.toDate = '';
+    document.getElementById('filterFrom').value = '';
+    document.getElementById('filterTo').value = '';
+    state.page = 1;
+    loadData();
+  });
+});
+
+document.querySelectorAll('.rx-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.rx-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.rxFilter = btn.dataset.rx;
+    state.page = 1;
+    loadData();
+  });
+});
+
+document.getElementById('filterFrom').addEventListener('change', applyDateRange);
+document.getElementById('filterTo').addEventListener('change', applyDateRange);
+function applyDateRange() {
+  const from = document.getElementById('filterFrom').value;
+  const to = document.getElementById('filterTo').value;
+  if (from && to) {
+    document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+    state.fromDate = from;
+    state.toDate = to;
+    state.period = '';
+    state.page = 1;
+    loadData();
+  }
+}
+
+// ── Phoropter multi-select ──
+function togglePhoropterDropdown() {
+  document.getElementById('phoropterDropdown').classList.toggle('open');
+}
+
+function renderPhoropterDropdown() {
+  const dd = document.getElementById('phoropterDropdown');
+  dd.innerHTML = state.allPhoropters.map(p => {
+    const checked = state.phoropters.includes(p) ? 'checked' : '';
+    return `<label class="multi-select-item">
+      <input type="checkbox" value="${p}" ${checked} onchange="onPhoropterChange(this)">
+      <span>${p}</span>
+    </label>`;
+  }).join('');
+}
+
+function onPhoropterChange(cb) {
+  if (cb.checked) {
+    if (!state.phoropters.includes(cb.value)) state.phoropters.push(cb.value);
+  } else {
+    state.phoropters = state.phoropters.filter(p => p !== cb.value);
+  }
+  updatePhoropterTrigger();
+  state.page = 1;
+  loadData();
+}
+
+function updatePhoropterTrigger() {
+  const trigger = document.querySelector('#phoropterSelect .multi-select-trigger');
+  if (state.phoropters.length === 0) {
+    trigger.innerHTML = 'Phoropter: All';
+  } else if (state.phoropters.length === 1) {
+    trigger.innerHTML = `Phoropter: ${state.phoropters[0]}`;
+  } else {
+    trigger.innerHTML = `Phoropter <span class="multi-select-badge">${state.phoropters.length}</span>`;
+  }
+}
+
+// Close dropdown on outside click
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#phoropterSelect')) {
+    document.getElementById('phoropterDropdown').classList.remove('open');
+  }
+});
+
+let searchTimer;
+document.getElementById('searchInput').addEventListener('input', (e) => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    state.search = e.target.value;
+    state.page = 1;
+    loadData();
+  }, 350);
+});
+
+// ── Pagination ──
+function goPage(p) {
+  if (p < 1 || p > state.totalPages) return;
+  state.page = p;
+  loadData();
+}
+
+function updatePaginationButtons() {
+  const btns = document.querySelectorAll('.pagination .page-btn');
+  // order: first, prev, next, last
+  if (btns.length === 4) {
+    btns[0].disabled = state.page <= 1;
+    btns[1].disabled = state.page <= 1;
+    btns[2].disabled = state.page >= state.totalPages;
+    btns[3].disabled = state.page >= state.totalPages;
+  }
+}
+
+// ── Refresh & Export ──
+function refresh() { loadData(true); }
+
+function exportCSV() {
+  const params = new URLSearchParams();
+  if (state.fromDate && state.toDate) {
+    params.set('from', state.fromDate);
+    params.set('to', state.toDate);
+  } else {
+    params.set('period', state.period);
+  }
+  if (state.search) params.set('search', state.search);
+  params.set('rx_filter', state.rxFilter);
+  if (state.phoropters.length) params.set('phoropters', state.phoropters.join(','));
+  fetch(`${API}/api/admin/dashboard/export?${params}`, { headers: authHeaders() })
+    .then(r => {
+      if (r.status === 401) { logout(); return null; }
+      return r.blob();
+    })
+    .then(blob => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'admin_dashboard_export.csv';
+      a.click(); URL.revokeObjectURL(url);
+    })
+    .catch(e => console.error('Export error:', e));
+}
+
+// ── Manual Rx Modal ──
+function openRxModal(sessionId) {
+  const session = state.currentSessions.find(s => s.session_id === sessionId);
+  if (!session) return;
+  state.editingSession = session;
+
+  document.getElementById('rxModalTitle').textContent = `Manual Rx — ${session.customer_name || sessionId}`;
+  document.getElementById('rxSessionInfo').textContent =
+    `Session: ${sessionId} | Phoropter: ${session.phoropter_id || '—'} | ${session.start_time ? new Date(session.start_time).toLocaleString() : ''}`;
+
+  // Show AI values for comparison
+  const fields = ['r_sph','r_cyl','r_axis','r_add','l_sph','l_cyl','l_axis','l_add'];
+  fields.forEach(f => {
+    const aiKey = `ai_${f}`;
+    const aiVal = session[aiKey];
+    const cmpEl = document.getElementById(`ai_${f}_cmp`);
+    if (cmpEl) cmpEl.textContent = aiVal != null ? `AI: ${aiVal}` : '';
+  });
+
+  // Fill in existing manual Rx if present
+  fields.forEach(f => {
+    const input = document.getElementById(`rx_${f}`);
+    if (session.manual_rx && session.manual_rx[f] != null) {
+      input.value = session.manual_rx[f];
+    } else {
+      input.value = '';
+    }
+  });
+
+  const enteredBy = document.getElementById('rx_entered_by');
+  enteredBy.value = (session.manual_rx && session.manual_rx.entered_by) || localStorage.getItem('admin_rx_entered_by') || '';
+
+  document.getElementById('rxModal').classList.add('open');
+}
+
+function closeRxModal() {
+  document.getElementById('rxModal').classList.remove('open');
+  state.editingSession = null;
+}
+
+async function saveManualRx() {
+  if (!state.editingSession) return;
+  const sessionId = state.editingSession.session_id;
+
+  const data = {};
+  ['r_sph','r_cyl','r_axis','r_add','l_sph','l_cyl','l_axis','l_add'].forEach(f => {
+    const val = document.getElementById(`rx_${f}`).value;
+    data[f] = val !== '' ? parseFloat(val) : null;
+  });
+  data.entered_by = document.getElementById('rx_entered_by').value.trim();
+
+  // Remember entered_by for convenience
+  if (data.entered_by) localStorage.setItem('admin_rx_entered_by', data.entered_by);
+
+  try {
+    const resp = await fetch(`${API}/api/admin/dashboard/manual-rx/${sessionId}`, {
+      method: 'PUT', headers: authHeaders(), body: JSON.stringify(data),
+    });
+    if (resp.status === 401) { logout(); return; }
+    if (!resp.ok) { alert('Failed to save'); return; }
+    closeRxModal();
+    loadData();
+  } catch(e) {
+    alert('Error saving Rx: ' + e.message);
+  }
+}
+
+// ── Thresholds Modal ──
+async function openThresholds() {
+  try {
+    const resp = await fetch(`${API}/api/admin/dashboard/thresholds`, { headers: authHeaders() });
+    if (resp.status === 401) { logout(); return; }
+    const data = await resp.json();
+    document.getElementById('thresh_sph').value = data.sph_tolerance;
+    document.getElementById('thresh_cyl').value = data.cyl_tolerance;
+    document.getElementById('thresh_axis').value = data.axis_tolerance;
+    document.getElementById('thresh_axis_cyl_min').value = data.axis_cyl_min;
+    document.getElementById('thresh_add').value = data.add_tolerance;
+  } catch(e) {}
+  document.getElementById('threshModal').classList.add('open');
+}
+
+function closeThresholds() {
+  document.getElementById('threshModal').classList.remove('open');
+}
+
+async function saveThresholds() {
+  const data = {
+    sph_tolerance: parseFloat(document.getElementById('thresh_sph').value),
+    cyl_tolerance: parseFloat(document.getElementById('thresh_cyl').value),
+    axis_tolerance: parseFloat(document.getElementById('thresh_axis').value),
+    axis_cyl_min: parseFloat(document.getElementById('thresh_axis_cyl_min').value),
+    add_tolerance: parseFloat(document.getElementById('thresh_add').value),
+  };
+  try {
+    const resp = await fetch(`${API}/api/admin/dashboard/thresholds`, {
+      method: 'PUT', headers: authHeaders(), body: JSON.stringify(data),
+    });
+    if (resp.status === 401) { logout(); return; }
+    closeThresholds();
+    loadData();
+  } catch(e) {
+    alert('Error saving thresholds');
+  }
+}
+
+// ── Init ──
+(async function init() {
+  const savedPw = localStorage.getItem('admin_dash_pw');
+  const savedTs = parseInt(localStorage.getItem('admin_dash_ts') || '0', 10);
+  const pwAge = Date.now() - savedTs;
+  const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+
+  if (state.token) {
+    // Verify existing token
+    try {
+      const resp = await fetch(`${API}/api/admin/dashboard/sessions?period=today&page=1&per_page=1`, {
+        headers: authHeaders(),
+      });
+      if (resp.ok) { showDashboard(); return; }
+    } catch(e) {}
+    // Token invalid — try silent re-auth with stored password
+    state.token = '';
+    localStorage.removeItem('admin_dash_token');
+  }
+
+  // Auto re-auth if password was saved within 24 hours
+  if (savedPw && pwAge < TWENTY_FOUR_HOURS) {
+    try {
+      const ok = await doLogin(atob(savedPw), true);
+      if (ok) return;
+    } catch(e) {}
+    // Password changed or connection error — clear stored creds
+    localStorage.removeItem('admin_dash_pw');
+    localStorage.removeItem('admin_dash_ts');
+  }
+
+  // Show login
+  document.getElementById('gateView').style.display = '';
+})();
+</script>
+</body>
+</html>
