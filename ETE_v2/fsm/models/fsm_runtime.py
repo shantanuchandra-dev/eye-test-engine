@@ -99,6 +99,7 @@ class FSMRuntimeRow:
     final_compare_enabled: bool = False
     final_compare_round: int = 0
     final_compare_option_source: str = ""
+    final_compare_current_source: str = ""
     final_compare_choice_round_1: str = ""
     final_compare_choice_round_2: str = ""
     patient_accepted_achieved_over_current_rx: str = ""

@@ -186,21 +186,37 @@ function getStaticFlipPrompt(stage, baseQuestion = '') {
     : 'This is the second option. Which is better, first option, second option, both same, or repeat.';
 }
 
-function getStaticTerminalSpeech({ isEscalate, compareRan, acceptedAchieved }) {
+function isNoGlassesCompareSource(source) {
+  return String(source || '').trim().toLowerCase() === 'no glasses';
+}
+
+function getCompareSourceLabel(source, lang = sessionLanguage || 'en') {
+  if (isNoGlassesCompareSource(source)) {
+    return lang === 'hi' ? 'बिना चश्मे वाला विकल्प' : 'the no-glasses option';
+  }
+  return lang === 'hi' ? 'पी जी पी' : 'the PGP';
+}
+
+function getCompareSourceShortLabel(source) {
+  return isNoGlassesCompareSource(source) ? 'NO-GLASSES' : 'PGP';
+}
+
+function getStaticTerminalSpeech({ isEscalate, compareRan, acceptedAchieved, currentSource }) {
   if (isEscalate) {
     return sessionLanguage === 'hi'
       ? 'इस टेस्ट को ऑप्टोमेट्रिस्ट की समीक्षा की आवश्यकता है।'
       : 'This test requires optometrist review.';
   }
+  const sourceLabel = getCompareSourceLabel(currentSource, sessionLanguage || 'en');
   if (compareRan && acceptedAchieved) {
     return sessionLanguage === 'hi'
-      ? 'बधाई हो। आपका आई टेस्ट पूरा हो गया है। आपने पी जी पी की तुलना में प्राप्त आर एक्स को पसंद किया। धन्यवाद।'
-      : 'Congratulations. Your eye test is complete. You preferred the achieved prescription over the PGP. Thank you.';
+      ? `बधाई हो। आपका आई टेस्ट पूरा हो गया है। आपने ${sourceLabel} की तुलना में प्राप्त आर एक्स को पसंद किया। धन्यवाद।`
+      : `Congratulations. Your eye test is complete. You preferred the achieved prescription over ${sourceLabel}. Thank you.`;
   }
   if (compareRan) {
     return sessionLanguage === 'hi'
-      ? 'बधाई हो। आपका आई टेस्ट पूरा हो गया है। आपने पी जी पी को पसंद किया। धन्यवाद।'
-      : 'Congratulations. Your eye test is complete. You preferred the PGP. Thank you.';
+      ? `बधाई हो। आपका आई टेस्ट पूरा हो गया है। आपने ${sourceLabel} को पसंद किया। धन्यवाद।`
+      : `Congratulations. Your eye test is complete. You preferred ${sourceLabel}. Thank you.`;
   }
   return sessionLanguage === 'hi'
     ? 'बधाई हो! आपका आई टेस्ट पूरा हो गया है। धन्यवाद।'
@@ -509,7 +525,7 @@ const STIMULUS_DESCRIPTIONS = {
   'Q': 'Near text chart',
   'R': 'Near text with both eyes',
   'S': 'Final prescription comparison first option achieved Rx',
-  'T': 'Final prescription comparison second option PGP',
+  'T': 'Final prescription comparison second option current baseline',
   'U': 'Final prescription comparison',
 };
 
@@ -529,7 +545,7 @@ const STIMULUS_DESCRIPTIONS_HI = {
   'Q': 'पास का टेक्स्ट चार्ट',
   'R': 'दोनों आँखों से पास का टेक्स्ट',
   'S': 'अंतिम प्रिस्क्रिप्शन तुलना पहला विकल्प प्राप्त Rx',
-  'T': 'अंतिम प्रिस्क्रिप्शन तुलना दूसरा विकल्प PGP',
+  'T': 'अंतिम प्रिस्क्रिप्शन तुलना दूसरा विकल्प वर्तमान बेसलाइन',
   'U': 'अंतिम प्रिस्क्रिप्शन तुलना',
 };
 
@@ -977,7 +993,7 @@ const ALL_PHASES = [
   { state: 'Q', name: 'Near Add LE', eye: 'LE' },
   { state: 'R', name: 'Near Binocular', eye: 'BIN' },
   { state: 'S', name: 'Final Compare First Option Achieved Rx', eye: 'BIN' },
-  { state: 'T', name: 'Final Compare Second Option PGP', eye: 'BIN' },
+  { state: 'T', name: 'Final Compare Second Option Current Baseline', eye: 'BIN' },
   { state: 'U', name: 'Final Compare Decision', eye: 'BIN' },
 ];
 
@@ -2968,17 +2984,21 @@ function showTerminal(data) {
     const fmtRx = (eye) => `${fmt(eye.sph)} / ${fmt(eye.cyl)} x ${fmtAxisDisplay(eye.axis ?? 180)}${eye.add ? ` ADD ${fmt(eye.add)}` : ''}`;
     const acceptedAchieved = finalCompare.accepted_achieved_over_current_rx === 'Yes';
     const compareRan = !!finalCompare.enabled;
+    const currentSource = finalCompare.current_source || 'PGP';
+    const currentSourceShortLabel = getCompareSourceShortLabel(currentSource);
+    const currentSourceMessageLabel = isNoGlassesCompareSource(currentSource) ? 'the no-glasses option' : 'the PGP';
+    const currentSourceSecondaryLabel = isNoGlassesCompareSource(currentSource) ? 'No-glasses baseline kept for comparison' : 'PGP kept for comparison';
     const compareMessage = compareRan
       ? acceptedAchieved
-        ? 'Patient accepted the achieved Rx over the PGP.'
-        : 'Patient accepted the PGP over the achieved Rx.'
+        ? `Patient accepted the achieved Rx over ${currentSourceMessageLabel}.`
+        : `Patient accepted ${currentSourceMessageLabel} over the achieved Rx.`
       : 'Here is your final prescription:';
     const secondaryBlock = compareRan
       ? acceptedAchieved
-        ? `<div style="margin-top:12px;font-size:0.84rem;color:var(--ink-secondary)">PGP kept for comparison</div>` +
+        ? `<div style="margin-top:12px;font-size:0.84rem;color:var(--ink-secondary)">${currentSourceSecondaryLabel}</div>` +
           `<div style="display:flex;gap:24px;justify-content:center;margin-top:8px;">` +
-            `<div style="text-align:center"><div style="font-size:0.72rem;color:var(--re-color);font-weight:700;margin-bottom:4px;">PGP RE</div><div style="font:500 0.98rem var(--font-mono)">${fmtRx((currentRx || {}).right || {})}</div></div>` +
-            `<div style="text-align:center"><div style="font-size:0.72rem;color:var(--le-color);font-weight:700;margin-bottom:4px;">PGP LE</div><div style="font:500 0.98rem var(--font-mono)">${fmtRx((currentRx || {}).left || {})}</div></div>` +
+            `<div style="text-align:center"><div style="font-size:0.72rem;color:var(--re-color);font-weight:700;margin-bottom:4px;">${currentSourceShortLabel} RE</div><div style="font:500 0.98rem var(--font-mono)">${fmtRx((currentRx || {}).right || {})}</div></div>` +
+            `<div style="text-align:center"><div style="font-size:0.72rem;color:var(--le-color);font-weight:700;margin-bottom:4px;">${currentSourceShortLabel} LE</div><div style="font:500 0.98rem var(--font-mono)">${fmtRx((currentRx || {}).left || {})}</div></div>` +
           `</div>`
         : `<div style="margin-top:12px;font-size:0.84rem;color:var(--ink-secondary)">Achieved Rx during the eye test</div>` +
           `<div style="display:flex;gap:24px;justify-content:center;margin-top:8px;">` +
@@ -3003,6 +3023,7 @@ function showTerminal(data) {
       isEscalate: false,
       compareRan,
       acceptedAchieved,
+      currentSource,
     });
     speakQuestion(terminalSpeech, null, null, 'terminal');
   } else {

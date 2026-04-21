@@ -133,6 +133,7 @@ class AxisLanePolicyTests(unittest.TestCase):
             final_compare_enabled=True,
             final_compare_round=0,
             final_compare_option_source="Achieved",
+            final_compare_current_source="PGP",
             final_compare_current_re_sph=-2.00,
             final_compare_current_re_cyl=-0.50,
             final_compare_current_re_axis=50,
@@ -1631,6 +1632,7 @@ class AxisLanePolicyTests(unittest.TestCase):
         self.assertEqual(next_row.final_compare_achieved_re_sph, -1.00)
         self.assertEqual(next_row.final_compare_achieved_le_axis, 80)
         self.assertEqual(next_row.chart_param, "20_20_20")
+        self.assertEqual(next_row.final_compare_current_source, "PGP")
 
     def test_final_compare_two_confirmations_accept_achieved_rx(self):
         dv = self._derive(
@@ -1655,6 +1657,7 @@ class AxisLanePolicyTests(unittest.TestCase):
         current = engine._build_next_row(finalized, dv)
         self.assertEqual(current.state, "T")
         self.assertEqual(current.re_sph, -2.00)
+        self.assertEqual(current.final_compare_option_source, "PGP")
 
         finalized = engine.apply_response(current, "AUTO_ADVANCE", dv)
         current = engine._build_next_row(finalized, dv)
@@ -1939,6 +1942,170 @@ class AxisLanePolicyTests(unittest.TestCase):
         self.assertEqual(metadata["final_rx_comparison"]["selected_prescribed_rx_source"], "PGP")
         self.assertEqual(metadata["final_prescription"]["right"]["sph"], -2.00)
         self.assertEqual(metadata["achieved_prescription"]["right"]["sph"], -1.00)
+
+    def test_no_glasses_final_compare_seeds_zero_baseline(self):
+        orchestrator = SessionOrchestrator(calibration_path=str(CALIBRATION_PATH))
+        orchestrator.phoropter_auto_dispatch = False
+
+        payload = {
+            "patient_name": "No Glasses Patient",
+            "age": 28,
+            "primary_reason": "Routine check",
+            "satisfaction": "No PGP",
+            "wear_type": "None",
+            "priority": "Standard",
+            "near_priority": "Medium",
+            "ar_re_sph": -1.50,
+            "ar_re_cyl": -0.50,
+            "ar_re_axis": 45,
+            "ar_le_sph": -1.25,
+            "ar_le_cyl": -0.75,
+            "ar_le_axis": 80,
+        }
+
+        orchestrator.initialize(payload, session_id="no-glasses-final-compare", phoropter_id="")
+        self.assertTrue(orchestrator.current_row.final_compare_enabled)
+        self.assertEqual(orchestrator.current_row.final_compare_current_source, "No Glasses")
+        self.assertEqual(orchestrator.current_row.final_compare_current_re_sph, 0.0)
+        self.assertEqual(orchestrator.current_row.final_compare_current_re_cyl, 0.0)
+        self.assertEqual(orchestrator.current_row.final_compare_current_re_axis, 180.0)
+        self.assertEqual(orchestrator.current_row.final_compare_current_le_sph, 0.0)
+        self.assertEqual(orchestrator.current_row.final_compare_current_le_cyl, 0.0)
+        self.assertEqual(orchestrator.current_row.final_compare_current_le_axis, 180.0)
+
+    def test_no_glasses_final_compare_uses_zero_option_and_one_zero_choice_keeps_zero(self):
+        dv = self._derive(
+            self._patient(
+                visit_id="no-glasses-final-compare-outcome",
+                ar_re=self._rx(-1.50, -0.75, 45),
+                lenso_re=None,
+                ar_le=self._rx(-1.25, -0.75, 80),
+                lenso_le=None,
+                satisfaction="No PGP",
+                wear_type="None",
+                primary_reason="Routine check",
+            )
+        )
+        engine = RefractionFSMEngine(self.calibration)
+
+        current = engine._row_for_state(
+            step=30,
+            visit_id="no-glasses-final-compare",
+            state="K",
+            dv=dv,
+            re_sph=-1.00,
+            re_cyl=-0.50,
+            re_axis=45,
+            le_sph=-1.25,
+            le_cyl=-0.75,
+            le_axis=80,
+            add_r=0.75,
+            add_l=0.75,
+            chart_param="20_20_20",
+            phase_step_count=1,
+            same_streak=0,
+            prev_axis_response="",
+            duo_iter=0,
+            duo_flip=0,
+            axis_step=10.0,
+            final_compare_enabled=True,
+            final_compare_round=0,
+            final_compare_option_source="Achieved",
+            final_compare_current_source="No Glasses",
+            final_compare_current_re_sph=0.0,
+            final_compare_current_re_cyl=0.0,
+            final_compare_current_re_axis=180.0,
+            final_compare_current_le_sph=0.0,
+            final_compare_current_le_cyl=0.0,
+            final_compare_current_le_axis=180.0,
+            final_compare_current_add_r=0.0,
+            final_compare_current_add_l=0.0,
+        )
+
+        finalized = engine.apply_response(current, "SAME", dv)
+        current = engine._build_next_row(finalized, dv)
+        self.assertEqual(current.state, "S")
+
+        finalized = engine.apply_response(current, "AUTO_ADVANCE", dv)
+        current = engine._build_next_row(finalized, dv)
+        self.assertEqual(current.state, "T")
+        self.assertEqual(current.phase_name, "Final Compare Second Option No Glasses")
+        self.assertEqual(current.re_sph, 0.0)
+        self.assertEqual(current.re_cyl, 0.0)
+        self.assertEqual(current.re_axis, 180.0)
+
+        finalized = engine.apply_response(current, "AUTO_ADVANCE", dv)
+        current = engine._build_next_row(finalized, dv)
+        finalized = engine.apply_response(current, "TWO", dv)
+        self.assertEqual(finalized.final_compare_choice_round_1, "TWO")
+        self.assertEqual(finalized.patient_accepted_achieved_over_current_rx, "No")
+
+        current = engine._build_next_row(finalized, dv)
+        finalized = engine.apply_response(current, "AUTO_ADVANCE", dv)
+        current = engine._build_next_row(finalized, dv)
+        finalized = engine.apply_response(current, "AUTO_ADVANCE", dv)
+        current = engine._build_next_row(finalized, dv)
+        finalized = engine.apply_response(current, "ONE", dv)
+
+        self.assertEqual(finalized.next_state, "END")
+        self.assertEqual(finalized.final_compare_choice_round_2, "ONE")
+        self.assertEqual(finalized.patient_accepted_achieved_over_current_rx, "No")
+
+    def test_final_compare_metadata_uses_no_glasses_source_when_zero_baseline_selected(self):
+        metadata = build_session_metadata(
+            session_id="final-compare-meta-no-glasses",
+            phoropter_id="stub",
+            session_start_time=datetime(2026, 3, 27, 12, 0, 0),
+            session_end_time=datetime(2026, 3, 27, 12, 10, 0),
+            completion_status="completed",
+            rows=[
+                {
+                    "re_sph": 0.0,
+                    "re_cyl": 0.0,
+                    "re_axis": 180.0,
+                    "add_r": 0.0,
+                    "le_sph": 0.0,
+                    "le_cyl": 0.0,
+                    "le_axis": 180.0,
+                    "add_l": 0.0,
+                    "distance_va_re_chart": "20_20_20",
+                    "distance_va_re_line": "20/20",
+                    "distance_va_le_chart": "20_20_20",
+                    "distance_va_le_line": "20/20",
+                    "final_compare_enabled": True,
+                    "final_compare_current_source": "No Glasses",
+                    "final_compare_choice_round_1": "TWO",
+                    "final_compare_choice_round_2": "ONE",
+                    "patient_accepted_achieved_over_current_rx": "No",
+                    "final_compare_achieved_re_sph": -1.00,
+                    "final_compare_achieved_re_cyl": -0.50,
+                    "final_compare_achieved_re_axis": 45,
+                    "final_compare_achieved_add_r": 0.75,
+                    "final_compare_achieved_le_sph": -1.25,
+                    "final_compare_achieved_le_cyl": -0.75,
+                    "final_compare_achieved_le_axis": 80,
+                    "final_compare_achieved_add_l": 0.75,
+                    "final_compare_current_re_sph": 0.0,
+                    "final_compare_current_re_cyl": 0.0,
+                    "final_compare_current_re_axis": 180.0,
+                    "final_compare_current_add_r": 0.0,
+                    "final_compare_current_le_sph": 0.0,
+                    "final_compare_current_le_cyl": 0.0,
+                    "final_compare_current_le_axis": 180.0,
+                    "final_compare_current_add_l": 0.0,
+                }
+            ],
+            patient_input=PatientInput(
+                visit_id="meta-no-glasses",
+                satisfaction_with_current_rx="No PGP",
+                wear_type="None",
+            ),
+        )
+
+        self.assertEqual(metadata["final_rx_comparison"]["current_source"], "No Glasses")
+        self.assertEqual(metadata["final_rx_comparison"]["selected_prescribed_rx_source"], "No Glasses")
+        self.assertEqual(metadata["final_prescription"]["right"]["sph"], 0.0)
+        self.assertEqual(metadata["current_rx"]["right"]["axis"], 180.0)
 
     def test_transition_preface_is_added_after_coarse_completion(self):
         orchestrator = SessionOrchestrator(calibration_path=str(CALIBRATION_PATH))

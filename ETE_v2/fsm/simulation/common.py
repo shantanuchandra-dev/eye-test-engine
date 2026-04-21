@@ -6,6 +6,11 @@ from typing import Optional
 import pandas as pd
 
 from fsm.engines.refraction_fsm_engine import RefractionFSMEngine
+from fsm.final_compare import (
+    FINAL_COMPARE_SOURCE_ACHIEVED,
+    FINAL_COMPARE_SOURCE_PGP,
+    final_compare_current_baseline_values,
+)
 from fsm.models.fsm_runtime import FSMRuntimeRow
 from fsm.models.patient import PatientInput
 from fsm.simulation.virtual_patient import TruthRx, VirtualPatient
@@ -31,7 +36,7 @@ STATE_NAMES = {
     "Q": "Near Add LE",
     "R": "Near Binocular",
     "S": "Final Compare First Option Achieved Rx",
-    "T": "Final Compare Second Option PGP",
+    "T": "Final Compare Second Option Current Baseline",
     "U": "Final Compare Decision",
 }
 
@@ -89,35 +94,28 @@ def case_lenso_le(case) -> Optional[EyePrescription]:
 
 def seed_final_compare_context(row: FSMRuntimeRow, patient_input: Optional[PatientInput]) -> None:
     row.final_compare_enabled = False
-    row.final_compare_option_source = "Achieved"
+    row.final_compare_option_source = FINAL_COMPARE_SOURCE_ACHIEVED
+    row.final_compare_current_source = ""
     row.final_compare_round = 0
     row.final_compare_choice_round_1 = ""
     row.final_compare_choice_round_2 = ""
     row.patient_accepted_achieved_over_current_rx = ""
 
-    if not patient_input:
-        return
-
-    lenso_re = patient_input.lenso_re
-    lenso_le = patient_input.lenso_le
-    enabled = bool(
-        lenso_re
-        and lenso_le
-        and lenso_re.has_full_rx()
-        and lenso_le.has_full_rx()
-    )
+    current_source, baseline = final_compare_current_baseline_values(patient_input)
+    enabled = bool(current_source)
     row.final_compare_enabled = enabled
+    row.final_compare_current_source = current_source
     if not enabled:
         return
 
-    row.final_compare_current_re_sph = lenso_re.sphere if lenso_re else None
-    row.final_compare_current_re_cyl = lenso_re.cylinder if lenso_re else None
-    row.final_compare_current_re_axis = lenso_re.axis if lenso_re else None
-    row.final_compare_current_le_sph = lenso_le.sphere if lenso_le else None
-    row.final_compare_current_le_cyl = lenso_le.cylinder if lenso_le else None
-    row.final_compare_current_le_axis = lenso_le.axis if lenso_le else None
-    row.final_compare_current_add_r = patient_input.lenso_add_r
-    row.final_compare_current_add_l = patient_input.lenso_add_l
+    row.final_compare_current_re_sph = baseline["re_sph"]
+    row.final_compare_current_re_cyl = baseline["re_cyl"]
+    row.final_compare_current_re_axis = baseline["re_axis"]
+    row.final_compare_current_le_sph = baseline["le_sph"]
+    row.final_compare_current_le_cyl = baseline["le_cyl"]
+    row.final_compare_current_le_axis = baseline["le_axis"]
+    row.final_compare_current_add_r = baseline["add_r"]
+    row.final_compare_current_add_l = baseline["add_l"]
 
 
 def _rx_payload(
@@ -179,13 +177,16 @@ def resolved_final_compare_payloads(row: FSMRuntimeRow) -> dict:
     acceptance_flag = str(row.patient_accepted_achieved_over_current_rx or "").strip()
     achieved_available = _rx_has_any_values(achieved)
     current_available = _rx_has_any_values(current)
+    current_source = str(row.final_compare_current_source or "").strip()
+    if not current_source and current_available:
+        current_source = FINAL_COMPARE_SOURCE_PGP
 
     if acceptance_flag == "Yes" and achieved_available:
         prescribed = achieved
-        selected_source = "Achieved"
+        selected_source = FINAL_COMPARE_SOURCE_ACHIEVED
     elif acceptance_flag == "No" and current_available:
         prescribed = current
-        selected_source = "PGP"
+        selected_source = current_source
     elif achieved_available:
         prescribed = achieved
         selected_source = ""
@@ -201,6 +202,7 @@ def resolved_final_compare_payloads(row: FSMRuntimeRow) -> dict:
         "current": current,
         "prescribed": prescribed,
         "selected_source": selected_source,
+        "current_source": current_source,
     }
 
 
@@ -357,6 +359,7 @@ def execute_case(
         "failure_state": last_row.state,
         "final_compare_enabled": bool(last_row.final_compare_enabled),
         "final_compare_round": int(last_row.final_compare_round or 0),
+        "final_compare_current_source": payloads["current_source"],
         "final_compare_choice_round_1": last_row.final_compare_choice_round_1,
         "final_compare_choice_round_2": last_row.final_compare_choice_round_2,
         "patient_accepted_achieved_over_current_rx": last_row.patient_accepted_achieved_over_current_rx,

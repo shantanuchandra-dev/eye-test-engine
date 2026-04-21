@@ -39,6 +39,12 @@ from fsm.config.calibration_loader import CalibrationLoader
 from fsm.charts.chart_scale import chart_to_last_line_item
 from fsm.engines.refraction_fsm_engine import COMPACT_PROMPT_CONFIG, RefractionFSMEngine
 from fsm.engines.derived_variables_engine import DerivedVariablesEngine
+from fsm.final_compare import (
+    FINAL_COMPARE_SOURCE_ACHIEVED,
+    final_compare_current_baseline_values,
+    final_compare_source_short_label,
+    resolve_final_compare_current_source,
+)
 from fsm.models.patient import PatientInput
 from fsm.models.prescription import EyePrescription
 from fsm.models.derived_variables import DerivedVariables
@@ -137,7 +143,7 @@ STATE_PHASE_DISPLAY = {
     "Q": "Near Add LE",
     "R": "Near Binocular",
     "S": "Final Compare First Option Achieved Rx",
-    "T": "Final Compare Second Option PGP",
+    "T": "Final Compare Second Option Current Baseline",
     "U": "Final Compare Decision",
     "END": "Test Complete",
     "ESCALATE": "Escalation Required",
@@ -445,9 +451,13 @@ class SessionOrchestrator:
                     axis_selection_reason=self.current_row.axis_selection_reason,
                 )
             if next_state == "S":
+                current_source = final_compare_source_short_label(self.current_row.final_compare_current_source)
                 self._log_conversation(
                     "system",
-                    "Final comparison starting: first option is achieved prescription, second option is PGP.",
+                    (
+                        "Final comparison starting: first option is achieved prescription, "
+                        f"second option is {current_source}."
+                    ),
                     state=next_state,
                     step=self.current_row.step,
                 )
@@ -621,41 +631,34 @@ class SessionOrchestrator:
             lenso_add_l=data.get("lenso_add_l"),
         )
 
-    def _has_final_compare_current_rx(self) -> bool:
-        if not self.patient_input:
-            return False
-        return bool(
-            self.patient_input.lenso_re
-            and self.patient_input.lenso_le
-            and self.patient_input.lenso_re.has_full_rx()
-            and self.patient_input.lenso_le.has_full_rx()
-        )
+    def _final_compare_current_source(self) -> str:
+        return resolve_final_compare_current_source(self.patient_input)
 
     def _seed_final_compare_context(self) -> None:
         if self.current_row is None:
             return
 
-        enabled = self._has_final_compare_current_rx()
+        current_source, baseline = final_compare_current_baseline_values(self.patient_input)
+        enabled = bool(current_source)
         self.current_row.final_compare_enabled = enabled
-        self.current_row.final_compare_option_source = "Achieved"
+        self.current_row.final_compare_option_source = FINAL_COMPARE_SOURCE_ACHIEVED
+        self.current_row.final_compare_current_source = current_source
         self.current_row.final_compare_round = 0
         self.current_row.final_compare_choice_round_1 = ""
         self.current_row.final_compare_choice_round_2 = ""
         self.current_row.patient_accepted_achieved_over_current_rx = ""
 
-        if not enabled or not self.patient_input:
+        if not enabled:
             return
 
-        lenso_re = self.patient_input.lenso_re
-        lenso_le = self.patient_input.lenso_le
-        self.current_row.final_compare_current_re_sph = lenso_re.sphere if lenso_re else None
-        self.current_row.final_compare_current_re_cyl = lenso_re.cylinder if lenso_re else None
-        self.current_row.final_compare_current_re_axis = lenso_re.axis if lenso_re else None
-        self.current_row.final_compare_current_le_sph = lenso_le.sphere if lenso_le else None
-        self.current_row.final_compare_current_le_cyl = lenso_le.cylinder if lenso_le else None
-        self.current_row.final_compare_current_le_axis = lenso_le.axis if lenso_le else None
-        self.current_row.final_compare_current_add_r = self.patient_input.lenso_add_r
-        self.current_row.final_compare_current_add_l = self.patient_input.lenso_add_l
+        self.current_row.final_compare_current_re_sph = baseline["re_sph"]
+        self.current_row.final_compare_current_re_cyl = baseline["re_cyl"]
+        self.current_row.final_compare_current_re_axis = baseline["re_axis"]
+        self.current_row.final_compare_current_le_sph = baseline["le_sph"]
+        self.current_row.final_compare_current_le_cyl = baseline["le_cyl"]
+        self.current_row.final_compare_current_le_axis = baseline["le_axis"]
+        self.current_row.final_compare_current_add_r = baseline["add_r"]
+        self.current_row.final_compare_current_add_l = baseline["add_l"]
 
     @staticmethod
     def _rx_payload(
@@ -727,16 +730,17 @@ class SessionOrchestrator:
         accepted_achieved = acceptance_flag == "Yes"
         achieved_available = self._rx_has_any_values(achieved)
         current_available = self._rx_has_any_values(current)
+        current_source = str(row.final_compare_current_source or self._final_compare_current_source() or "").strip()
 
         if acceptance_flag == "Yes" and achieved_available:
             prescribed = achieved
-            selected_source = "Achieved"
+            selected_source = FINAL_COMPARE_SOURCE_ACHIEVED
         elif acceptance_flag == "No" and current_available:
             prescribed = current
-            selected_source = "PGP"
+            selected_source = current_source
         elif accepted_achieved and achieved_available:
             prescribed = achieved
-            selected_source = "Achieved"
+            selected_source = FINAL_COMPARE_SOURCE_ACHIEVED
         elif achieved_available:
             prescribed = achieved
             selected_source = ""
@@ -752,6 +756,7 @@ class SessionOrchestrator:
             "current": current,
             "prescribed": prescribed,
             "selected_source": selected_source,
+            "current_source": current_source,
         }
 
     def _build_response(self, force_end: bool = False) -> dict:
@@ -790,7 +795,7 @@ class SessionOrchestrator:
             "session_id": self.session_id,
             "language": self.session_language,
             "state": state,
-            "phase_name": STATE_PHASE_DISPLAY.get(state, state),
+            "phase_name": row.phase_name or STATE_PHASE_DISPLAY.get(state, state),
             "phase_type": row.phase_type,
             "eye": STATE_EYE_MAP.get(state, row.eye),
             "step": row.step,
@@ -804,6 +809,7 @@ class SessionOrchestrator:
             "achieved_prescription": final_compare_payloads["achieved"],
             "pgp_rx": final_compare_payloads["current"],
             "current_rx": final_compare_payloads["current"],
+            "comparison_baseline_rx": final_compare_payloads["current"],
             "aux_lens": STATE_AUX_LENS_MAP.get(state, "BINO"),
             "fog_active": getattr(row, "fog_active", False),
             "same_streak": row.same_streak,
@@ -829,6 +835,7 @@ class SessionOrchestrator:
                 "enabled": bool(row.final_compare_enabled),
                 "round": int(row.final_compare_round or 0),
                 "option_source": row.final_compare_option_source,
+                "current_source": final_compare_payloads["current_source"],
                 "choice_round_1": row.final_compare_choice_round_1,
                 "choice_round_2": row.final_compare_choice_round_2,
                 "accepted_achieved_over_current_rx": row.patient_accepted_achieved_over_current_rx,

@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from fsm.final_compare import FINAL_COMPARE_SOURCE_ACHIEVED, FINAL_COMPARE_SOURCE_PGP, resolve_final_compare_current_source
+
 
 # Session CSV schema (23 columns)
 SESSION_CSV_FIELDS = [
@@ -601,16 +603,22 @@ def build_session_metadata(
         )
         comparison_ran = bool(last.get("final_compare_enabled", False))
         accepted_achieved = last.get("patient_accepted_achieved_over_current_rx", "") == "Yes"
+        current_source = (
+            str(last.get("final_compare_current_source", "") or "").strip()
+            or resolve_final_compare_current_source(patient_input)
+        )
+        if comparison_ran and not current_source and _payload_has_values(current_rx):
+            current_source = FINAL_COMPARE_SOURCE_PGP
         if comparison_ran:
             if accepted_achieved and _payload_has_values(achieved_rx):
                 final_rx = achieved_rx
-                selected_source = "Achieved"
+                selected_source = FINAL_COMPARE_SOURCE_ACHIEVED
             elif _payload_has_values(current_rx):
                 final_rx = current_rx
-                selected_source = "PGP"
+                selected_source = current_source
             elif _payload_has_values(achieved_rx):
                 final_rx = achieved_rx
-                selected_source = "Achieved"
+                selected_source = FINAL_COMPARE_SOURCE_ACHIEVED
             else:
                 final_rx = _rx_payload(
                     last.get("re_sph"), last.get("re_cyl"), last.get("re_axis"), last.get("add_r"),
@@ -635,9 +643,9 @@ def build_session_metadata(
         }
         final_rx_comparison = {
             "ran": comparison_ran,
-            "current_source": "PGP" if comparison_ran else "",
-            "option_1_source": "Achieved" if comparison_ran else "",
-            "option_2_source": "PGP" if comparison_ran else "",
+            "current_source": current_source if comparison_ran else "",
+            "option_1_source": FINAL_COMPARE_SOURCE_ACHIEVED if comparison_ran else "",
+            "option_2_source": current_source if comparison_ran else "",
             "round_1_choice": last.get("final_compare_choice_round_1", ""),
             "round_2_choice": last.get("final_compare_choice_round_2", ""),
             "accepted_achieved_over_current_rx": last.get("patient_accepted_achieved_over_current_rx", ""),

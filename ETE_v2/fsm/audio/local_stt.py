@@ -62,19 +62,39 @@ class AudioCaptureResult:
     speech_detected: bool
     stop_reason: str
     peak_amplitude: float
+    input_device_index: Optional[int] = None
+    input_device_name: Optional[str] = None
+    input_device_selection: Optional[str] = None
+    noise_floor_rms: Optional[float] = None
+    speech_start_threshold_rms: Optional[float] = None
+    speech_continue_threshold_rms: Optional[float] = None
 
 
 class BaseLocalTranscriber:
     backend_name: str = "base"
 
-    def transcribe(self, audio_path: str | Path, *, language_override: Optional[str] = None) -> str:
-        return self.transcribe_result(audio_path, language_override=language_override).text
+    def transcribe(
+        self,
+        audio_path: str | Path,
+        *,
+        language_override: Optional[str] = None,
+        initial_prompt: Optional[str] = None,
+        hotwords: Optional[str] = None,
+    ) -> str:
+        return self.transcribe_result(
+            audio_path,
+            language_override=language_override,
+            initial_prompt=initial_prompt,
+            hotwords=hotwords,
+        ).text
 
     def transcribe_result(
         self,
         audio_path: str | Path,
         *,
         language_override: Optional[str] = None,
+        initial_prompt: Optional[str] = None,
+        hotwords: Optional[str] = None,
     ) -> TranscriptResult:
         raise NotImplementedError
 
@@ -134,11 +154,177 @@ def _load_audio_for_hf(audio_path: str | Path, target_sample_rate: int = 16000) 
     return np.asarray(audio, dtype=np.float32)
 
 
+def _coerce_input_device_reference(device: Optional[int | str]) -> Optional[int | str]:
+    if device is None:
+        return "__DEFAULT__"
+
+    normalized = str(device).strip()
+    if not normalized or normalized.lower() == "default":
+        return "__DEFAULT__"
+    if normalized.lower() == "auto":
+        return "__AUTO__"
+    if normalized.lstrip("+-").isdigit():
+        return int(normalized)
+    return normalized
+
+
+def _default_input_device_reference(sd) -> Optional[int | str]:
+    default_device = getattr(sd.default, "device", None)
+    candidate = default_device
+    if default_device is not None and not isinstance(default_device, (str, bytes)):
+        try:
+            candidate = default_device[0]
+        except Exception:
+            candidate = default_device
+
+    if candidate in (None, "", -1):
+        return None
+    return int(candidate) if isinstance(candidate, (int, float)) else candidate
+
+
+def _input_device_is_virtual(name: str) -> bool:
+    lowered = str(name or "").strip().lower()
+    virtual_markers = (
+        "voicemeeter",
+        "stereo mix",
+        "line in",
+        "sound mapper",
+        "primary sound capture driver",
+        "wave out",
+        "what u hear",
+        "cable output",
+        "loopback",
+    )
+    return any(marker in lowered for marker in virtual_markers)
+
+
+def _input_device_hostapi_priority(hostapi_name: str) -> int:
+    lowered = str(hostapi_name or "").strip().lower()
+    if "wasapi" in lowered:
+        return 3
+    if "directsound" in lowered:
+        return 2
+    if lowered == "mme" or lowered.endswith(" mme"):
+        return 1
+    if "wdm-ks" in lowered:
+        return -1
+    return 0
+
+
+def _input_device_priority(
+    name: str,
+    hostapi_name: str,
+    default_samplerate: float,
+    requested_samplerate: int,
+) -> tuple[int, int, int, int]:
+    lowered = str(name or "").strip().lower()
+    preferred_markers = ("headset microphone", "microphone", "mic")
+    is_preferred = any(marker in lowered for marker in preferred_markers)
+    exact_rate_match = int(round(float(default_samplerate or 0.0))) == int(requested_samplerate)
+    hostapi_priority = _input_device_hostapi_priority(hostapi_name)
+    return (1 if is_preferred else 0, hostapi_priority, 1 if exact_rate_match else 0, len(lowered))
+
+
+def resolve_input_device(
+    *,
+    requested_device: Optional[int | str],
+    samplerate: int,
+    channels: int = 1,
+    dtype: str = "float32",
+) -> tuple[Optional[int | str], Optional[int], Optional[str], str]:
+    import sounddevice as sd
+
+    normalized_request = _coerce_input_device_reference(requested_device)
+
+    def validate(device_ref: int | str) -> tuple[Optional[int | str], Optional[int], Optional[str]]:
+        sd.check_input_settings(device=device_ref, samplerate=samplerate, channels=channels, dtype=dtype)
+        device_info = sd.query_devices(device_ref, "input")
+        device_name = str(device_info.get("name") or "").strip() or str(device_ref)
+        device_index: Optional[int] = None
+        if isinstance(device_ref, int):
+            device_index = int(device_ref)
+        else:
+            for idx, info in enumerate(sd.query_devices()):
+                if str(info.get("name") or "").strip() == device_name and int(info.get("max_input_channels") or 0) > 0:
+                    device_index = idx
+                    break
+        return device_ref, device_index, device_name
+
+    if normalized_request not in {"__DEFAULT__", "__AUTO__"}:
+        device_ref, device_index, device_name = validate(normalized_request)
+        return device_ref, device_index, device_name, "explicit"
+
+    default_device = _default_input_device_reference(sd)
+    if normalized_request == "__DEFAULT__":
+        if default_device is None:
+            return None, None, "System default input", "default"
+        device_ref, device_index, device_name = validate(default_device)
+        return device_ref, device_index, device_name, "default"
+
+    if default_device is not None:
+        try:
+            device_ref, device_index, device_name = validate(default_device)
+            default_hostapi_name = ""
+            if device_index is not None:
+                device_info = sd.query_devices(device_index)
+                hostapi_index = int(device_info.get("hostapi") or 0)
+                default_hostapi_name = str(sd.query_hostapis(hostapi_index).get("name") or "")
+            if (
+                not _input_device_is_virtual(device_name)
+                and _input_device_hostapi_priority(default_hostapi_name) >= 0
+            ):
+                return device_ref, device_index, device_name, "default"
+        except Exception:
+            pass
+
+    candidates: list[tuple[tuple[int, int, int, int], int, str]] = []
+    hostapis = sd.query_hostapis()
+    for idx, device_info in enumerate(sd.query_devices()):
+        if int(device_info.get("max_input_channels") or 0) <= 0:
+            continue
+
+        device_name = str(device_info.get("name") or "").strip() or f"Input device {idx}"
+        if _input_device_is_virtual(device_name):
+            continue
+
+        hostapi_index = int(device_info.get("hostapi") or 0)
+        hostapi_name = str(hostapis[hostapi_index].get("name") or "")
+        if _input_device_hostapi_priority(hostapi_name) < 0:
+            continue
+
+        try:
+            validate(idx)
+        except Exception:
+            continue
+
+        priority = _input_device_priority(
+            device_name,
+            hostapi_name,
+            float(device_info.get("default_samplerate") or 0.0),
+            samplerate,
+        )
+        candidates.append((priority, idx, device_name))
+
+    if candidates:
+        candidates.sort(key=lambda item: (-item[0][0], -item[0][1], -item[0][2], item[0][3], item[1]))
+        _priority, device_index, device_name = candidates[0]
+        return device_index, device_index, device_name, "auto_microphone"
+
+    if default_device is not None:
+        device_ref, device_index, device_name = validate(default_device)
+        return device_ref, device_index, device_name, "default_fallback"
+
+    raise RuntimeError(
+        f"No usable microphone input device was found for {samplerate} Hz mono float32 capture."
+    )
+
+
 def record_audio_clip(
     *,
     output_path: str | Path,
     seconds: float = 2.0,
     samplerate: int = 16000,
+    input_device: Optional[int | str] = None,
     stop_requested: Optional[Callable[[], bool]] = None,
     frame_seconds: float = 0.1,
 ) -> Path:
@@ -146,6 +332,12 @@ def record_audio_clip(
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    selected_device, _device_index, _device_name, _selection_reason = resolve_input_device(
+        requested_device=input_device,
+        samplerate=samplerate,
+        channels=1,
+        dtype="float32",
+    )
 
     blocksize = max(1, int(samplerate * frame_seconds))
     target_frames = max(1, int(seconds * samplerate))
@@ -153,6 +345,7 @@ def record_audio_clip(
     captured_frames = 0
 
     with sd.InputStream(
+        device=selected_device,
         samplerate=samplerate,
         channels=1,
         dtype="float32",
@@ -188,9 +381,11 @@ def record_audio_until_silence(
     output_path: str | Path,
     max_seconds: float = 5.0,
     samplerate: int = 16000,
+    input_device: Optional[int | str] = None,
     silence_threshold: float = 0.015,
     end_silence_seconds: float = 0.8,
     min_speech_seconds: float = 0.25,
+    max_speech_seconds: Optional[float] = None,
     start_timeout_seconds: float = 2.5,
     frame_seconds: float = 0.1,
     pre_speech_seconds: float = 0.25,
@@ -200,19 +395,32 @@ def record_audio_until_silence(
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    selected_device, device_index, device_name, selection_reason = resolve_input_device(
+        requested_device=input_device,
+        samplerate=samplerate,
+        channels=1,
+        dtype="float32",
+    )
 
     blocksize = max(1, int(samplerate * frame_seconds))
     preroll_chunks: deque[np.ndarray] = deque(maxlen=max(1, int(pre_speech_seconds / frame_seconds)))
     waiting_chunks: list[np.ndarray] = []
     captured_chunks: list[np.ndarray] = []
+    bootstrap_rms_values: list[float] = []
     speech_detected = False
+    speech_candidate_duration = 0.0
     speech_duration = 0.0
     trailing_silence = 0.0
     peak_amplitude = 0.0
     stop_reason = "max_duration"
     capture_started = time.perf_counter()
+    noise_floor = max(float(silence_threshold) * 0.35, 0.0005)
+    bootstrap_seconds = min(0.35, max(0.0, float(start_timeout_seconds) * 0.4))
+    last_start_threshold = max(float(silence_threshold), noise_floor * 2.2)
+    last_continue_threshold = max(float(silence_threshold), noise_floor * 1.6)
 
     with sd.InputStream(
+        device=selected_device,
         samplerate=samplerate,
         channels=1,
         dtype="float32",
@@ -237,16 +445,42 @@ def record_audio_until_silence(
 
             chunk_peak = float(np.max(np.abs(chunk)))
             chunk_rms = float(np.sqrt(np.mean(np.square(chunk))))
-            chunk_level = max(chunk_rms, chunk_peak * 0.5)
             peak_amplitude = max(peak_amplitude, chunk_peak)
-            is_speech = chunk_level >= silence_threshold
+            # Use RMS rather than peak amplitude for VAD. Peak-driven VAD is too
+            # sensitive to room clicks/electrical noise and can keep the capture
+            # alive until max_seconds even after the patient has stopped speaking.
+            if elapsed <= bootstrap_seconds:
+                bootstrap_rms_values.append(chunk_rms)
+            elif bootstrap_rms_values:
+                noise_floor = max(noise_floor, float(np.median(np.asarray(bootstrap_rms_values, dtype=np.float32))))
+                bootstrap_rms_values.clear()
+
+            speech_start_threshold = max(
+                float(silence_threshold) * 1.35,
+                noise_floor + 0.012,
+                noise_floor * 2.2,
+            )
+            speech_continue_threshold = max(
+                float(silence_threshold) * 1.50,
+                noise_floor + 0.015,
+                noise_floor * 2.8,
+            )
+            last_start_threshold = speech_start_threshold
+            last_continue_threshold = speech_continue_threshold
+            is_speech = (
+                chunk_rms >= (speech_continue_threshold if speech_detected else speech_start_threshold)
+            )
 
             if speech_detected:
                 captured_chunks.append(chunk.copy())
                 if is_speech:
                     speech_duration += chunk_duration
                     trailing_silence = 0.0
+                    if max_speech_seconds is not None and speech_duration >= float(max_speech_seconds):
+                        stop_reason = "max_speech_segment"
+                        break
                 else:
+                    noise_floor = (noise_floor * 0.95) + (chunk_rms * 0.05)
                     trailing_silence += chunk_duration
                     if speech_duration >= min_speech_seconds and trailing_silence >= end_silence_seconds:
                         stop_reason = "silence_after_speech"
@@ -254,12 +488,20 @@ def record_audio_until_silence(
             else:
                 preroll_chunks.append(chunk.copy())
                 waiting_chunks.append(chunk.copy())
-                if is_speech:
+                if elapsed <= bootstrap_seconds:
+                    # Short ambient bootstrap prevents steady room/device noise
+                    # from immediately becoming a "speech" segment.
+                    noise_floor = (noise_floor * 0.85) + (chunk_rms * 0.15)
+                elif is_speech:
+                    speech_candidate_duration += chunk_duration
+                    if speech_candidate_duration < min_speech_seconds:
+                        continue
                     speech_detected = True
-                    captured_chunks.extend(list(preroll_chunks))
+                    captured_chunks.extend(waiting_chunks)
                     preroll_chunks.clear()
                     waiting_chunks.clear()
-                    speech_duration += chunk_duration
+                    speech_duration += speech_candidate_duration
+                    speech_candidate_duration = 0.0
                     trailing_silence = 0.0
                 elif elapsed >= min(max_seconds, start_timeout_seconds):
                     stop_reason = "start_timeout"
@@ -267,6 +509,9 @@ def record_audio_until_silence(
                     preroll_chunks.clear()
                     waiting_chunks.clear()
                     break
+                else:
+                    speech_candidate_duration = 0.0
+                    noise_floor = (noise_floor * 0.90) + (chunk_rms * 0.10)
 
             if elapsed >= max_seconds:
                 stop_reason = "max_duration"
@@ -289,6 +534,12 @@ def record_audio_until_silence(
         speech_detected=speech_detected,
         stop_reason=stop_reason,
         peak_amplitude=peak_amplitude,
+        input_device_index=device_index,
+        input_device_name=device_name,
+        input_device_selection=selection_reason,
+        noise_floor_rms=noise_floor,
+        speech_start_threshold_rms=last_start_threshold,
+        speech_continue_threshold_rms=last_continue_threshold,
     )
 
 
@@ -336,6 +587,8 @@ class HFWhisperTurboTranscriber(BaseLocalTranscriber):
         audio_path: str | Path,
         *,
         language_override: Optional[str] = None,
+        initial_prompt: Optional[str] = None,
+        hotwords: Optional[str] = None,
     ) -> TranscriptResult:
         audio_array = _load_audio_for_hf(audio_path, target_sample_rate=self._sampling_rate)
         language_code, language_name, requested_language = _resolve_requested_language(
@@ -364,6 +617,13 @@ class FasterWhisperTurboTranscriber(BaseLocalTranscriber):
         compute_type: str = "int8",
         cpu_threads: Optional[int] = None,
         language: Optional[str] = "auto",
+        vad_filter: bool = True,
+        condition_on_previous_text: bool = True,
+        temperature: Optional[float] = None,
+        best_of: Optional[int] = None,
+        without_timestamps: bool = False,
+        max_new_tokens: Optional[int] = None,
+        hotwords: Optional[str] = None,
     ) -> None:
         configure_offline_env()
         from faster_whisper import WhisperModel
@@ -372,6 +632,13 @@ class FasterWhisperTurboTranscriber(BaseLocalTranscriber):
         self.device = device
         self.compute_type = compute_type
         self.cpu_threads = cpu_threads
+        self.vad_filter = bool(vad_filter)
+        self.condition_on_previous_text = bool(condition_on_previous_text)
+        self.temperature = temperature
+        self.best_of = best_of
+        self.without_timestamps = bool(without_timestamps)
+        self.max_new_tokens = max_new_tokens
+        self.hotwords = hotwords
         self.language_code, _, self.requested_language = _resolve_requested_language(language)
         self._model = WhisperModel(
             self.model_path,
@@ -385,14 +652,29 @@ class FasterWhisperTurboTranscriber(BaseLocalTranscriber):
         audio_path: str | Path,
         *,
         language_override: Optional[str] = None,
+        initial_prompt: Optional[str] = None,
+        hotwords: Optional[str] = None,
     ) -> TranscriptResult:
         runtime_language_code, _, runtime_requested_language = _resolve_requested_language(
             self.requested_language if language_override is None else language_override
         )
         transcribe_kwargs = {
             "beam_size": 1,
-            "vad_filter": True,
+            "vad_filter": self.vad_filter,
+            "condition_on_previous_text": self.condition_on_previous_text,
+            "without_timestamps": self.without_timestamps,
         }
+        if self.temperature is not None:
+            transcribe_kwargs["temperature"] = float(self.temperature)
+        if self.best_of is not None:
+            transcribe_kwargs["best_of"] = int(self.best_of)
+        if self.max_new_tokens is not None and int(self.max_new_tokens) > 0:
+            transcribe_kwargs["max_new_tokens"] = int(self.max_new_tokens)
+        runtime_hotwords = hotwords or self.hotwords
+        if initial_prompt:
+            transcribe_kwargs["initial_prompt"] = initial_prompt
+        if runtime_hotwords:
+            transcribe_kwargs["hotwords"] = runtime_hotwords
         if runtime_language_code is not None:
             transcribe_kwargs["language"] = runtime_language_code
 
@@ -421,6 +703,13 @@ def create_local_transcriber(
     ct2_model_path: str | Path = "models/whisper-large-v3-turbo-ct2",
     cpu_threads: Optional[int] = None,
     language: Optional[str] = "auto",
+    fw_vad_filter: bool = True,
+    fw_condition_on_previous_text: bool = True,
+    fw_temperature: Optional[float] = None,
+    fw_best_of: Optional[int] = None,
+    fw_without_timestamps: bool = False,
+    fw_max_new_tokens: Optional[int] = None,
+    fw_hotwords: Optional[str] = None,
 ) -> BaseLocalTranscriber:
     configure_offline_env()
     configure_cpu_threads(cpu_threads)
@@ -438,6 +727,13 @@ def create_local_transcriber(
             compute_type="int8",
             cpu_threads=cpu_threads,
             language=language,
+            vad_filter=fw_vad_filter,
+            condition_on_previous_text=fw_condition_on_previous_text,
+            temperature=fw_temperature,
+            best_of=fw_best_of,
+            without_timestamps=fw_without_timestamps,
+            max_new_tokens=fw_max_new_tokens,
+            hotwords=fw_hotwords,
         )
 
     raise ValueError(f"Unsupported local transcriber backend: {backend}")

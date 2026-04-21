@@ -30,6 +30,10 @@ from fsm.engines.state_transitions import (
     compute_next_state,
     compute_phase_max,
 )
+from fsm.final_compare import (
+    FINAL_COMPARE_SOURCE_ACHIEVED,
+    final_compare_second_option_phase_name,
+)
 from fsm.models.fsm_runtime import FSMRuntimeRow
 
 
@@ -635,6 +639,7 @@ class RefractionFSMEngine:
         final_compare_enabled: bool = False,
         final_compare_round: int = 0,
         final_compare_option_source: str = "",
+        final_compare_current_source: str = "",
         final_compare_choice_round_1: str = "",
         final_compare_choice_round_2: str = "",
         patient_accepted_achieved_over_current_rx: str = "",
@@ -763,6 +768,7 @@ class RefractionFSMEngine:
             final_compare_enabled=final_compare_enabled,
             final_compare_round=final_compare_round,
             final_compare_option_source=final_compare_option_source,
+            final_compare_current_source=final_compare_current_source,
             final_compare_choice_round_1=final_compare_choice_round_1,
             final_compare_choice_round_2=final_compare_choice_round_2,
             patient_accepted_achieved_over_current_rx=patient_accepted_achieved_over_current_rx,
@@ -905,7 +911,7 @@ class RefractionFSMEngine:
             row.eye = "BIN"
 
         elif state == "T":
-            row.phase_name = "Final Compare Second Option PGP"
+            row.phase_name = final_compare_second_option_phase_name(row.final_compare_current_source)
             row.phase_type = "FINAL_RX_COMPARE"
             row.stimulus_type = "FINAL_RX_COMPARE"
             row.chart_type = "SNELLEN_FEET"
@@ -985,6 +991,7 @@ class RefractionFSMEngine:
             final_compare_enabled=False,
             final_compare_round=0,
             final_compare_option_source="",
+            final_compare_current_source="",
             final_compare_choice_round_1="",
             final_compare_choice_round_2="",
             patient_accepted_achieved_over_current_rx="",
@@ -1091,6 +1098,7 @@ class RefractionFSMEngine:
         next_final_compare_enabled = row.final_compare_enabled
         next_final_compare_round = row.final_compare_round if row.next_state == row.state else row.final_compare_round
         next_final_compare_option_source = row.final_compare_option_source
+        next_final_compare_current_source = row.final_compare_current_source
         next_final_compare_choice_round_1 = row.final_compare_choice_round_1
         next_final_compare_choice_round_2 = row.final_compare_choice_round_2
         next_patient_accepted_achieved = row.patient_accepted_achieved_over_current_rx
@@ -1198,7 +1206,7 @@ class RefractionFSMEngine:
                     next_final_compare_round = max(1, int(row.final_compare_round or 1))
                 else:
                     next_final_compare_round = 1 if int(row.final_compare_round or 0) == 0 else max(1, int(row.final_compare_round or 0) + 1)
-            next_final_compare_option_source = "Achieved"
+            next_final_compare_option_source = FINAL_COMPARE_SOURCE_ACHIEVED
             if int(row.final_compare_round or 0) == 0:
                 next_final_compare_achieved_re_sph = next_re_sph
                 next_final_compare_achieved_re_cyl = next_re_cyl
@@ -1219,7 +1227,7 @@ class RefractionFSMEngine:
             next_chart_param = "20_20_20"
 
         if row.next_state == "T":
-            next_final_compare_option_source = "PGP"
+            next_final_compare_option_source = next_final_compare_current_source
             next_re_sph = next_final_compare_current_re_sph
             next_re_cyl = next_final_compare_current_re_cyl
             next_re_axis = next_final_compare_current_re_axis
@@ -1231,7 +1239,7 @@ class RefractionFSMEngine:
             next_chart_param = "20_20_20"
 
         if row.next_state == "U":
-            next_final_compare_option_source = "PGP"
+            next_final_compare_option_source = next_final_compare_current_source
             next_re_sph = next_final_compare_current_re_sph
             next_re_cyl = next_final_compare_current_re_cyl
             next_re_axis = next_final_compare_current_re_axis
@@ -1303,6 +1311,7 @@ class RefractionFSMEngine:
             final_compare_enabled=next_final_compare_enabled,
             final_compare_round=next_final_compare_round,
             final_compare_option_source=next_final_compare_option_source,
+            final_compare_current_source=next_final_compare_current_source,
             final_compare_choice_round_1=next_final_compare_choice_round_1,
             final_compare_choice_round_2=next_final_compare_choice_round_2,
             patient_accepted_achieved_over_current_rx=next_patient_accepted_achieved,
