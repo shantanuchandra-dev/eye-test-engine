@@ -4,7 +4,7 @@ from collections import deque
 import os
 import time
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import Callable, Optional
@@ -53,6 +53,9 @@ class TranscriptResult:
     requested_language: str
     detected_language: Optional[str]
     language_probability: Optional[float]
+    avg_logprob: Optional[float] = None
+    no_speech_prob: Optional[float] = None
+    word_confidences: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -392,6 +395,8 @@ class FasterWhisperTurboTranscriber(BaseLocalTranscriber):
         transcribe_kwargs = {
             "beam_size": 1,
             "vad_filter": True,
+            "condition_on_previous_text": False,
+            "word_timestamps": True,
         }
         if runtime_language_code is not None:
             transcribe_kwargs["language"] = runtime_language_code
@@ -402,15 +407,32 @@ class FasterWhisperTurboTranscriber(BaseLocalTranscriber):
                 message=r".*encountered in matmul",
                 category=RuntimeWarning,
             )
-            segments, info = self._model.transcribe(
+            segments_iter, info = self._model.transcribe(
                 str(audio_path),
                 **transcribe_kwargs,
             )
+            segments = list(segments_iter)
+        text = " ".join(segment.text.strip() for segment in segments).strip()
+        avg_logprob = (
+            sum(s.avg_logprob for s in segments) / len(segments)
+            if segments else None
+        )
+        no_speech_prob = (
+            max((s.no_speech_prob for s in segments), default=None)
+            if segments else None
+        )
+        word_confidences = [
+            {"word": w.word, "prob": w.probability, "start": w.start, "end": w.end}
+            for s in segments for w in (s.words or [])
+        ]
         return TranscriptResult(
-            text=" ".join(segment.text.strip() for segment in segments).strip(),
+            text=text,
             requested_language=runtime_requested_language,
             detected_language=getattr(info, "language", runtime_language_code),
             language_probability=getattr(info, "language_probability", None),
+            avg_logprob=avg_logprob,
+            no_speech_prob=no_speech_prob,
+            word_confidences=word_confidences,
         )
 
 
@@ -418,7 +440,7 @@ def create_local_transcriber(
     *,
     backend: str,
     hf_model_path: str | Path = "models/whisper-large-v3-turbo-hf",
-    ct2_model_path: str | Path = "models/whisper-large-v3-turbo-ct2",
+    ct2_model_path: str | Path = "models/vasista22-whisper-hindi-small-ct2",
     cpu_threads: Optional[int] = None,
     language: Optional[str] = "auto",
 ) -> BaseLocalTranscriber:
