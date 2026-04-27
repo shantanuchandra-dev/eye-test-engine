@@ -23,6 +23,34 @@ _transcriber = None
 _transcriber_loading = False
 
 SAMPLE_RATE = 16000
+
+
+# Vasista22 hallucinates Hindi news-broadcast text after short clinical
+# utterances. Stripping the tail at the start of any of these markers brings
+# intent-matching agreement from 52% to 87% on the clinic dev split (see
+# decision doc 019 and eval/report.strip_vasista22_hallucination).
+_VASISTA22_HALLUCINATION_MARKERS = (
+    "प्रादेशिक समाचारों",
+    "समाचारों के इस बुलेटिन",
+    "बुलेटिन में आपका",
+    "उन्होंने बताया कि",
+    "उन्होंने कहा कि",
+    "इस अवसर पर उन्होंने",
+    "आपका फिर से स्वागत",
+    "अवगत कराया",
+    "प्रदेश में पिछले",
+    "प्रदेश में अब तक",
+)
+
+
+def _strip_vasista22_hallucination_tail(text: str) -> str:
+    if not text:
+        return text
+    for marker in _VASISTA22_HALLUCINATION_MARKERS:
+        idx = text.find(marker)
+        if idx > 0:
+            return text[:idx].strip()
+    return text
 CHANNELS = 1
 SAMPLE_WIDTH = 2  # 16-bit PCM
 
@@ -113,8 +141,16 @@ def transcribe_audio(
         )
         stt_elapsed = time.perf_counter() - stt_start
 
+        # Vasista22 appends Hindi news-broadcast hallucinations on short
+        # clinical clips ("...प्रादेशिक समाचारों के इस बुलेटिन में..."). Strip
+        # the tail before returning so the matcher sees the patient's actual
+        # response. Empirically: lifts intent-classification agreement from
+        # 52% to 87% on dev split. See eval/report.strip_vasista22_hallucination.
+        cleaned_text = _strip_vasista22_hallucination_tail(result.text)
+
         return {
-            "text": result.text,
+            "text": cleaned_text,
+            "raw_text": result.text,
             "detected_language": result.detected_language,
             "language_probability": result.language_probability,
             "avg_logprob": result.avg_logprob,
