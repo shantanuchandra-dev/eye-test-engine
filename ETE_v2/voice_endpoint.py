@@ -38,7 +38,7 @@ def _get_transcriber():
         return None
 
     _transcriber_loading = True
-    model_path = os.environ.get("WHISPER_MODEL_PATH", "models/whisper-large-v3-turbo-ct2")
+    model_path = os.environ.get("WHISPER_MODEL_PATH", "models/vasista22-whisper-hindi-small-ct2")
     cpu_threads = int(os.environ.get("WHISPER_CPU_THREADS", "4"))
     language = os.environ.get("WHISPER_LANGUAGE", "auto")
 
@@ -117,6 +117,9 @@ def transcribe_audio(
             "text": result.text,
             "detected_language": result.detected_language,
             "language_probability": result.language_probability,
+            "avg_logprob": result.avg_logprob,
+            "no_speech_prob": result.no_speech_prob,
+            "word_confidences": result.word_confidences,
             "stt_seconds": round(stt_elapsed, 3),
             "backend": transcriber.backend_name,
             "error": None,
@@ -136,7 +139,7 @@ def is_whisper_available() -> bool:
     """Check if faster-whisper can be loaded."""
     try:
         import faster_whisper  # noqa: F401
-        model_path = os.environ.get("WHISPER_MODEL_PATH", "models/whisper-large-v3-turbo-ct2")
+        model_path = os.environ.get("WHISPER_MODEL_PATH", "models/vasista22-whisper-hindi-small-ct2")
         return Path(model_path).exists()
     except ImportError:
         return False

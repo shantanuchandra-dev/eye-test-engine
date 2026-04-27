@@ -24,7 +24,7 @@ APP_ROOT = Path(__file__).resolve().parents[1]
 RESULTS_ROOT = APP_ROOT / "results"
 DEFAULT_CALIBRATION_PATH = APP_ROOT / "config" / "calibration.csv"
 DEFAULT_HF_MODEL_PATH = APP_ROOT / "models" / "whisper-large-v3-turbo-hf"
-DEFAULT_CT2_MODEL_PATH = APP_ROOT / "models" / "whisper-large-v3-turbo-ct2"
+DEFAULT_CT2_MODEL_PATH = APP_ROOT / "models" / "vasista22-whisper-hindi-small-ct2"
 
 
 def build_parser() -> argparse.ArgumentParser:
