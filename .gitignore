@@ -35,6 +35,10 @@ Eye_test_engine_v2/voice/models/piper/
 Eye_test_engine_v2/voice/models/silero/
 !Eye_test_engine_v2/voice/models/.gitkeep
 
+# Voice models for ETE_v2 (1.8 GB HF + 250 MB CT2 each — pulled via download_whisper_model.sh)
+ETE_v2/models/
+!ETE_v2/models/.gitkeep
+
 # Google service account credentials
 config/google-service-account.json
 ETE_v2/booking/*.json
